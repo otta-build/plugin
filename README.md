@@ -48,6 +48,10 @@ The subagents (`agents/otta-*.md`) are reusable on their own — Claude delegate
 
 `/otta-schedule` sets up a **cloud routine** (runs on Anthropic infra, laptop-off) that nightly picks a ready issue and runs the pipeline to a PR. Add GitHub (`pull_request.opened` → review) or API (`/fire` → Sentry-alert→fix) triggers from claude.ai/code/routines.
 
+## LEARN-layer capture (free)
+
+Every gate run appends a `{score, feedback}` record to a local ledger at `~/.otta/ledger/<repo>.jsonl` — a file write, **zero LM tokens**. With the plugin installed at user scope this accrues across **every project you push from**, building the trainset for future GEPA prompt optimization (ADR-0004) with no extra work. Opt out per-run with `OTTA_NO_CAPTURE=1`; relocate with `OTTA_LEDGER_DIR`.
+
 ## What the gate checks (local mirror of the Pulse merge gates)
 
 - a ` ```acceptance ` fenced block in `.pr-body.md`
