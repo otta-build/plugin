@@ -1,7 +1,7 @@
 {
   "name": "otta",
-  "description": "Superpowers for shipping: makes any Claude Code / Codex session follow the Otta loop — issue → acceptance criteria → local gate → PR → ship — with a TDD build→review→verify→ship pipeline (workflow + subagents) and DORA + lifecycle metrics via the Otta Pulse GitHub App.",
-  "version": "0.3.0",
+  "description": "The Otta shipping pipeline: turns any Claude Code / Codex session into a TDD build → review → verify → ship loop run by specialist subagents, gated on acceptance criteria, schedulable as a cloud routine. Captures every gate verdict for self-improvement (GEPA LEARN layer) and feeds DORA + idea→version metrics to the Otta Pulse GitHub App.",
+  "version": "0.3.1",
   "author": {
     "name": "Sam Petrenko"
   },
