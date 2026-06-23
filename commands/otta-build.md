@@ -12,9 +12,11 @@ Then invoke the **Workflow** tool with the bundled pipeline script (this is an e
 ```
 Workflow({
   scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/otta-build.mjs",
-  args: { issue: "$1" }
+  args: { issue: "$1", pluginRoot: "${CLAUDE_PLUGIN_ROOT}" }
 })
 ```
+
+`pluginRoot` lets each stage call the real otta engine scripts (`seed-pr-body.sh`, `otta-gate.sh` — which also captures the verdict to the LEARN ledger) instead of generic instructions.
 
 The workflow runs four stages, each a focused subagent:
 1. **Build** — `otta-builder` implements test-first (TDD)

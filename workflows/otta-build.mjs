@@ -9,8 +9,12 @@ export const meta = {
   ],
 }
 
-// args is the issue number (or { issue }). Seed .pr-body.md with /otta-start first.
+// args: { issue, pluginRoot }. pluginRoot lets the stages call the real otta
+// engine scripts (seed / gate / capture) deterministically instead of prose.
 const issue = (args && (args.issue ?? args)) || 'the current issue'
+const root = (args && args.pluginRoot) || '${CLAUDE_PLUGIN_ROOT}'
+const SEED = `bash "${root}/scripts/seed-pr-body.sh"`
+const GATE = `bash "${root}/scripts/otta-gate.sh"`
 
 const REVIEW_SCHEMA = {
   type: 'object',
@@ -31,10 +35,13 @@ const VERIFY_SCHEMA = {
   required: ['gatePassed', 'allAcsPass', 'detail'],
 }
 
-// 1. BUILD — implement test-first
+// 1. BUILD — seed the body via the engine if needed, then implement test-first
 phase('Build')
 const built = await agent(
-  `Implement issue #${issue} test-first. The acceptance criteria are in .pr-body.md (seeded by /otta-start). ` +
+  `Implement issue #${issue} test-first.\n` +
+    `FIRST: if .pr-body.md does not exist, seed it from the issue's acceptance criteria by running:\n` +
+    `  ${SEED} ${issue}\n` +
+    `Then read .pr-body.md — each "- [ ] AC" is what you must satisfy. ` +
     `Write the smallest failing test, make it pass, keep changes surgical, and keep .pr-body.md's Verification honest. ` +
     `Return what you changed, the test added, and which ACs it satisfies.`,
   { agentType: 'otta-builder', label: `build:#${issue}`, phase: 'Build' },
@@ -59,12 +66,16 @@ if (review && !review.compliant) {
   )
 }
 
-// 3. VERIFY — gate + adversarial per-AC check
+// 3. VERIFY — run the real Otta gate (auto-captures the verdict to the ledger),
+//    then adversarial per-AC check
 phase('Verify')
 const verify = await agent(
-  `For issue #${issue}: run the project gate (bash scripts/gate.sh if present, else typecheck + affected tests). ` +
-    `Then adversarially verify EACH acceptance criterion in .pr-body.md — produce concrete evidence or mark it FAILED. ` +
-    `Return the gate result and per-AC verdicts.`,
+  `For issue #${issue}:\n` +
+    `1. Run the Otta gate (it also runs the project gate + captures the verdict to the LEARN ledger):\n` +
+    `   ${GATE}\n` +
+    `2. Run the project's own tests (bash scripts/gate.sh if present, else typecheck + affected tests).\n` +
+    `3. Adversarially verify EACH acceptance criterion in .pr-body.md — produce concrete evidence or mark it FAILED.\n` +
+    `Return the gate result (gatePassed) and per-AC verdicts (allAcsPass + detail).`,
   { agentType: 'otta-qa', label: 'verify', phase: 'Verify', schema: VERIFY_SCHEMA },
 )
 
@@ -72,8 +83,11 @@ const verify = await agent(
 phase('Ship')
 if (verify && verify.gatePassed && verify.allAcsPass) {
   const shipped = await agent(
-    `Issue #${issue} passed verify. Run the Otta gate once more, then commit and open the PR with ` +
-      `gh pr create --body-file .pr-body.md. Target staging if .selfloop.yml names one, else main. Return the PR URL.`,
+    `Issue #${issue} passed verify. Ship it:\n` +
+      `1. Run the Otta gate once more — do not push past a failing gate:\n   ${GATE}\n` +
+      `2. Commit, then open the PR with: gh pr create --body-file .pr-body.md --title "<conventional title>"\n` +
+      `   Target staging if .selfloop.yml names a staging branch, else main.\n` +
+      `Return the PR URL.`,
     { agentType: 'otta-devops', label: 'ship', phase: 'Ship' },
   )
   return { issue, status: 'shipped', spec: review, verify, ship: shipped }
