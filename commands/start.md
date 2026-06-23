@@ -15,4 +15,4 @@ Start the Otta shipping loop for issue **#$1**.
 
 3. Confirm the plan with the user in one or two lines: what you'll build, and which acceptance criteria it satisfies.
 
-Then begin implementing — write the smallest failing test first (TDD), implement, keep the `.pr-body.md` Verification section honest as you go. When ready to push, use `/otta-ship`.
+Then begin implementing — write the smallest failing test first (TDD), implement, keep the `.pr-body.md` Verification section honest as you go. When ready to push, use `/otta:ship`.

@@ -5,13 +5,13 @@ argument-hint: <issue-number>
 
 Run the Otta shipping pipeline for issue **#$1** as a dynamic workflow.
 
-First make sure the workspace is seeded — if `.pr-body.md` doesn't exist yet, run `/otta-start $1` to seed the acceptance criteria.
+First make sure the workspace is seeded — if `.pr-body.md` doesn't exist yet, run `/otta:start $1` to seed the acceptance criteria.
 
 Then invoke the **Workflow** tool with the bundled pipeline script (this is an explicit, user-invoked opt-in to orchestration):
 
 ```
 Workflow({
-  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/otta-build.mjs",
+  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/otta:build.mjs",
   args: { issue: "$1", pluginRoot: "${CLAUDE_PLUGIN_ROOT}" }
 })
 ```

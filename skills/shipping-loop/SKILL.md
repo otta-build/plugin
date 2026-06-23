@@ -14,16 +14,16 @@ Every change is traceable from the idea that prompted it to the version that shi
 ## The loop
 
 ```
-issue (with ACs) → /otta-start → build (TDD) → /otta-ship (gate) → PR → merge → Pulse
+issue (with ACs) → /otta:start → build (TDD) → /otta:ship (gate) → PR → merge → Pulse
 ```
 
 1. **Issue first.** Find or create a GitHub issue with acceptance criteria as `- [ ]` checkboxes. Each AC must be falsifiable — if you can't name the check that proves it, rewrite it or move it to Out of scope. "Make it better" is not an AC.
 
-2. **`/otta-start <issue>`.** Seeds `.pr-body.md` from the issue's ACs with the canonical acceptance block. If the issue has no checkboxes, stop and get real ACs added first.
+2. **`/otta:start <issue>`.** Seeds `.pr-body.md` from the issue's ACs with the canonical acceptance block. If the issue has no checkboxes, stop and get real ACs added first.
 
 3. **Build, test-first.** Write the smallest failing test that captures the intended behavior, make it pass, keep the `.pr-body.md` Verification section honest as you go. Typecheck is not test coverage.
 
-4. **`/otta-ship`.** Runs the local gate (mirrors the Pulse merge gates), then opens the PR with the seeded body. The body must carry:
+4. **`/otta:ship`.** Runs the local gate (mirrors the Pulse merge gates), then opens the PR with the seeded body. The body must carry:
    - a ` ```acceptance ` fenced block
    - a test in the diff, OR `[test-impractical: <reason>]`
    - `Fixes #<issue>` — the GitHub issue number, so the issue→PR link exists in GitHub
@@ -33,7 +33,7 @@ issue (with ACs) → /otta-start → build (TDD) → /otta-ship (gate) → PR �
 
 ## Setup (once per repo)
 
-Run `/otta-setup` — installs the pre-push gate hook and walks through installing the Otta Pulse GitHub App. A pushed change that skips the loop fails the gate locally before it ever reaches CI.
+Run `/otta:setup` — installs the pre-push gate hook and walks through installing the Otta Pulse GitHub App. A pushed change that skips the loop fails the gate locally before it ever reaches CI.
 
 ## Rules
 

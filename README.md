@@ -18,7 +18,7 @@ It's the *discipline layer* of Otta. It needs no private engine and no secrets �
 Then, once per repo:
 
 ```
-/otta-setup
+/otta:setup
 ```
 
 This installs a pre-push gate hook and walks you through installing the **Otta Pulse** GitHub App (interactive — GitHub requires your consent to install an App).
@@ -27,15 +27,15 @@ This installs a pre-push gate hook and walks you through installing the **Otta P
 
 | Command | Does |
 |---|---|
-| `/otta-start <issue>` | Seed `.pr-body.md` from a GitHub issue's acceptance criteria |
-| `/otta-build <issue>` | Run the full TDD pipeline as a workflow: build → spec-review → verify → ship |
-| `/otta-ship` | Run the local gate, then open the PR with the seeded body (manual ship) |
-| `/otta-setup` | Install the pre-push gate hook + onboard the Pulse GitHub App |
-| `/otta-schedule` | Set up a cloud routine that runs the pipeline autonomously (laptop-off) |
+| `/otta:start <issue>` | Seed `.pr-body.md` from a GitHub issue's acceptance criteria |
+| `/otta:build <issue>` | Run the full TDD pipeline as a workflow: build → spec-review → verify → ship |
+| `/otta:ship` | Run the local gate, then open the PR with the seeded body (manual ship) |
+| `/otta:setup` | Install the pre-push gate hook + onboard the Pulse GitHub App |
+| `/otta:schedule` | Set up a cloud routine that runs the pipeline autonomously (laptop-off) |
 
-## The pipeline (`/otta-build`)
+## The pipeline (`/otta:build`)
 
-`/otta-build <issue>` runs a [dynamic workflow](https://code.claude.com/docs/en/workflows) that orchestrates four focused subagents — the plan lives in code, so it's repeatable and the stages can't be skipped:
+`/otta:build <issue>` runs a [dynamic workflow](https://code.claude.com/docs/en/workflows) that orchestrates four focused subagents — the plan lives in code, so it's repeatable and the stages can't be skipped:
 
 1. **Build** — `builder` implements test-first (TDD)
 2. **Spec Review** — `reviewer` checks every AC is met, nothing extra (one fix loop)
@@ -44,9 +44,9 @@ This installs a pre-push gate hook and walks you through installing the **Otta P
 
 The subagents (`agents/*.md`) are reusable on their own — Claude delegates to them by name, and you can use them as agent-team teammates too.
 
-## Autonomous (`/otta-schedule`)
+## Autonomous (`/otta:schedule`)
 
-`/otta-schedule` sets up a **cloud routine** (runs on Anthropic infra, laptop-off) that nightly picks a ready issue and runs the pipeline to a PR. Add GitHub (`pull_request.opened` → review) or API (`/fire` → Sentry-alert→fix) triggers from claude.ai/code/routines.
+`/otta:schedule` sets up a **cloud routine** (runs on Anthropic infra, laptop-off) that nightly picks a ready issue and runs the pipeline to a PR. Add GitHub (`pull_request.opened` → review) or API (`/fire` → Sentry-alert→fix) triggers from claude.ai/code/routines.
 
 ## LEARN-layer capture (free)
 

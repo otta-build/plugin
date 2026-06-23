@@ -18,4 +18,4 @@ Set up the Otta shipping loop for this repository.
 
    Installing the App is interactive GitHub consent — you cannot do it for the user. Print the URL from the script and ask the user to open it, pick their account/org, and click Install. Offer to open it for them with `--open` if they're on this machine.
 
-3. Tell the user the loop is ready: `/otta-start <issue>` to begin, `/otta-ship` to gate + open the PR.
+3. Tell the user the loop is ready: `/otta:start <issue>` to begin, `/otta:ship` to gate + open the PR.
