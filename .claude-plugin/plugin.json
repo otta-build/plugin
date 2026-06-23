@@ -1,0 +1,19 @@
+{
+  "name": "otta",
+  "description": "Superpowers for shipping: makes any Claude Code / Codex session follow the Otta loop — issue → acceptance criteria → local gate → PR → ship — and feeds DORA + lifecycle metrics to the Otta Pulse GitHub App.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Sam Petrenko"
+  },
+  "homepage": "https://otta.build",
+  "repository": "https://github.com/wiselancer/otta",
+  "license": "MIT",
+  "keywords": [
+    "dora",
+    "shipping",
+    "workflow",
+    "github-app",
+    "acceptance-criteria",
+    "ci-gates"
+  ]
+}
