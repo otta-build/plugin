@@ -1,6 +1,6 @@
-# Otta — superpowers for shipping
+# Otta — the self-learning AI software factory
 
-A Claude Code / Codex plugin that makes any agent session follow the **Otta loop**:
+A Claude Code plugin that turns any agent session into a self-improving software factory. The **Otta loop**:
 
 ```
 issue → acceptance criteria → local gate → PR → ship → Otta Pulse (DORA + lifecycle)
@@ -37,12 +37,12 @@ This installs a pre-push gate hook and walks you through installing the **Otta P
 
 `/otta-build <issue>` runs a [dynamic workflow](https://code.claude.com/docs/en/workflows) that orchestrates four focused subagents — the plan lives in code, so it's repeatable and the stages can't be skipped:
 
-1. **Build** — `otta-builder` implements test-first (TDD)
-2. **Spec Review** — `otta-reviewer` checks every AC is met, nothing extra (one fix loop)
-3. **Verify** — `otta-qa` runs the gate and *adversarially* verifies each AC has real evidence
-4. **Ship** — `otta-devops` opens the PR — **only if** the gate passed and every AC passed
+1. **Build** — `builder` implements test-first (TDD)
+2. **Spec Review** — `reviewer` checks every AC is met, nothing extra (one fix loop)
+3. **Verify** — `qa` runs the gate and *adversarially* verifies each AC has real evidence
+4. **Ship** — `devops` opens the PR — **only if** the gate passed and every AC passed
 
-The subagents (`agents/otta-*.md`) are reusable on their own — Claude delegates to them by name, and you can use them as agent-team teammates too.
+The subagents (`agents/*.md`) are reusable on their own — Claude delegates to them by name, and you can use them as agent-team teammates too.
 
 ## Autonomous (`/otta-schedule`)
 

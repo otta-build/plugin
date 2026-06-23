@@ -1,5 +1,5 @@
 ---
-name: otta-reviewer
+name: reviewer
 description: Spec-compliance reviewer for the Otta shipping pipeline. Checks whether an implementation matches the issue's acceptance criteria exactly — nothing missing, nothing extra. Read-only. Use as the SPEC-REVIEW stage.
 tools: Read, Glob, Grep, Bash
 model: sonnet

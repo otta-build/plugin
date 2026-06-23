@@ -1,5 +1,5 @@
 ---
-name: otta-qa
+name: qa
 description: QA verifier for the Otta shipping pipeline. Runs the tests and the local gate, then adversarially verifies each acceptance criterion is actually satisfied (not just claimed). Use as the VERIFY stage.
 tools: Read, Bash, Grep
 model: sonnet

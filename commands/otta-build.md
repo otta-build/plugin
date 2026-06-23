@@ -19,9 +19,9 @@ Workflow({
 `pluginRoot` lets each stage call the real otta engine scripts (`seed-pr-body.sh`, `otta-gate.sh` — which also captures the verdict to the LEARN ledger) instead of generic instructions.
 
 The workflow runs four stages, each a focused subagent:
-1. **Build** — `otta-builder` implements test-first (TDD)
-2. **Spec Review** — `otta-reviewer` checks every AC is met, nothing extra (one fix loop)
-3. **Verify** — `otta-qa` runs the gate and adversarially verifies each AC has real evidence
-4. **Ship** — `otta-devops` opens the PR (`Fixes #N` + `idea_ref`) — **only if** the gate passed and every AC passed
+1. **Build** — `builder` implements test-first (TDD)
+2. **Spec Review** — `reviewer` checks every AC is met, nothing extra (one fix loop)
+3. **Verify** — `qa` runs the gate and adversarially verifies each AC has real evidence
+4. **Ship** — `devops` opens the PR (`Fixes #N` + `idea_ref`) — **only if** the gate passed and every AC passed
 
 When it finishes, report the result: shipped (PR URL) or blocked (which AC/gate failed). The pipeline never opens a PR for work that didn't pass verify.

@@ -1,6 +1,6 @@
 export const meta = {
   name: 'otta-build',
-  description: 'TDD shipping pipeline for one issue: build → spec-review → adversarial verify → ship. Uses the otta-builder/reviewer/qa/devops subagents.',
+  description: 'TDD shipping pipeline for one issue: build → spec-review → adversarial verify → ship. Uses the builder/reviewer/qa/devops subagents.',
   phases: [
     { title: 'Build' },
     { title: 'Spec Review' },
@@ -44,7 +44,7 @@ const built = await agent(
     `Then read .pr-body.md — each "- [ ] AC" is what you must satisfy. ` +
     `Write the smallest failing test, make it pass, keep changes surgical, and keep .pr-body.md's Verification honest. ` +
     `Return what you changed, the test added, and which ACs it satisfies.`,
-  { agentType: 'otta:otta-builder', label: `build:#${issue}`, phase: 'Build' },
+  { agentType: 'otta:builder', label: `build:#${issue}`, phase: 'Build' },
 )
 
 // 2. SPEC REVIEW — compliance, with one fix loop
@@ -52,17 +52,17 @@ phase('Spec Review')
 let review = await agent(
   `Review the implementation for issue #${issue} against the acceptance block in .pr-body.md. ` +
     `For each AC cite the file:line that satisfies it. Flag missing or extra behavior.`,
-  { agentType: 'otta:otta-reviewer', label: 'spec-review', phase: 'Spec Review', schema: REVIEW_SCHEMA },
+  { agentType: 'otta:reviewer', label: 'spec-review', phase: 'Spec Review', schema: REVIEW_SCHEMA },
 )
 if (review && !review.compliant) {
   log(`spec review found gaps — sending back to builder`)
   await agent(
     `Spec review found gaps for issue #${issue}:\n${review.gaps}\nFix exactly these. Keep changes surgical.`,
-    { agentType: 'otta:otta-builder', label: 'build:fix-spec', phase: 'Build' },
+    { agentType: 'otta:builder', label: 'build:fix-spec', phase: 'Build' },
   )
   review = await agent(
     `Re-review issue #${issue} against .pr-body.md after the fix. Confirm COMPLIANT or list remaining gaps.`,
-    { agentType: 'otta:otta-reviewer', label: 'spec-review:2', phase: 'Spec Review', schema: REVIEW_SCHEMA },
+    { agentType: 'otta:reviewer', label: 'spec-review:2', phase: 'Spec Review', schema: REVIEW_SCHEMA },
   )
 }
 
@@ -76,7 +76,7 @@ const verify = await agent(
     `2. Run the project's own tests (bash scripts/gate.sh if present, else typecheck + affected tests).\n` +
     `3. Adversarially verify EACH acceptance criterion in .pr-body.md — produce concrete evidence or mark it FAILED.\n` +
     `Return the gate result (gatePassed) and per-AC verdicts (allAcsPass + detail).`,
-  { agentType: 'otta:otta-qa', label: 'verify', phase: 'Verify', schema: VERIFY_SCHEMA },
+  { agentType: 'otta:qa', label: 'verify', phase: 'Verify', schema: VERIFY_SCHEMA },
 )
 
 // 4. SHIP — only when verify is fully green
@@ -88,7 +88,7 @@ if (verify && verify.gatePassed && verify.allAcsPass) {
       `2. Commit, then open the PR with: gh pr create --body-file .pr-body.md --title "<conventional title>"\n` +
       `   Target staging if .selfloop.yml names a staging branch, else main.\n` +
       `Return the PR URL.`,
-    { agentType: 'otta:otta-devops', label: 'ship', phase: 'Ship' },
+    { agentType: 'otta:devops', label: 'ship', phase: 'Ship' },
   )
   return { issue, status: 'shipped', spec: review, verify, ship: shipped }
 }

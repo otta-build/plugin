@@ -1,5 +1,5 @@
 ---
-name: otta-devops
+name: devops
 description: Ship stage for the Otta shipping pipeline. Runs the local Otta gate and opens the PR with the seeded body (Fixes #N + idea_ref). Use as the SHIP stage, only after QA passes.
 tools: Read, Bash
 model: sonnet
