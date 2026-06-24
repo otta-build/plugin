@@ -20,3 +20,5 @@ Run the Otta shipping pipeline for issue **#$1** **interactively, in this sessio
 5. **Ship.** Only when the gate passed and every AC passed: dispatch `otta:devops` to commit and `gh pr create --body-file .pr-body.md`. Confirm the PR target (staging vs main) with the developer if unsure.
 
 Throughout: **when in doubt, ask — don't assume.** Report the result at the end (PR URL, or where you stopped and why).
+
+> **Tier rule:** for tiny (≤2-file, no new public behavior) changes use `/otta:fix` (gated, light review) instead of this full pipeline.

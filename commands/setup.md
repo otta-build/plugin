@@ -1,30 +1,82 @@
 ---
-description: Set up Otta in this repo — install the local gate hook and the Pulse GitHub App
+description: Set up Otta in this repo — detect delivery context, write .otta.yml, install the gate hook and the Pulse GitHub App
 ---
 
-Set up the Otta shipping loop for this repository.
+Set up the Otta shipping loop for this repository (once per repo).
 
-1. Install the pre-push gate hook (mirrors the Pulse merge gates locally):
+## 1. Detect delivery context
 
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-git-hooks.sh"
-   ```
+Run the detection script to auto-fill what can be determined from the repo:
 
-2. Onboard the Otta Pulse GitHub App so DORA + lifecycle metrics flow:
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-delivery-context.sh" --output .otta.yml
+```
 
-   ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/pulse-install.sh"
-   ```
+Show the developer the pre-filled `.otta.yml`. It will contain the detected `base`, `staging`, CI workflow names and `paths:` filters, and any `deploy` signal found in the workflow files.
 
-   Installing the App is interactive GitHub consent — you cannot do it for the user. Print the URL from the script and ask the user to open it, pick their account/org, and click Install. Offer to open it for them with `--open` if they're on this machine.
+## 2. Ask the developer for the non-detectable fields
 
-3. (Optional) Stream loop verdicts to a Pulse server so the reviewer/qa grades land next to CI/deploy/defect data. The ledger is written locally regardless; this just also pushes it. Set in the user's shell profile:
+The script leaves placeholders for fields it cannot determine. Ask the developer:
 
-   ```bash
-   export OTTA_PULSE_URL="https://pulse.otta.build"
-   export OTTA_PULSE_TOKEN="<the repo's pulse token>"   # = the App webhook secret
-   ```
+- **deploy.mode** — what does "deployed" mean for this repo? (choose one)
+  - `"auto-on-merge"` — every merge to `base` ships automatically (Vercel, Coolify, etc.)
+  - `"tag"` — a git tag triggers the release (Tauri, npm publish, Docker tag, etc.)
+  - `"manual"` — deploy is triggered manually (button, script, etc.)
+  - `"none"` — no automated deploy yet
+- **deploy.target** — where does it deploy? (e.g. `vercel`, `coolify`, `tauri`, `npm`, `none`)
+- **staging-first vs prod** — does every feature branch go to a staging environment before merging to `base`? (`staging: staging` is already set if a `staging` branch was found — confirm this is the intended flow)
+- **ci.required** — which CI check names are required to pass before merge? (List the branch-protection checks, e.g. `["Build (ubuntu-22.04)", "test"]`)
 
-   The push is best-effort (time-boxed, failures swallowed) so it never blocks a gate. Without these vars, verdicts stay local and can be batch-imported later with `pulse ingest-ledger`.
+Fill these answers into `.otta.yml` before continuing.
 
-4. Tell the user the loop is ready: `/otta:start <issue>` to begin, `/otta:ship` to gate + open the PR.
+## 3. Onboard the Otta Pulse GitHub App
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/pulse-install.sh"
+```
+
+Installing the App is interactive GitHub consent — you cannot do it for the user. Print the URL from the script and ask the user to open it, pick their account/org, and click Install. Offer to open it with `--open` if they are on this machine.
+
+After the user confirms installation, set `pulse.installed: true` in `.otta.yml`.
+
+## 4. Write and commit .otta.yml
+
+Once the fields are filled and Pulse is installed:
+
+```bash
+git add .otta.yml
+git commit -m "chore: add .otta.yml delivery context (Otta setup)"
+```
+
+Tell the developer this file is the delivery contract for the Otta loop — keep it in git so all agents and CI jobs see it.
+
+## 5. Install the local gate hook
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-git-hooks.sh"
+```
+
+This mirrors the Pulse merge gates locally so `/otta:ship` can run pre-push checks without a round-trip to GitHub.
+
+## 6. (Optional) Scaffold a thin test-runner CI workflow
+
+If the repo has a deployable package (`deploy.mode` is not `none`) but no CI workflow covering it yet, offer to scaffold a minimal test-runner workflow:
+
+> "I can add a starter `.github/workflows/ci-test.yml` that runs your tests on pull requests. This is a thin scaffold — Otta governs the gate logic, not CI. Want me to create it?"
+
+Generate the workflow only if the developer says yes. Keep it minimal: checkout → install deps → run tests. Match the working-directory to `deploy.package_paths` if set.
+
+## 7. Ready
+
+Tell the developer the loop is live:
+- `/otta:start <issue>` — begin a scoped issue (creates an isolated worktree)
+- `/otta:ship` — gate + open the PR
+
+(Optional) Stream loop verdicts to Pulse by setting in their shell profile:
+
+```bash
+export OTTA_PULSE_URL="https://pulse.otta.build"
+export OTTA_PULSE_TOKEN="<the repo's pulse token>"   # = the App webhook secret
+```
+
+The push is best-effort (time-boxed, failures swallowed) so it never blocks a gate. Without these vars, verdicts stay local and can be batch-imported later with `pulse ingest-ledger`.
