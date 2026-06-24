@@ -25,7 +25,7 @@ The script leaves placeholders for fields it cannot determine. Ask the developer
   - `"none"` — no automated deploy yet
 - **deploy.target** — where does it deploy? (e.g. `vercel`, `coolify`, `tauri`, `npm`, `none`)
 - **staging-first vs prod** — does every feature branch go to a staging environment before merging to `base`? (`staging: staging` is already set if a `staging` branch was found — confirm this is the intended flow)
-- **ci.required** — which CI check names are required to pass before merge? (List the branch-protection checks, e.g. `["Build (ubuntu-22.04)", "test"]`)
+- **ci.required** — which CI check names are required to pass before merge? **First auto-detect, don't just ask:** run `gh api "repos/{owner}/{repo}/branches/{base}/protection/required_status_checks/contexts"` (substitute the repo and the detected `base`). If it returns a list, pre-fill `ci.required` with it and ask the developer only to **confirm** (e.g. "Branch protection requires `["Build (ubuntu-22.04)", "test"]` — use these?"). If it 404s (no branch protection, or no admin access), fall back to asking which check names are required, e.g. `["Build (ubuntu-22.04)", "test"]`.
 
 Fill these answers into `.otta.yml` before continuing.
 

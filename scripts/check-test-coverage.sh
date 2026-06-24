@@ -16,6 +16,13 @@ if [ -z "$BASE" ]; then
   BASE="$(git merge-base "origin/$DEFAULT" HEAD 2>/dev/null || echo "origin/$DEFAULT")"
 fi
 
+# No changes at all between base and HEAD → nothing to gate yet. Don't emit a
+# coverage failure for an empty diff (e.g. a fresh worktree before the first edit).
+if [ -z "$(git diff --name-only "$BASE"...HEAD 2>/dev/null)" ]; then
+  echo "✓ test-coverage: no changes to gate yet (empty $BASE...HEAD diff)."
+  exit 0
+fi
+
 # Added/modified test files in the diff (broad: *.test.* / *.spec.* / tests/ dir).
 TEST_FILES="$(git diff --name-only "$BASE"...HEAD 2>/dev/null \
   | grep -iE '(\.(test|spec)\.[a-z]+$|(^|/)tests?/)' || true)"
