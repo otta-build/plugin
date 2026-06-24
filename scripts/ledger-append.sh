@@ -13,6 +13,21 @@
 # Store: ${OTTA_LEDGER_DIR:-~/.otta/ledger}/<project-slug>.jsonl  (one file per repo)
 set -euo pipefail
 
+# Source repo-local Pulse config if present, but only for vars not already SET in env.
+# An explicitly-exported env var (even empty) always wins over the file value.
+if [ -f "./.otta/pulse.env" ]; then
+  _url_set="${OTTA_PULSE_URL+set}"
+  _token_set="${OTTA_PULSE_TOKEN+set}"
+  _saved_url="${OTTA_PULSE_URL:-}"
+  _saved_token="${OTTA_PULSE_TOKEN:-}"
+  # shellcheck source=/dev/null
+  . "./.otta/pulse.env"
+  # Restore any var the caller had already SET in the environment.
+  [ "$_url_set"   = "set" ] && OTTA_PULSE_URL="$_saved_url"
+  [ "$_token_set" = "set" ] && OTTA_PULSE_TOKEN="$_saved_token"
+  unset _url_set _token_set _saved_url _saved_token
+fi
+
 SOURCE="" EVENT="" SCORE="" FEEDBACK="" PROJECT="" INPUT="{}" OUTPUT="{}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,20 +54,30 @@ mkdir -p "$DIR"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Build the record with jq if available (safe escaping), else a minimal fallback.
+# Capture into RECORD so we can also POST it to Pulse without re-building.
 if command -v jq >/dev/null 2>&1; then
-  jq -cn --arg ts "$TS" --arg project "$PROJECT" --arg source "$SOURCE" \
+  RECORD="$(jq -cn --arg ts "$TS" --arg project "$PROJECT" --arg source "$SOURCE" \
         --arg event "$EVENT" --argjson score "$SCORE" --arg feedback "$FEEDBACK" \
         --argjson input "$INPUT" --argjson output "$OUTPUT" \
-    '{ts:$ts, project:$project, source:$source, event:$event, score:$score, feedback:$feedback, input:$input, output:$output}' \
-    >> "$DIR/$SLUG.jsonl"
+    '{ts:$ts, project:$project, source:$source, event:$event, score:$score, feedback:$feedback, input:$input, output:$output}')"
 else
   esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
-  printf '{"ts":"%s","project":"%s","source":"%s","event":"%s","score":%s,"feedback":"%s","input":%s,"output":%s}\n' \
-    "$TS" "$(esc "$PROJECT")" "$(esc "$SOURCE")" "$(esc "$EVENT")" "$SCORE" "$(esc "$FEEDBACK")" "$INPUT" "$OUTPUT" \
-    >> "$DIR/$SLUG.jsonl"
+  RECORD="$(printf '{"ts":"%s","project":"%s","source":"%s","event":"%s","score":%s,"feedback":"%s","input":%s,"output":%s}' \
+    "$TS" "$(esc "$PROJECT")" "$(esc "$SOURCE")" "$(esc "$EVENT")" "$SCORE" "$(esc "$FEEDBACK")" "$INPUT" "$OUTPUT")"
 fi
+printf '%s\n' "$RECORD" >> "$DIR/$SLUG.jsonl"
 
 echo "✓ ledger += $EVENT (score=$SCORE) → $DIR/$SLUG.jsonl" >&2
+
+# Best-effort /ledger stream: POST the raw record to Pulse when wired.
+# Failures/timeouts are swallowed — they must NEVER affect the script's exit code.
+if [ -n "${OTTA_PULSE_URL:-}" ] && [ -n "${OTTA_PULSE_TOKEN:-}" ] && [ -z "${OTTA_NO_CAPTURE:-}" ]; then
+  curl -m 3 -s -o /dev/null \
+    -X POST "${OTTA_PULSE_URL%/}/ledger" \
+    -H "x-pulse-token: ${OTTA_PULSE_TOKEN}" \
+    -H "content-type: application/json" \
+    -d "$RECORD" || true
+fi
 
 # Optional bridge to a Pulse server: when OTTA_PULSE_URL + OTTA_PULSE_TOKEN are
 # set, also push this verdict as a `loop_verdict` event so it lands in the
@@ -60,7 +85,7 @@ echo "✓ ledger += $EVENT (score=$SCORE) → $DIR/$SLUG.jsonl" >&2
 # THIS machine; the server can't read it). Best-effort: a failed/slow push must
 # never break the gate, so it's time-boxed and its failure is swallowed. The
 # external_id matches `pulse ingest-ledger`'s scheme so the two never double-count.
-if [ -n "${OTTA_PULSE_URL:-}" ] && [ -n "${OTTA_PULSE_TOKEN:-}" ] && command -v jq >/dev/null 2>&1; then
+if [ -n "${OTTA_PULSE_URL:-}" ] && [ -n "${OTTA_PULSE_TOKEN:-}" ] && [ -z "${OTTA_NO_CAPTURE:-}" ] && command -v jq >/dev/null 2>&1; then
   BRANCH="$(printf '%s' "$INPUT" | jq -r '.branch // ""' 2>/dev/null || echo "")"
   EXTID="ledger:${PROJECT}:${TS}:${SOURCE}:${EVENT}:${BRANCH}"
   BODY="$(jq -cn --arg s otta-ledger --arg t loop_verdict --arg e "$EXTID" \
