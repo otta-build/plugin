@@ -72,11 +72,6 @@ Tell the developer the loop is live:
 - `/otta:start <issue>` — begin a scoped issue (creates an isolated worktree)
 - `/otta:ship` — gate + open the PR
 
-(Optional) Stream loop verdicts to Pulse by setting in their shell profile:
+Pulse wiring is automatic — `/otta:setup` connects this repo to Pulse and writes a gitignored `.otta/pulse.env` for you. No token to paste, no shell-profile edit needed. Merged-PR verdicts are captured server-side by the Otta Pulse GitHub App; the local stream adds your pre-merge gate runs so you see the full picture in Pulse.
 
-```bash
-export OTTA_PULSE_URL="https://pulse.otta.build"
-export OTTA_PULSE_TOKEN="<the repo's pulse token>"   # = the App webhook secret
-```
-
-The push is best-effort (time-boxed, failures swallowed) so it never blocks a gate. Without these vars, verdicts stay local and can be batch-imported later with `pulse ingest-ledger`.
+To opt out of local verdict streaming, set `OTTA_NO_CAPTURE=1` in your environment (verdicts stay in the local `.otta/ledger/` file and can be imported later with `pulse ingest-ledger`).
