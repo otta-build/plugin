@@ -48,7 +48,7 @@ Run the Otta **fast path** for issue **#$1** — a tiny, surgical change that sk
    gh pr create --body-file .pr-body.md --title "<conventional-commit title>"
    ```
 
-   Use `--base staging` if `.selfloop.yml` names a staging branch; otherwise `--base main`.
+   Use `--base staging` if `.otta.yml` names a staging branch; otherwise `--base main`.
 
 ---
 

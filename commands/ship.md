@@ -25,6 +25,6 @@ Ship the current work through the Otta gate, then open the PR.
    gh pr create --body-file .pr-body.md --title "<conventional-commit title>" $ARGUMENTS
    ```
 
-   Use `--base staging` if the repo's `.selfloop.yml` names a staging branch; otherwise `--base main` (the default).
+   Use `--base staging` if the repo's `.otta.yml` names a staging branch; otherwise `--base main` (the default).
 
 After merge + release tag, Pulse ingests the PR/tag webhooks automatically. The `idea_ref` + `Fixes #N` in the body are what let Pulse join the idea→issue→PR→version chain — no extra step needed.

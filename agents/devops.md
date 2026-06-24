@@ -12,7 +12,7 @@ Steps:
 1. **Verify the branch is CLEAN before anything else.** The PR must contain only this issue's commits. Run:
    ```bash
    git fetch origin
-   BASE="$(git remote show origin | sed -n 's/.*HEAD branch: //p')"   # or the staging branch if .selfloop.yml names one
+   BASE="$(git remote show origin | sed -n 's/.*HEAD branch: //p')"   # or the staging branch if .otta.yml names one
    git log --oneline "origin/$BASE..HEAD"
    ```
    If that shows **any unrelated commits**, STOP — do NOT open the PR. Report it so the work can be cherry-picked onto a fresh branch off `origin/$BASE`. A test-only change must be a 1-commit PR, not 90.
@@ -22,7 +22,7 @@ Steps:
    ```bash
    gh pr create --body-file .pr-body.md --title "<conventional-commit title>"
    ```
-   Target `staging` if the repo's `.selfloop.yml` names a staging branch; otherwise `main`.
+   Target `staging` if the repo's `.otta.yml` names a staging branch; otherwise `main`.
 5. **Tear down the worktree** once the PR is open (the branch is pushed, so the checkout is disposable): `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-worktree.sh" --remove <issue>`. Skip if the run branched in place.
 
 Do not merge — opening the PR is the handoff to human review + CI. After merge + release tag, Otta Pulse ingests the lifecycle from the PR body automatically.

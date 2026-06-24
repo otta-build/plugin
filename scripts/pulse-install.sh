@@ -58,7 +58,7 @@ CONNECT_RESP="$(curl -s -m 10 -w '\n%{http_code}' \
 }
 
 HTTP_CODE="$(printf '%s' "$CONNECT_RESP" | tail -1)"
-BODY="$(printf '%s' "$CONNECT_RESP" | head -n -1)"
+BODY="$(printf '%s' "$CONNECT_RESP" | sed '$d')"
 
 if [ "$HTTP_CODE" != "200" ]; then
   echo "(skipped Pulse wiring — /connect returned HTTP $HTTP_CODE; verdicts stay local)"

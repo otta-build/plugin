@@ -14,7 +14,7 @@ Inputs you can rely on:
 Rules:
 0. **Work in an isolated worktree — FIRST, before any edit.** A pipeline PR must contain ONLY this issue's change, and the run must never touch the session's branch or files. Create/enter the isolated worktree (a separate checkout off the base, on its own `otta/<issue>` branch):
    ```bash
-   WT="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-worktree.sh" <issue>)"   # add a base arg if .selfloop.yml names a staging branch
+   WT="$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-worktree.sh" <issue>)"   # add a base arg if .otta.yml names a staging branch
    cd "$WT"
    ```
    Every later stage (reviewer, QA, DevOps) re-runs the same helper and lands in this same directory. Verify you're clean: `git log --oneline @{u}..HEAD` must be empty before you start.

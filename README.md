@@ -12,8 +12,12 @@ It's the *discipline layer* of Otta. It needs no private engine and no secrets �
 
 ```
 /plugin marketplace add otta-build/plugin
-/plugin install otta
+/plugin install otta@otta
 ```
+
+> **After installing, fully restart Claude Code** (not just `/reload-plugins` — command registration needs a fresh process). If you don't see `/otta:` commands after restarting, the plugin is installed but **not enabled**: run `/plugin`, find **otta**, and toggle it **on**.
+>
+> Note: `otta@otta` = `<plugin>@<marketplace>` — both are named `otta` (the repo is `otta-build/plugin`, but the marketplace's manifest name is `otta`).
 
 Then, once per repo:
 

@@ -11,7 +11,7 @@ set -euo pipefail
 
 BODY="${1:-.pr-body.md}"
 if [ ! -f "$BODY" ]; then
-  echo "⛔ $BODY missing. Run /otta-start <issue> (or otta seed) to create it." >&2
+  echo "⛔ $BODY missing. Run /otta:start <issue> to create it." >&2
   exit 1
 fi
 

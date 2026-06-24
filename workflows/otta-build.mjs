@@ -46,7 +46,7 @@ const built = await agent(
     `FIRST establish an ISOLATED CLEAN base — the PR must contain only this change and must not touch the session's branch. ` +
     `Create/enter the run's worktree (a separate checkout off the base, on its own otta/${issue} branch):\n` +
     `  WT="$(${WT} ${issue})" && cd "$WT"\n` +
-    `(pass a base arg to the helper if .selfloop.yml names a staging branch). Confirm "git log --oneline @{u}..HEAD" is empty. ` +
+    `(pass a base arg to the helper if .otta.yml names a staging branch). Confirm "git log --oneline @{u}..HEAD" is empty. ` +
     `Do NOT build in the session's current checkout.\n` +
     `THEN: if .pr-body.md does not exist, seed it from the issue's acceptance criteria by running:\n` +
     `  ${SEED} ${issue}\n` +
@@ -100,7 +100,7 @@ if (verify && verify.gatePassed && verify.allAcsPass) {
     `Issue #${issue} passed verify. Ship it:\n` +
       `1. Run the Otta gate once more — do not push past a failing gate:\n   ${GATE}\n` +
       `2. Commit, then open the PR with: gh pr create --body-file .pr-body.md --title "<conventional title>"\n` +
-      `   Target staging if .selfloop.yml names a staging branch, else main.\n` +
+      `   Target staging if .otta.yml names a staging branch, else main.\n` +
       `3. After the PR is open, tear down the worktree: ${WT} --remove ${issue}\n` +
       `Return the PR URL.`,
     { agentType: 'otta:devops', label: 'ship', phase: 'Ship' },
