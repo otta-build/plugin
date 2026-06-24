@@ -25,3 +25,5 @@ The workflow runs four stages, each a focused subagent:
 4. **Ship** — `devops` opens the PR (`Fixes #N` + `idea_ref`) — **only if** the gate passed and every AC passed
 
 When it finishes, report the result: shipped (PR URL) or blocked (which AC/gate failed). The pipeline never opens a PR for work that didn't pass verify.
+
+> **Tier rule:** for tiny (≤2-file, no new public behavior) changes use `/otta:fix` (gated, light review) instead of this full pipeline.
