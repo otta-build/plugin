@@ -11,7 +11,7 @@ It's the *discipline layer* of Otta. It needs no private engine and no secrets â
 ## Install
 
 ```
-/plugin marketplace add wiselancer/otta
+/plugin marketplace add ottahq/plugin
 /plugin install otta
 ```
 

@@ -2,7 +2,7 @@
 # sync-to-public.sh <path-to-otta-plugin-clone>
 #
 # Pushes the plugin from this monorepo (the canonical source) to the public
-# distribution repo (wiselancer/otta-plugin), so installs are fast + public
+# distribution repo (ottahq/plugin), so installs are fast + public
 # without cloning the whole monorepo.
 #
 # Syncs the plugin COMPONENTS + manifest, and bumps the public marketplace
