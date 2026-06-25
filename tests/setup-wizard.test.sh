@@ -74,12 +74,22 @@ grep -qi "recommended\|default.*first\|first.*option\|first.*chip\|safe default"
   || fail "AC3: setup.md must note that the recommended/safe option is first in each AskUserQuestion call"
 
 # ---------------------------------------------------------------------------
-# AC4: Write-summary step before file writes, then payoff line
+# AC4: Write-summary step exists, the optional write blocks come AFTER it,
+#      and a payoff line follows.
 # ---------------------------------------------------------------------------
 grep -qi "confirm\|summary.*write\|write.*summary\|here.*will write\|here is what\|about to write" "$SETUP" \
   || fail "AC4: write-summary / confirm step missing"
 grep -qi "payoff\|gated.*quality\|quality.*gate.*memory\|self-improving factory\|measured.*factory\|factory.*learn" "$SETUP" \
   || fail "AC4: payoff line missing at end (gated quality + memory + visibility + safety)"
+
+# Line-order guard: the sandbox settings.json write block must appear AFTER the
+# write-summary heading — so optional writes follow confirmation, not precede it.
+SUMMARY_LINE="$(grep -n "confirm.*proceed\|write.*confirm\|here.*will write\|Write-summary\|write-summary\|Confirm setup\|Confirm before" "$SETUP" | head -1 | cut -d: -f1)"
+SETTINGS_WRITE_LINE="$(grep -n '"sandbox"' "$SETUP" | head -1 | cut -d: -f1)"
+[ -n "$SUMMARY_LINE" ] || fail "AC4(order): could not locate write-summary heading line"
+[ -n "$SETTINGS_WRITE_LINE" ] || fail "AC4(order): could not locate settings.json write block"
+[ "$SETTINGS_WRITE_LINE" -gt "$SUMMARY_LINE" ] \
+  || fail "AC4(order): sandbox settings.json write (line $SETTINGS_WRITE_LINE) must appear after write-summary (line $SUMMARY_LINE)"
 
 # ---------------------------------------------------------------------------
 # AC5 (regression guard): telemetry data-destination disclosure from v0.13.1
