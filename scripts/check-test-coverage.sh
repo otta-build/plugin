@@ -11,9 +11,19 @@ BASE="${1:-}"
 BODY="${2:-.pr-body.md}"
 
 if [ -z "$BASE" ]; then
-  DEFAULT="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+  # Default branch from origin/HEAD when present. The trailing `|| true` keeps
+  # `set -e` from aborting when there is NO origin/HEAD — a fresh clone or a
+  # local-only repo (common for any team's first run), where the symbolic-ref
+  # pipeline fails. Fall back to the local default branch, then the root commit.
+  DEFAULT="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)"
   DEFAULT="${DEFAULT:-main}"
-  BASE="$(git merge-base "origin/$DEFAULT" HEAD 2>/dev/null || echo "origin/$DEFAULT")"
+  if git rev-parse --verify -q "origin/$DEFAULT" >/dev/null 2>&1; then
+    BASE="$(git merge-base "origin/$DEFAULT" HEAD 2>/dev/null || echo "origin/$DEFAULT")"
+  elif git rev-parse --verify -q "$DEFAULT" >/dev/null 2>&1 && [ "$(git rev-parse "$DEFAULT")" != "$(git rev-parse HEAD)" ]; then
+    BASE="$(git merge-base "$DEFAULT" HEAD 2>/dev/null || echo "$DEFAULT")"
+  else
+    BASE="$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)"
+  fi
 fi
 
 # No changes at all between base and HEAD → nothing to gate yet. Don't emit a
