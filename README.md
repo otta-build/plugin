@@ -111,6 +111,45 @@ Pulse is the GitHub App that ingests your PR/CI/tag webhooks into an append-only
 
 **Hosted or self-hosted.** By default Otta uses the hosted Pulse at `https://pulse.otta.build`. To run your own, set `OTTA_PULSE_URL` (e.g. `export OTTA_PULSE_URL=https://pulse.your-team.example`) before `/otta:setup` — every Otta script reads it, so a team can point the whole loop at a private Pulse with no code changes.
 
+## Claude Code telemetry → Pulse (opt-in)
+
+Pulse's GitHub App captures PR/CI/tag webhooks with no machine setup. To also feed **Claude Code's own OTEL telemetry** — per-tool/per-stage timing (logs) and spans (traces) — into Pulse, `/otta:setup` offers an opt-in step that wires Claude Code's `env` block.
+
+This is **CC-process-level**: once enabled, **every** Claude Code session in the repo emits to Pulse (not just `/otta:dev`). Token-bearing values go **only** into `.claude/settings.local.json` (gitignored) — never the committed `settings.json`. Endpoint base is `OTTA_PULSE_URL` (default `https://pulse.otta.build`, self-host override).
+
+- **Logs** (default) — timing/event records.
+- **Traces** (separate opt-in, **beta**) — spans; adds `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1`.
+
+Run it directly (or via the `/otta:setup` step, which sources the repo + token from `.otta/pulse.env`):
+
+```bash
+# logs only:
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" <owner/repo> <pulse-token>
+# logs + traces (beta):
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" <owner/repo> <pulse-token> --traces
+```
+
+**Manual block** (for non-`/otta:setup` users) — put in `.claude/settings.local.json` (gitignored), substituting your `${PULSE}` base, `<repo-token>`, and `<owner/repo>`:
+
+```jsonc
+{
+  "env": {
+    // logs (default)
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/json",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "${PULSE}/v1/logs",
+    "OTEL_EXPORTER_OTLP_HEADERS": "x-pulse-token=<repo-token>",
+    "OTEL_RESOURCE_ATTRIBUTES": "repo=<owner/repo>",
+    // traces (beta — add only if you want spans)
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+    "OTEL_TRACES_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/json",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "${PULSE}/v1/traces"
+  }
+}
+```
+
 ## Scope
 
 This plugin is the discipline layer. The autonomous loop engine (scheduled `sense→score→govern→act→learn` runs) and direct lifecycle emission are separate components — see the Otta roadmap.

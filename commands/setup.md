@@ -114,7 +114,33 @@ Only if the developer says yes, write `.claude/settings.json` — **merge into a
 
 Notes: `allowUnsandboxedCommands: true` keeps the loop working if a sandbox dependency is missing (set `false` for strict mode). There is **no built-in credential deny list** — the lists above are a starting set; add the secrets that matter for this repo. The rules apply to the main session **and** the pipeline subagents (builder/reviewer/qa/devops), since subagents share the parent's sandbox config. `mode` only supports `"deny"` today.
 
-## 8. Ready
+## 8. (Optional) Stream Claude Code telemetry to Pulse
+
+Offer — do **not** impose. This turns on Claude Code's OTEL telemetry so per-tool/per-stage timing (logs) and spans (traces) flow into Pulse. It is **CC-process-level**, so state that clearly before writing anything:
+
+> "I can turn on Claude Code telemetry for this repo so Pulse sees per-tool/per-stage timing. **This is process-level — once on, EVERY Claude Code session in this repo emits to Pulse, not just `/otta:dev`.** The token goes only into `.claude/settings.local.json` (gitignored), never the committed `settings.json`. Enable it?"
+
+Only if the developer says yes, source the repo + per-repo token from the existing pulse wiring and invoke the writer (which **merges into an existing `env`, never clobbers**, and is idempotent):
+
+```bash
+[ -f .otta/pulse.env ] && set -a && . .otta/pulse.env && set +a
+REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$OTTA_PULSE_TOKEN"
+```
+
+`OTTA_PULSE_URL` is honoured automatically (self-host); the hosted default needs no config.
+
+**Traces are a SEPARATE opt-in (beta, default NO).** Only after the developer also consents to spans, re-run with `--traces` (adds `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1` + the traces exporters):
+
+> "Traces/spans are a separate beta opt-in (more volume). Add those too?"
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$OTTA_PULSE_TOKEN" --traces
+```
+
+For non-setup users, the manual env block (logs-default / traces-beta split) is documented in the README.
+
+## 9. Ready
 
 Tell the developer the loop is live:
 - `/otta:start <issue>` — begin a scoped issue (creates an isolated worktree)
