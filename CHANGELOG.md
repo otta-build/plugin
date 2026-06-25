@@ -1,3 +1,24 @@
+## 0.11.5 — gate no-origin fix
+- **fix(gate):** `check-test-coverage.sh` no longer crashes under `set -e` on a repo with no `origin/HEAD` (fresh clone / local-only — any team's first run). BASE detection degrades origin → local default → root commit. Found by a fresh-repo onboarding test. (#19)
+
+## 0.11.4 — self-host docs
+- Documented the `OTTA_PULSE_URL` self-host override in `/otta:setup` + README — a team can point the whole loop at its own Pulse with no code change (hosted default unchanged). (#17)
+
+## 0.11.3 — sandbox.credentials hardening
+- `/otta:setup` now offers (opt-in) to write `.claude/settings.json` `sandbox.credentials`, so the pipeline's Bash commands can't read credential files / token env vars. Sandbox-mode trade-offs (filesystem + network isolation, platform reqs) are stated; written only on consent. (#15)
+
+## 0.11.2 — pipeline invokes learn-from-pulse
+- `/otta:dev` and `/otta:build` now run the `learn-from-pulse` skill after seeding and before the builder — the skill existed but nothing invoked it, so the online LEARN step never ran. Now automatic; no-ops when Pulse isn't configured. (#13)
+
+## 0.11.1 — judgment stages → opus
+- Pipeline `reviewer` + `qa` pinned to `opus` (builder/devops stay `sonnet`). The judgment stages drive defect-catch rate — opus reviewers caught a real privacy BLOCKER that a passing test suite and the gate both missed. (#11)
+
+## 0.11.0 — SubagentStop gate
+- New `SubagentStop` hook runs `otta-gate.sh` when the `otta:builder` subagent finishes — a build stage can no longer report "done" past a failing gate; the failing-check detail is fed back so it keeps fixing. Scoped to the builder, guarded by `.pr-body.md` presence + `OTTA_SKIP_GATE`. (#9)
+
+## 0.10.2 — onboarding minors
+- N2: an empty `BASE...HEAD` diff now prints "no changes to gate yet" (exit 0) instead of a false coverage failure. N3: `/otta:setup` auto-detects `ci.required` from branch protection (confirm-only). (#7)
+
 ## 0.10.1 — onboarding-eval fixes
 
 Fixes found by a fresh-eyes onboarding-UX eval (2026-06-24):
