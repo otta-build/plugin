@@ -109,6 +109,17 @@ echo "$VALID_MODES" | grep -qw "$MODE_VALUE" || \
 echo "$OUT" | grep -q 'mode: "tag"' || fail "tauri-action should map to deploy.mode: tag (got mode: $MODE_VALUE)"
 
 # ---------------------------------------------------------------------------
+# 7b. #20 deploy policy keys are emitted: auto/target/provider/verify
+#     auto defaults to human-approve; target is an ENVIRONMENT (staging here,
+#     since a staging branch exists); provider is the PLATFORM (tauri here).
+# ---------------------------------------------------------------------------
+echo "$OUT" | grep -q '^  auto: "human-approve"' || fail "deploy.auto must default to human-approve"
+echo "$OUT" | grep -q '^  target: "staging"' || fail "deploy.target must be environment (staging when staging branch exists), got: $(echo "$OUT" | grep '^  target:')"
+echo "$OUT" | grep -q '^  provider: "tauri"' || fail "deploy.provider must be the platform (tauri for tauri-action), got: $(echo "$OUT" | grep '^  provider:')"
+echo "$OUT" | grep -q '^  verify: "sha-match"' || fail "deploy.verify must default to sha-match"
+echo "$OUT" | grep -q '^  allow_production: false' || fail "deploy.allow_production must default to false (prod opt-in guard)"
+
+# ---------------------------------------------------------------------------
 # 8. ci.required is a boolean (false or true), NOT a list
 # ---------------------------------------------------------------------------
 echo "$OUT" | grep -q '^  required: false\|^  required: true' || \
@@ -134,6 +145,9 @@ mkdir -p .github/workflows
 OUT2="$(bash "$SCRIPT")"
 echo "$OUT2" | grep -q '^staging: null' || \
   fail "no staging branch must yield 'staging: null', got: $(echo "$OUT2" | grep '^staging:')"
+# #20: no staging branch → deploy.target defaults to production
+echo "$OUT2" | grep -q '^  target: "production"' || \
+  fail "no staging branch must yield deploy.target: production, got: $(echo "$OUT2" | grep '^  target:')"
 
 # ---------------------------------------------------------------------------
 # 11. YAML parses and passes schema assertions (requires python3 + PyYAML)
@@ -148,6 +162,13 @@ assert d['staging'] == 'staging', 'staging wrong: ' + repr(d['staging'])
 valid_modes = {'auto-on-merge', 'tag', 'manual', 'none'}
 assert d['deploy']['mode'] in valid_modes, 'mode not in enum: ' + repr(d['deploy']['mode'])
 assert d['deploy']['mode'] == 'tag', 'tauri-action must give tag, got: ' + repr(d['deploy']['mode'])
+# #20 deploy policy keys
+assert d['deploy']['auto'] == 'human-approve', 'deploy.auto default wrong: ' + repr(d['deploy']['auto'])
+assert d['deploy']['target'] in {'production', 'staging'}, 'deploy.target not an env: ' + repr(d['deploy']['target'])
+assert d['deploy']['target'] == 'staging', 'staging branch present → target staging, got: ' + repr(d['deploy']['target'])
+assert d['deploy']['provider'] == 'tauri', 'deploy.provider must be platform tauri, got: ' + repr(d['deploy']['provider'])
+assert d['deploy']['verify'] in {'sha-match', 'health', 'none'}, 'deploy.verify not in enum: ' + repr(d['deploy']['verify'])
+assert d['deploy']['allow_production'] is False, 'deploy.allow_production must default false: ' + repr(d['deploy']['allow_production'])
 assert isinstance(d['ci']['required'], bool), 'ci.required not bool: ' + repr(d['ci']['required'])
 assert d['pulse']['installed'] == False, 'pulse.installed wrong'
 print('  python3 schema assertions: ok')

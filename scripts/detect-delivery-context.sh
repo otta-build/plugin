@@ -6,8 +6,15 @@
 #   base:    string  — default branch
 #   staging: string | null — staging branch name, null if absent
 #   deploy:
-#     mode:   "auto-on-merge" | "tag" | "manual" | "none"
-#     target: string — "tauri", "vercel", "coolify", etc., or "none"
+#     auto:     "human-approve" | "merge-on-green" | "merge-and-deploy"
+#               — post-merge policy (#20). Default human-approve: stop at the
+#               green PR, human merges. ABSENT block ⇒ human-approve (back-compat).
+#     target:   "production" | "staging" — the environment merge ships to.
+#     provider: "coolify" | "vercel" | "tauri" | "none" — the deploy platform
+#               (pluggable; `none` is the generic path).
+#     verify:   "sha-match" | "health" | "none" — how a deploy is verified.
+#     mode:     "auto-on-merge" | "tag" | "manual" | "none" — informational
+#               delivery signal detected from CI (retained, back-compat).
 #     package_paths: string[]
 #   ci:
 #     required: boolean  — false (placeholder; fill in from branch-protection)
@@ -86,7 +93,7 @@ fi
 # 4. Deploy signal → #64 enum: auto-on-merge | tag | manual | none
 # ---------------------------------------------------------------------------
 DEPLOY_MODE="none"
-DEPLOY_TARGET="none"
+DEPLOY_PROVIDER="none"   # platform: coolify | vercel | tauri | none
 DEPLOY_PACKAGE_PATHS="[]"
 
 if [ -d "$WORKFLOW_DIR" ]; then
@@ -95,15 +102,15 @@ if [ -d "$WORKFLOW_DIR" ]; then
   if echo "$all_wf_content" | grep -q "tauri-action\|tauri build"; then
     # Tauri ships on a git tag → "tag"
     DEPLOY_MODE="tag"
-    DEPLOY_TARGET="tauri"
+    DEPLOY_PROVIDER="tauri"
   elif echo "$all_wf_content" | grep -q "vercel\|VERCEL"; then
     # Vercel deploys automatically on merge → "auto-on-merge"
     DEPLOY_MODE="auto-on-merge"
-    DEPLOY_TARGET="vercel"
+    DEPLOY_PROVIDER="vercel"
   elif echo "$all_wf_content" | grep -q "coolify\|COOLIFY"; then
     # Coolify auto-deploys on push → "auto-on-merge"
     DEPLOY_MODE="auto-on-merge"
-    DEPLOY_TARGET="coolify"
+    DEPLOY_PROVIDER="coolify"
   fi
 
   # Detect package paths from working-directory directives
@@ -118,6 +125,14 @@ if [ -d "$WORKFLOW_DIR" ]; then
     done <<< "$pkg_paths"
     DEPLOY_PACKAGE_PATHS="$(printf '\n%s' "$pkg_yaml")"
   fi
+fi
+
+# Default deploy environment: if a staging branch exists, ship there first;
+# otherwise production. (#20 — `deploy.target` = environment, not platform.)
+if [ "$STAGING_VALUE" = "null" ]; then
+  DEPLOY_ENV="production"
+else
+  DEPLOY_ENV="staging"
 fi
 
 # ---------------------------------------------------------------------------
@@ -139,8 +154,14 @@ fi
   printf 'staging: %s\n' "$STAGING_VALUE"
   printf '\n'
   printf '%s\n' "deploy:"
-  printf '  mode: "%s"    # auto-on-merge | tag | manual | none — FILL IN if wrong\n' "$DEPLOY_MODE"
-  printf '  target: "%s"   # vercel | coolify | tauri | none — FILL IN\n' "$DEPLOY_TARGET"
+  printf '  auto: "human-approve"  # human-approve | merge-on-green | merge-and-deploy — default stops at the green PR (#20)\n'
+  printf '  target: "%s"   # production | staging — environment merge ships to — FILL IN\n' "$DEPLOY_ENV"
+  printf '  provider: "%s"   # coolify | vercel | tauri | none (generic) — FILL IN\n' "$DEPLOY_PROVIDER"
+  printf '  verify: "sha-match"    # sha-match | health | none — how a deploy is verified\n'
+  # allow_production guards hands-off prod deploys (#20 AC5): merge-and-deploy to
+  # production is REJECTED unless this is explicitly true.
+  printf '  allow_production: false  # set true to permit auto merge-and-deploy to production\n'
+  printf '  mode: "%s"    # auto-on-merge | tag | manual | none — detected delivery signal (informational)\n' "$DEPLOY_MODE"
   printf '  package_paths: %s\n' "$DEPLOY_PACKAGE_PATHS"
   printf '\n'
   printf '%s\n' "ci:"

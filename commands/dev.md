@@ -21,6 +21,8 @@ Run the Otta shipping pipeline for issue **#$1** **interactively, in this sessio
 
 6. **Ship.** Only when the gate passed and every AC passed: dispatch `otta:devops` to commit and `gh pr create --body-file .pr-body.md`. Confirm the PR target (staging vs main) with the developer if unsure.
 
+7. **Deploy+verify (per policy).** After the PR is open, run the deploy stage per `.otta.yml` `deploy.auto`: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-deploy-verify.sh" <pr-number>`. With the default `human-approve` (or an absent `deploy` block) this stops at the green PR — today's behavior. `merge-on-green` / `merge-and-deploy` poll the gate to green, then merge (and, for `merge-and-deploy`, verify the deploy by provider SHA-match). Production hands-off requires `deploy.allow_production: true`. See `/otta:ship` for the full policy.
+
 Throughout: **when in doubt, ask — don't assume.** Report the result at the end (PR URL, or where you stopped and why).
 
 > **Tier rule:** for tiny (≤2-file, no new public behavior) changes use `/otta:fix` (gated, light review) instead of this full pipeline.
