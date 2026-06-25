@@ -66,7 +66,40 @@ If the repo has a deployable package (`deploy.mode` is not `none`) but no CI wor
 
 Generate the workflow only if the developer says yes. Keep it minimal: checkout → install deps → run tests. Match the working-directory to `deploy.package_paths` if set.
 
-## 7. Ready
+## 7. (Optional) Harden against credential exfiltration
+
+Offer — do **not** impose. Otta gates AI-written code; this stops that code from *reading* your secrets in the first place, using Claude Code's `sandbox.credentials`. It **requires sandbox mode on**, which has real side effects, so state the trade-off before writing anything:
+
+> "I can add a `.claude/settings.json` that blocks the pipeline's Bash commands from reading credential files (`~/.aws`, `~/.ssh`, `~/.config/gcloud`) and strips token env vars (`GITHUB_TOKEN`, `AWS_*`, `NPM_TOKEN`). It needs `sandbox.enabled: true`, which also isolates the filesystem (writes limited to the working dir) and the network (you approve new domains on first use). macOS + Linux/WSL2 only — not native Windows; Linux needs `bubblewrap` + `socat`. Add it? You can tune the deny lists after."
+
+Only if the developer says yes, write `.claude/settings.json` — **merge into an existing file, never clobber it**:
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": true,
+    "credentials": {
+      "files": [
+        { "path": "~/.aws/credentials", "mode": "deny" },
+        { "path": "~/.aws/config", "mode": "deny" },
+        { "path": "~/.ssh", "mode": "deny" },
+        { "path": "~/.config/gcloud", "mode": "deny" }
+      ],
+      "envVars": [
+        { "name": "GITHUB_TOKEN", "mode": "deny" },
+        { "name": "AWS_ACCESS_KEY_ID", "mode": "deny" },
+        { "name": "AWS_SECRET_ACCESS_KEY", "mode": "deny" },
+        { "name": "NPM_TOKEN", "mode": "deny" }
+      ]
+    }
+  }
+}
+```
+
+Notes: `allowUnsandboxedCommands: true` keeps the loop working if a sandbox dependency is missing (set `false` for strict mode). There is **no built-in credential deny list** — the lists above are a starting set; add the secrets that matter for this repo. The rules apply to the main session **and** the pipeline subagents (builder/reviewer/qa/devops), since subagents share the parent's sandbox config. `mode` only supports `"deny"` today.
+
+## 8. Ready
 
 Tell the developer the loop is live:
 - `/otta:start <issue>` — begin a scoped issue (creates an isolated worktree)
