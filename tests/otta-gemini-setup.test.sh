@@ -46,16 +46,22 @@ valid_json ".gemini/settings.json" || fail ".gemini/settings.json is not valid J
 pass "AC2: settings.json and otel-collector-config.yaml created"
 
 # ---------------------------------------------------------------------------
-# 2. settings.json: telemetry.endpoint points at local collector
+# 2. settings.json: telemetry.enabled=true, otlpEndpoint, otlpProtocol
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo2"
 mkdir -p "$RDIR"
 cd "$RDIR"
 bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "settings run exited non-zero"
-ENDPOINT="$(getjson ".gemini/settings.json" "telemetry.endpoint")"
-[ "$ENDPOINT" = "http://localhost:4318/v1/logs" ] || \
-  fail "telemetry.endpoint wrong: $ENDPOINT"
-pass "AC2: telemetry.endpoint = http://localhost:4318/v1/logs"
+ENABLED="$(getjson ".gemini/settings.json" "telemetry.enabled")"
+[ "$ENABLED" = "True" ] || \
+  fail "telemetry.enabled wrong (must be true): $ENABLED"
+OTLP_ENDPOINT="$(getjson ".gemini/settings.json" "telemetry.otlpEndpoint")"
+[ "$OTLP_ENDPOINT" = "http://localhost:4318" ] || \
+  fail "telemetry.otlpEndpoint wrong: $OTLP_ENDPOINT"
+PROTOCOL="$(getjson ".gemini/settings.json" "telemetry.otlpProtocol")"
+[ "$PROTOCOL" = "http/json" ] || \
+  fail "telemetry.otlpProtocol wrong: $PROTOCOL"
+pass "AC2: telemetry.enabled=true, otlpEndpoint=http://localhost:4318, otlpProtocol=http/json"
 
 # ---------------------------------------------------------------------------
 # 3. collector config: has required sections (receivers, processors, exporters)
@@ -149,8 +155,8 @@ valid_json ".gemini/settings.json" || fail "merge produced invalid JSON"
   fail "merge: pre-existing 'model' key clobbered"
 [ "$(getjson ".gemini/settings.json" "theme")" = "dark" ] || \
   fail "merge: pre-existing 'theme' key clobbered"
-[ "$(getjson ".gemini/settings.json" "telemetry.endpoint")" = "http://localhost:4318/v1/logs" ] || \
-  fail "merge: telemetry.endpoint not merged"
+[ "$(getjson ".gemini/settings.json" "telemetry.otlpEndpoint")" = "http://localhost:4318" ] || \
+  fail "merge: telemetry.otlpEndpoint not merged"
 pass "AC4: merge preserves pre-existing settings.json keys"
 
 # ---------------------------------------------------------------------------

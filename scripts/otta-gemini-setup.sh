@@ -49,7 +49,9 @@ except (FileNotFoundError, json.JSONDecodeError):
 tel = data.get("telemetry")
 if not isinstance(tel, dict):
     tel = {}
-tel["endpoint"] = "http://localhost:4318/v1/logs"
+tel["enabled"] = True
+tel["otlpEndpoint"] = "http://localhost:4318"
+tel["otlpProtocol"] = "http/json"
 data["telemetry"] = tel
 
 with open(path, "w") as f:

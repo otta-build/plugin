@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # otta-codex-setup.test.sh — regression tests for scripts/otta-codex-setup.sh (issue #30).
-# Writes [otel] table to ~/.codex/config.toml; merges, never clobbers; idempotent; gitignored.
+# Writes .otta/codex.env with standard OTEL env vars; never uses TOML; gitignored; idempotent.
 # Run: bash tests/otta-codex-setup.test.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,149 +13,128 @@ pass() { echo "PASS: $1"; }
 REPO_SLUG="acme/widget"
 TOKEN="pulse_tok_SECRET123"
 
-command -v python3 >/dev/null 2>&1 || { echo "SKIP: python3 required"; exit 0; }
+# ---------------------------------------------------------------------------
+# 1. Basic write: .otta/codex.env created with required OTEL env vars
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo1"
+mkdir -p "$RDIR"
+cd "$RDIR"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "basic run exited non-zero"
+ENV_FILE=".otta/codex.env"
+[ -f "$ENV_FILE" ] || fail ".otta/codex.env not created"
+grep -q 'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT' "$ENV_FILE" || \
+  fail "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT not in $ENV_FILE"
+grep -q 'https://pulse.otta.build/v1/logs' "$ENV_FILE" || \
+  fail "endpoint value missing pulse.otta.build/v1/logs in $ENV_FILE"
+pass "AC1: .otta/codex.env created with OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
 
 # ---------------------------------------------------------------------------
-# Helper: read a key from the [otel] section of a TOML file
+# 2. OTEL_RESOURCE_ATTRIBUTES contains repo slug and harness=codex
 # ---------------------------------------------------------------------------
-getotel() { # <file> <key>
-  python3 -c "
-import sys
-path, key = sys.argv[1], sys.argv[2]
-in_otel = False
-try:
-    with open(path) as f:
-        for line in f:
-            line = line.rstrip()
-            if line.startswith('['):
-                in_otel = (line.strip() == '[otel]')
-            elif in_otel and line.startswith(key + ' '):
-                val = line.split('=', 1)[1].strip().strip('\"')
-                print(val)
-                sys.exit(0)
-except FileNotFoundError:
-    pass
-print('')
-" "$1" "$2"
-}
+RDIR="$TMP/repo2"
+mkdir -p "$RDIR"
+cd "$RDIR"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "resource attrs run exited non-zero"
+grep -q "OTEL_RESOURCE_ATTRIBUTES=repo=$REPO_SLUG,harness=codex" ".otta/codex.env" || \
+  fail "OTEL_RESOURCE_ATTRIBUTES with repo+harness=codex not found: $(cat .otta/codex.env)"
+pass "AC1: OTEL_RESOURCE_ATTRIBUTES=repo=...,harness=codex present"
 
 # ---------------------------------------------------------------------------
-# 1. Basic write: [otel] section created, required keys present, exits 0
+# 3. OTEL_EXPORTER_OTLP_LOGS_HEADERS contains x-pulse-token=<token>
 # ---------------------------------------------------------------------------
-THOME="$TMP/home1"
-mkdir -p "$THOME"
-HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "basic run exited non-zero"
-CONFIG="$THOME/.codex/config.toml"
-[ -f "$CONFIG" ] || fail "config.toml not created"
-grep -q '\[otel\]' "$CONFIG" || fail "[otel] section not present"
-[ "$(getotel "$CONFIG" logs_endpoint)" = "https://pulse.otta.build/v1/logs" ] || \
-  fail "logs_endpoint wrong: $(getotel "$CONFIG" logs_endpoint)"
-[ "$(getotel "$CONFIG" headers)" = "x-pulse-token=$TOKEN" ] || \
-  fail "headers wrong: $(getotel "$CONFIG" headers)"
-[ "$(getotel "$CONFIG" resource_attributes)" = "repo=$REPO_SLUG,harness=codex" ] || \
-  fail "resource_attributes wrong: $(getotel "$CONFIG" resource_attributes)"
-pass "AC1: [otel] section written with correct keys"
+RDIR="$TMP/repo3"
+mkdir -p "$RDIR"
+cd "$RDIR"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "headers run exited non-zero"
+grep -q "OTEL_EXPORTER_OTLP_LOGS_HEADERS=x-pulse-token=$TOKEN" ".otta/codex.env" || \
+  fail "OTEL_EXPORTER_OTLP_LOGS_HEADERS=x-pulse-token=<token> not found: $(cat .otta/codex.env)"
+pass "AC1: OTEL_EXPORTER_OTLP_LOGS_HEADERS=x-pulse-token=<token> present"
 
 # ---------------------------------------------------------------------------
-# 2. OTTA_PULSE_URL override (self-host), trailing slash normalized
+# 4. OTTA_PULSE_URL override (self-host), trailing slash normalized
 # ---------------------------------------------------------------------------
-THOME="$TMP/home2"
-mkdir -p "$THOME"
-OTTA_PULSE_URL="https://pulse.acme.example/" HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || \
+RDIR="$TMP/repo4"
+mkdir -p "$RDIR"
+cd "$RDIR"
+OTTA_PULSE_URL="https://pulse.acme.example/" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || \
   fail "self-host run exited non-zero"
-CONFIG="$THOME/.codex/config.toml"
-[ "$(getotel "$CONFIG" logs_endpoint)" = "https://pulse.acme.example/v1/logs" ] || \
-  fail "self-host logs_endpoint wrong: $(getotel "$CONFIG" logs_endpoint)"
+grep -q 'https://pulse.acme.example/v1/logs' ".otta/codex.env" || \
+  fail "self-host endpoint wrong: $(grep OTLP_LOGS_ENDPOINT .otta/codex.env)"
 pass "AC1: OTTA_PULSE_URL override respected (trailing slash normalized)"
 
 # ---------------------------------------------------------------------------
-# 3. Merge: pre-existing [otel] key not owned by us is preserved;
-#    pre-existing unrelated section not clobbered; [otel] keys updated
+# 5. Idempotent: re-run produces byte-identical output
 # ---------------------------------------------------------------------------
-THOME="$TMP/home3"
-mkdir -p "$THOME/.codex"
-CONFIG="$THOME/.codex/config.toml"
-cat > "$CONFIG" <<'TOML'
-[model]
-name = "gpt-4o"
-
-[otel]
-logs_endpoint = "https://old.example.com/v1/logs"
-headers = "x-old-token=oldval"
-resource_attributes = "repo=old/repo,harness=codex"
-my_extra_key = "keep-me"
-TOML
-HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "merge run exited non-zero"
-# Updated keys
-[ "$(getotel "$CONFIG" logs_endpoint)" = "https://pulse.otta.build/v1/logs" ] || \
-  fail "merge: logs_endpoint not updated"
-[ "$(getotel "$CONFIG" headers)" = "x-pulse-token=$TOKEN" ] || \
-  fail "merge: headers not updated"
-# Extra key inside [otel] preserved
-[ "$(getotel "$CONFIG" my_extra_key)" = "keep-me" ] || \
-  fail "merge: my_extra_key inside [otel] was clobbered"
-# Unrelated section still present
-grep -q '\[model\]' "$CONFIG" || fail "merge: [model] section lost"
-grep -q 'name = "gpt-4o"' "$CONFIG" || fail "merge: model.name lost"
-pass "AC4: merge preserves pre-existing keys (unrelated section + extra [otel] key)"
+RDIR="$TMP/repo5"
+mkdir -p "$RDIR"
+cd "$RDIR"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "idempotent run 1 failed"
+FIRST="$(cat .otta/codex.env)"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "idempotent run 2 failed"
+SECOND="$(cat .otta/codex.env)"
+[ "$FIRST" = "$SECOND" ] || fail "re-run changed .otta/codex.env (not idempotent)"
+pass "AC1: idempotent re-run (stable output)"
 
 # ---------------------------------------------------------------------------
-# 4. Idempotent: re-run produces byte-identical output; no duplicate [otel]
+# 6. Gitignore: .otta/codex.env added to project .gitignore
 # ---------------------------------------------------------------------------
-THOME="$TMP/home4"
-mkdir -p "$THOME"
-HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "idempotent run 1 failed"
-CONFIG="$THOME/.codex/config.toml"
-FIRST="$(cat "$CONFIG")"
-HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "idempotent run 2 failed"
-SECOND="$(cat "$CONFIG")"
-[ "$FIRST" = "$SECOND" ] || fail "re-run changed output (not idempotent)"
-# No duplicate [otel] section
-N="$(grep -c '\[otel\]' "$CONFIG")"
-[ "$N" = "1" ] || fail "duplicate [otel] section: appears $N times"
-pass "AC4: idempotent re-run (stable, no dupes)"
-
-# ---------------------------------------------------------------------------
-# 5. Gitignore: ~/.gitignore_global gets .codex/config.toml added (once)
-# ---------------------------------------------------------------------------
-THOME="$TMP/home5"
-mkdir -p "$THOME"
-GITIGNORE="$THOME/.gitignore_global"
-printf '# existing\n' > "$GITIGNORE"
-HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "gitignore run failed"
-grep -qF '.codex/config.toml' "$GITIGNORE" || fail "gitignore: pattern not added to .gitignore_global"
+RDIR="$TMP/repo6"
+mkdir -p "$RDIR"
+cd "$RDIR"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "gitignore run failed"
+grep -qF '.otta/codex.env' ".gitignore" || fail ".gitignore: .otta/codex.env not added"
 # Re-run does not duplicate the pattern
-HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "gitignore idempotent run failed"
-N="$(grep -c '\.codex/config\.toml' "$GITIGNORE")"
-[ "$N" = "1" ] || fail "gitignore: pattern duplicated after re-run (count=$N)"
-pass "AC1: .gitignore_global updated (idempotent)"
-
-# ---------------------------------------------------------------------------
-# 6. No .gitignore_global: script warns but still exits 0
-# ---------------------------------------------------------------------------
-THOME="$TMP/home6"
-mkdir -p "$THOME"
-OUT="$(HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" 2>&1)" || fail "no-gitignore run exited non-zero"
-echo "$OUT" | grep -qi "warn\|gitignore\|manual" || \
-  fail "no-gitignore: expected a warning in output, got: $OUT"
-pass "AC1: no .gitignore_global warns gracefully (exit 0)"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "gitignore idempotent run failed"
+N="$(grep -c '\.otta/codex\.env' ".gitignore")"
+[ "$N" = "1" ] || fail ".gitignore: pattern duplicated after re-run (count=$N)"
+pass "AC1: .otta/codex.env added to .gitignore (idempotent)"
 
 # ---------------------------------------------------------------------------
 # 7. AC3: consent disclosure mentions pulse.otta.build
 # ---------------------------------------------------------------------------
-THOME="$TMP/home7"
-mkdir -p "$THOME"
-OUT="$(HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" 2>&1)"
+RDIR="$TMP/repo7"
+mkdir -p "$RDIR"
+cd "$RDIR"
+OUT="$(bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" 2>&1)"
 echo "$OUT" | grep -q 'pulse.otta.build' || fail "AC3: consent disclosure missing pulse.otta.build"
 pass "AC3: consent disclosure includes pulse.otta.build"
 
 # ---------------------------------------------------------------------------
-# 8. Usage guard: missing args exit non-zero
+# 8. AC3: output includes sourcing instructions
 # ---------------------------------------------------------------------------
-THOME="$TMP/home8"
-mkdir -p "$THOME"
-if HOME="$THOME" bash "$SCRIPT" >/dev/null 2>&1; then fail "missing args should exit non-zero"; fi
-if HOME="$THOME" bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing token should exit non-zero"; fi
+RDIR="$TMP/repo8"
+mkdir -p "$RDIR"
+cd "$RDIR"
+OUT="$(bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" 2>&1)"
+echo "$OUT" | grep -qi 'source' || fail "AC3: sourcing instructions missing from output"
+pass "AC3: sourcing instructions included in output"
+
+# ---------------------------------------------------------------------------
+# 9. AC5: literal token NOT in any git-staged file
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo9"
+mkdir -p "$RDIR"
+cd "$RDIR"
+git init -q -b main
+git config user.email t@t.t
+git config user.name t
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "token-staged run failed"
+git add -A
+# .otta/codex.env is gitignored so should not be staged
+STAGED_WITH_TOKEN="$(git diff --cached --name-only | while read -r f; do
+  grep -q "$TOKEN" "$f" 2>/dev/null && echo "$f" || true
+done)"
+[ -z "$STAGED_WITH_TOKEN" ] || fail "literal token found in staged file(s): $STAGED_WITH_TOKEN"
+pass "AC5: literal token not in any staged file"
+
+# ---------------------------------------------------------------------------
+# 10. Usage guard: missing args exit non-zero
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo10"
+mkdir -p "$RDIR"
+cd "$RDIR"
+if bash "$SCRIPT" >/dev/null 2>&1; then fail "missing args should exit non-zero"; fi
+if bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing token should exit non-zero"; fi
 pass "usage guard: missing repo/token rejected"
 
 echo "All otta-codex-setup tests passed."
