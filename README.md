@@ -115,7 +115,9 @@ Pulse is the GitHub App that ingests your PR/CI/tag webhooks into an append-only
 
 Pulse's GitHub App captures PR/CI/tag webhooks with no machine setup. To also feed **Claude Code's own OTEL telemetry** — per-tool/per-stage timing (logs) and spans (traces) — into Pulse, `/otta:setup` offers an opt-in step that wires Claude Code's `env` block.
 
-This is **CC-process-level**: once enabled, **every** Claude Code session in the repo emits to Pulse (not just `/otta:dev`). Token-bearing values go **only** into `.claude/settings.local.json` (gitignored) — never the committed `settings.json`. Endpoint base is `OTTA_PULSE_URL` (default `https://pulse.otta.build`, self-host override).
+This is **CC-process-level**: once enabled, **every** Claude Code session in the repo emits to Pulse (not just `/otta:dev`). Token-bearing values go **only** into `.claude/settings.local.json` (gitignored) — never the committed `settings.json`.
+
+> **Where your telemetry lands.** The endpoint base is `OTTA_PULSE_URL`, which **defaults to Otta's hosted Pulse (`https://pulse.otta.build`) — Otta receives that telemetry** (cost, tokens, tool timing, repo name). To keep it entirely in your own infrastructure, set `OTTA_PULSE_URL` to your self-hosted Pulse **before** enabling.
 
 - **Logs** (default) — timing/event records.
 - **Traces** (separate opt-in, **beta**) — spans; adds `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1`.
