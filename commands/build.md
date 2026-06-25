@@ -7,6 +7,8 @@ Run the Otta shipping pipeline for issue **#$1** as a dynamic workflow.
 
 First make sure the workspace is seeded — if `.pr-body.md` doesn't exist yet, run `/otta:start $1` to seed the acceptance criteria.
 
+Then **learn before building**: run the `learn-from-pulse` skill (the `idea_ref` now exists in `.pr-body.md`). It consults Pulse for this idea's prior shipped work, escaped defects, and loop verdicts so the pipeline doesn't repeat a failure the factory already caught. If Pulse isn't configured it no-ops. Fold anything it surfaces into `.pr-body.md` as a guarding AC before the workflow runs.
+
 Then invoke the **Workflow** tool with the bundled pipeline script (this is an explicit, user-invoked opt-in to orchestration):
 
 ```
