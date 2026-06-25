@@ -52,26 +52,43 @@ grep -qi "can.t improve.*can.t see\|per.tool.*timing\|per.stage.*timing\|\$/PR\|
   || fail "AC2: telemetry teach-blurb missing (can't improve what you can't see / per-tool timing)"
 
 # ---------------------------------------------------------------------------
-# AC3: AskUserQuestion directives — at least one per decision step
-# Check the keyword appears enough times (one per distinct step)
+# AC3: AskUserQuestion directives — one per decision step, co-occurring in
+#      the same section as the step's heading (not just anywhere in the file).
+# ---------------------------------------------------------------------------
+
+# Helper: assert AskUserQuestion appears in the section starting at the first
+# line matching HEADING_PATTERN, ending at the next "## " or "---" line.
+check_step_has_aqu() {
+  local heading_pattern="$1"
+  local step_name="$2"
+  local start
+  start="$(grep -in "$heading_pattern" "$SETUP" | head -1 | cut -d: -f1)"
+  [ -n "$start" ] || fail "AC3(co-occur): step '$step_name' heading not found in setup.md"
+  local found
+  found="$(awk "NR==$start{p=1} NR>$start && /^## |^---/{p=0} p{print}" "$SETUP" \
+           | grep -c "AskUserQuestion" || true)"
+  [ "$found" -ge 1 ] \
+    || fail "AC3(co-occur): step '$step_name' section has no AskUserQuestion directive — every decision step must ask via AskUserQuestion"
+}
+
+# 8 named decision steps, each requiring a co-occurring AskUserQuestion
+check_step_has_aqu "Confirm or override.*base\|## 2\." "base/staging branches"
+check_step_has_aqu "Deploy automation\|## 3\." "deploy.auto policy"
+check_step_has_aqu "Required CI\|## 4\." "ci.required"
+check_step_has_aqu "Onboard.*Pulse\|## 5\." "Pulse App"
+check_step_has_aqu "Harden against credential\|## 6\." "sandbox.credentials"
+check_step_has_aqu "Scaffold.*CI\|## 7\." "CI workflow scaffold"
+check_step_has_aqu "local gate hook\|## 8\." "local gate hook"
+check_step_has_aqu "Stream.*telemetry\|## 9\." "telemetry"
+
+# Global count: ≥8 (one per decision step)
 AQU_COUNT="$(grep -c "AskUserQuestion" "$SETUP" || true)"
 [ "$AQU_COUNT" -ge 8 ] \
   || fail "AC3: expected AskUserQuestion directive for each of 8+ decision steps, found $AQU_COUNT"
 
-# Each named step must have its own AskUserQuestion call
-for label in "base" "deploy.auto\|deploy auto\|auto.*policy\|pipeline.*drive" \
-             "ci.required\|ci required" "sandbox\|credential" \
-             "Pulse\|pulse-install" "CI workflow\|ci-test\|scaffold" \
-             "local.*hook\|hook.*local\|pre-push" "Telemetry\|telemetry"; do
-  grep -qi "$label" "$SETUP" || fail "AC3: decision step not present in setup.md: $label"
-done
-
-# The file must instruct the agent to call AskUserQuestion (not just mention it as a UI concept)
-grep -q "AskUserQuestion" "$SETUP" || fail "AC3: AskUserQuestion never referenced in setup.md"
-
-# Recommended/default option is FIRST per step — check at least the base step and telemetry step
-grep -qi "recommended\|default.*first\|first.*option\|first.*chip\|safe default" "$SETUP" \
-  || fail "AC3: setup.md must note that the recommended/safe option is first in each AskUserQuestion call"
+# Recommended/safe default is FIRST in each question
+grep -qi "recommended\|safe default" "$SETUP" \
+  || fail "AC3: setup.md must mark the recommended/safe default option in each AskUserQuestion call"
 
 # ---------------------------------------------------------------------------
 # AC4: Write-summary step exists, the optional write blocks come AFTER it,

@@ -106,7 +106,11 @@ Record the choice.
 **Pain this solves:** The loop has amnesia without a memory — runs don't learn from each other; you can't see what shipped broken.
 **Benefit you get:** DORA metrics free (deploy frequency, lead time, change-failure rate) + escape detection + the LEARN data that improves agents over time.
 
-This step is interactive GitHub consent — you cannot do it for the user:
+Ask via AskUserQuestion — header "Otta Pulse", question "Install the Otta Pulse GitHub App for this repo?":
+- "Install (recommended)" — DORA + escape detection + the LEARN memory; without it the loop has amnesia and you have no server-side verdicts or metrics
+- "Skip" — no Pulse capture; gate still runs locally, but no server-side verdicts, DORA, or LEARN data
+
+Only if the developer chooses "Install":
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/pulse-install.sh"
@@ -120,7 +124,7 @@ OTTA_PULSE_URL="https://pulse.your-team.example" bash "${CLAUDE_PLUGIN_ROOT}/scr
 
 Print the installation URL from the script and ask the user to open it, pick their account/org, and click Install. Offer to open it with `--open` if they are on this machine.
 
-After the user confirms installation, record `pulse.installed: true` (written to `.otta.yml` at commit time).
+After the user confirms installation, record `pulse.installed: true` (written to `.otta.yml` at commit time). On "Skip", record `pulse.installed: false` — do NOT run `pulse-install.sh`.
 
 ---
 
