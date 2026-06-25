@@ -69,7 +69,10 @@ if [ "${1:-}" = "--prune" ]; then
   removed=0
   for d in "$WT_ROOT/$SLUG-"*; do
     [ -e "$d/.git" ] || continue
-    m="$(stat -f %m "$d" 2>/dev/null || stat -c %Y "$d" 2>/dev/null || echo "$NOW")"
+    # GNU first: on Linux `stat -f` means --file-system and SUCCEEDS with
+    # non-numeric output, so a BSD-first order silently yields garbage. `-c %Y`
+    # (GNU mtime) fails on BSD/macOS → falls through to `-f %m` (BSD mtime).
+    m="$(stat -c %Y "$d" 2>/dev/null || stat -f %m "$d" 2>/dev/null || echo "$NOW")"
     age_h=$(( (NOW - m) / 3600 ))
     if [ "$age_h" -ge "$HOURS" ]; then
       git worktree remove --force "$(cd "$d" && pwd -P)" \
