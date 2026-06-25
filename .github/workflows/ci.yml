@@ -14,21 +14,6 @@ jobs:
           fetch-depth: 0   # worktree tests branch off the base ref — need full history
       - name: Ensure netcat (ledger-stream test)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq netcat-openbsd
-      - name: DEBUG prune repro (temporary)
-        run: |
-          set -x
-          SCRIPT="$PWD/scripts/otta-worktree.sh"
-          TMP="$(mktemp -d)"; REPO="$TMP/repo"
-          git init -q -b main "$REPO"; cd "$REPO"
-          git config user.email t@t.t; git config user.name t
-          echo base > f.txt; git add f.txt; git commit -qm base
-          export OTTA_WORKTREE_DIR="$TMP/wt"
-          OLD="$(bash "$SCRIPT" 100 main)"; echo "OLD=$OLD"
-          NEW="$(bash "$SCRIPT" 200 main)"; echo "NEW=$NEW"
-          touch -t 202001010000 "$OLD" || touch -d "2020-01-01" "$OLD"
-          echo "--- running --prune 24 (stderr visible) ---"
-          bash "$SCRIPT" --prune 24; echo "PRUNE_EXIT=$?"
-        continue-on-error: true
       - name: Run shell test suite
         run: |
           fail=0
