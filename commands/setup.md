@@ -12,6 +12,24 @@ AI agents code fast but quality is inconsistent — defects ship, runs forget co
 
 > Full pain→benefit table: [docs/why-otta-setup.md](../docs/why-otta-setup.md)
 
+> **Proof by self-application:** This very wizard shipped through the Otta loop you're installing — built → reviewed → **QA caught a real gap (#26 AC3, the Pulse step had no opt-out)** → fixed → gated → merged.
+
+---
+
+## 0. Before we start: see where you stand
+
+Run the readiness score to show the current state (0/8):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-readiness.sh"
+```
+
+Show the developer the per-dimension ✓/✗ list and the `N/8 production-ready` score. This is the **before** snapshot — setup will close these gaps.
+
+Then offer the live gate demo via AskUserQuestion — header "Gate demo", question "Watch the gate catch a bad change? (10s demo, runs in a throwaway temp dir — never touches your repo)":
+- "Show me (recommended)" — run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-gate-demo.sh"` and print the red→green narration; takes ~10 seconds
+- "Skip" — proceed directly to Part A
+
 ---
 
 ## Part A: Detect + ask (no files written yet)
@@ -296,3 +314,23 @@ Next steps:
 Pulse wiring is automatic — `/otta:setup` connects this repo to Pulse and writes a gitignored `.otta/pulse.env` for you. No token to paste, no shell-profile edit needed. Merged-PR verdicts are captured server-side by the Otta Pulse GitHub App; the local stream adds your pre-merge gate runs so you see the full picture in Pulse.
 
 To opt out of local verdict streaming, set `OTTA_NO_CAPTURE=1` in your environment (verdicts stay in the local `.otta/ledger/` file and can be imported later with `pulse ingest-ledger`).
+
+---
+
+## 12. After — readiness score
+
+Run the score again to show what was unlocked:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-readiness.sh"
+```
+
+Show the developer the updated ✓/✗ list and the new `N/8 production-ready` score. Compare to the **before** snapshot from step 0.
+
+---
+
+## 13. Ship your first gated PR now
+
+Ask via AskUserQuestion — header "First PR in 2 min", question "Ship your first gated PR now? I'll run `/otta:start <issue>` for you.":
+- "Yes — tell me the issue number" — ask the developer for the issue number/title, then invoke `/otta:start <issue>`
+- "Skip — I'll do it later" — print: "Run `/otta:start <issue>` whenever you're ready to begin a scoped issue."

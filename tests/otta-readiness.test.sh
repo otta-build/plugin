@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# otta-readiness.test.sh — AC4/AC7: score math 0/8, 8/8, 4/8 partial; read-only assertion
+# Run: bash tests/otta-readiness.test.sh
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$HERE/../scripts/otta-readiness.sh"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+fail() { echo "✗ $1" >&2; exit 1; }
+
+[ -f "$SCRIPT" ] || fail "otta-readiness.sh not found at $SCRIPT"
+
+# Helper: make a minimal stub gh that returns the given exit code and (optionally) output
+make_gh_stub() {
+  local bin="$1" exit_code="$2" output="${3:-}"
+  mkdir -p "$bin"
+  printf '#!/bin/sh\necho "%s"\nexit %s\n' "$output" "$exit_code" > "$bin/gh"
+  chmod +x "$bin/gh"
+}
+
+# =============================================================================
+# 1. Score 0/8 — bare git repo, no dimensions satisfied
+# =============================================================================
+ZERO_REPO="$TMP/zero"
+mkdir -p "$ZERO_REPO"
+cd "$ZERO_REPO"
+git init -q
+git config user.email t@t.t
+git config user.name t
+echo base > f.txt; git add f.txt; git commit -qm base
+
+# stub gh to fail (no branch protection detectable)
+FAKE_BIN_ZERO="$TMP/bin-zero"
+make_gh_stub "$FAKE_BIN_ZERO" 1 ""
+
+OUTPUT="$(PATH="$FAKE_BIN_ZERO:$PATH" bash "$SCRIPT" 2>&1)" || true
+echo "$OUTPUT" | grep -qE '0/8' \
+  || fail "zero-repo: expected '0/8' in output, got:\n$OUTPUT"
+echo "  ✓ 0/8 score correct"
+
+# =============================================================================
+# 2. Score 8/8 — all dimensions satisfied
+# =============================================================================
+ALL_REPO="$TMP/all"
+mkdir -p "$ALL_REPO"
+cd "$ALL_REPO"
+git init -q
+git config user.email t@t.t
+git config user.name t
+echo base > f.txt; git add f.txt; git commit -qm base
+git remote add origin https://github.com/fake/repo.git
+
+# dim 8: .otta.yml exists + dim 1: base/staging configured
+cat > .otta.yml <<'YAML'
+base: main
+staging: staging
+YAML
+
+# dim 2: CI workflow
+mkdir -p .github/workflows
+echo 'name: ci' > .github/workflows/ci.yml
+
+# dim 4: gate hook (husky pre-push referencing otta)
+mkdir -p .husky
+printf '#!/bin/sh\nbash scripts/otta-gate.sh\n' > .husky/pre-push
+chmod +x .husky/pre-push
+
+# dim 5: Pulse connected
+mkdir -p .otta
+echo 'OTTA_PULSE_TOKEN=fake' > .otta/pulse.env
+
+# dim 6: sandbox configured
+mkdir -p .claude
+echo '{"sandbox": {"enabled": true}}' > .claude/settings.json
+
+# dim 7: telemetry on
+echo '{"env": {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://pulse.otta.build"}}' > .claude/settings.local.json
+
+# dim 3: branch protection — stub gh to succeed with a fake repo slug
+FAKE_BIN_ALL="$TMP/bin-all"
+mkdir -p "$FAKE_BIN_ALL"
+cat > "$FAKE_BIN_ALL/gh" <<'SH'
+#!/bin/sh
+case "$*" in
+  *nameWithOwner*) echo "fake/repo" ;;
+  *) : ;;
+esac
+exit 0
+SH
+chmod +x "$FAKE_BIN_ALL/gh"
+
+OUTPUT="$(PATH="$FAKE_BIN_ALL:$PATH" bash "$SCRIPT" 2>&1)" || true
+echo "$OUTPUT" | grep -qE '8/8' \
+  || fail "all-repo: expected '8/8' in output, got:\n$OUTPUT"
+echo "  ✓ 8/8 score correct"
+
+# =============================================================================
+# 3. Score 4/8 — partial: dims 1, 2, 5, 8 only
+# =============================================================================
+PARTIAL_REPO="$TMP/partial"
+mkdir -p "$PARTIAL_REPO"
+cd "$PARTIAL_REPO"
+git init -q
+git config user.email t@t.t
+git config user.name t
+echo base > f.txt; git add f.txt; git commit -qm base
+
+# dim 8 + dim 1: .otta.yml with base + staging
+cat > .otta.yml <<'YAML'
+base: main
+staging: staging
+YAML
+
+# dim 2: CI workflow
+mkdir -p .github/workflows
+echo 'name: ci' > .github/workflows/ci.yml
+
+# dim 5: Pulse connected
+mkdir -p .otta
+echo 'OTTA_PULSE_TOKEN=fake' > .otta/pulse.env
+
+# no dim 3 (gh fails), no dim 4, no dim 6, no dim 7
+FAKE_BIN_P="$TMP/bin-partial"
+make_gh_stub "$FAKE_BIN_P" 1 ""
+
+OUTPUT="$(PATH="$FAKE_BIN_P:$PATH" bash "$SCRIPT" 2>&1)" || true
+echo "$OUTPUT" | grep -qE '4/8' \
+  || fail "partial-repo: expected '4/8' in output, got:\n$OUTPUT"
+echo "  ✓ 4/8 score correct"
+
+# =============================================================================
+# 4. Read-only — running the script leaves no new files in the repo
+# =============================================================================
+cd "$PARTIAL_REPO"
+FILES_BEFORE="$(find . -not -path './.git/*' | sort)"
+PATH="$FAKE_BIN_P:$PATH" bash "$SCRIPT" > /dev/null 2>&1 || true
+FILES_AFTER="$(find . -not -path './.git/*' | sort)"
+[ "$FILES_BEFORE" = "$FILES_AFTER" ] \
+  || fail "readiness script is NOT read-only — file set changed:\n$(diff <(echo "$FILES_BEFORE") <(echo "$FILES_AFTER") || true)"
+echo "  ✓ read-only verified"
+
+# =============================================================================
+# 5. Output has a per-dimension ✓/✗ list (at least one ✓ and one ✗ in partial)
+# =============================================================================
+cd "$PARTIAL_REPO"
+OUTPUT="$(PATH="$FAKE_BIN_P:$PATH" bash "$SCRIPT" 2>&1)" || true
+echo "$OUTPUT" | grep -q "✓" || fail "partial output has no ✓ lines"
+echo "$OUTPUT" | grep -q "✗" || fail "partial output has no ✗ lines"
+echo "  ✓ per-dimension ✓/✗ list present"
+
+echo "✓ otta-readiness: all checks passed (0/8, 8/8, 4/8, read-only, per-dim list)"
