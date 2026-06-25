@@ -78,6 +78,8 @@ Every gate run appends a `{score, feedback}` record to a local ledger at `~/.ott
 
 Failures surface **before** you push, not in CI. Bypass once with `OTTA_SKIP_GATE=1 git push`.
 
+The gate fires at two points: a **pre-push** hook (blocks `git push`), and a **build-stage** hook (`SubagentStop`) that runs after the `otta:builder` subagent finishes — so a build stage can't report "done" past a failing gate; the reasons are fed back so it keeps fixing. Same `OTTA_SKIP_GATE=1` bypass.
+
 ## How it connects to Otta Pulse
 
 Pulse is the GitHub App that ingests your PR/CI/tag webhooks into an append-only event store and computes DORA metrics. This plugin doesn't talk to Pulse directly — it makes sure every PR body carries the `Fixes #N` + `idea_ref` linkage, which **Pulse already reads from the `pull_request` webhook**. No extra auth, no secret on your machine.
