@@ -25,7 +25,7 @@ Then, once per repo:
 /otta:setup
 ```
 
-This installs a pre-push gate hook and walks you through installing the **Otta Pulse** GitHub App (interactive — GitHub requires your consent to install an App).
+This runs a **guided wizard** that teaches why each step exists (pain → benefit), asks each question via structured chips (recommended default first), and writes `.otta.yml` + installs the pre-push gate hook and the **Otta Pulse** GitHub App. See [docs/why-otta-setup.md](docs/why-otta-setup.md) for the full pain→benefit table.
 
 ## Commands
 
