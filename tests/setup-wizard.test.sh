@@ -129,4 +129,39 @@ grep -qi "pain\|benefit\|gate\|DORA" "$DOCS" \
 grep -q "why-otta-setup" "$SETUP" \
   || fail "AC6: setup.md must link to docs/why-otta-setup.md"
 
-echo "✓ setup-wizard: all checks passed (AC1–AC6)"
+# ---------------------------------------------------------------------------
+# AC2/AC3 (issue #28): Four awesome-wizard features
+# ---------------------------------------------------------------------------
+
+# AC3 (meta-flex): setup.md intro + why-doc carry the proof-by-self-application line
+grep -qiE "#26|AC3|proof by self.application|self.application" "$SETUP" \
+  || fail "AC3(#28): setup.md missing meta-flex / proof-by-self-application line referencing #26/AC3"
+grep -qiE "#26|AC3|proof by self.application|self.application" "$DOCS" \
+  || fail "AC3(#28): docs/why-otta-setup.md missing meta-flex / proof-by-self-application line"
+
+# AC2 (gate-demo AskUserQuestion): setup.md offers the gate demo
+grep -qiE "otta-gate-demo|Watch the gate|10s demo|gate.*demo|demo.*gate" "$SETUP" \
+  || fail "AC2(#28): setup.md missing gate-demo AskUserQuestion offer"
+
+# AC5 (readiness shown at START and END): otta-readiness referenced before Part A AND after payoff
+READINESS_LINES="$(grep -n "otta-readiness" "$SETUP")"
+[ -n "$READINESS_LINES" ] || fail "AC5(#28): otta-readiness.sh not referenced in setup.md at all"
+
+PART_A_LINE="$(grep -n "## Part A" "$SETUP" | head -1 | cut -d: -f1)"
+PAYOFF_LINE="$(grep -n "## 11\.\|Ready.*payoff\|the payoff" "$SETUP" | head -1 | cut -d: -f1)"
+[ -n "$PART_A_LINE" ] || fail "AC5(#28): could not locate '## Part A' in setup.md"
+[ -n "$PAYOFF_LINE" ] || fail "AC5(#28): could not locate payoff section in setup.md"
+
+FIRST_READINESS_LINE="$(echo "$READINESS_LINES" | head -1 | cut -d: -f1)"
+LAST_READINESS_LINE="$(echo "$READINESS_LINES" | tail -1 | cut -d: -f1)"
+
+[ "$FIRST_READINESS_LINE" -lt "$PART_A_LINE" ] \
+  || fail "AC5(#28): readiness score not shown at START (before Part A line $PART_A_LINE; first readiness ref is line $FIRST_READINESS_LINE)"
+[ "$LAST_READINESS_LINE" -gt "$PAYOFF_LINE" ] \
+  || fail "AC5(#28): readiness score not shown at END (after payoff line $PAYOFF_LINE; last readiness ref is line $LAST_READINESS_LINE)"
+
+# AC6 (first-PR AskUserQuestion): setup.md final step offers /otta:start
+grep -qiE "Ship your first|first.*gated PR|otta:start.*issue|first PR in" "$SETUP" \
+  || fail "AC6(#28): setup.md missing first-PR AskUserQuestion at end"
+
+echo "✓ setup-wizard: all checks passed (AC1–AC6 + #28 AC2/AC3/AC5/AC6)"

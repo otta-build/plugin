@@ -2,6 +2,10 @@
 
 This table is the canonical value copy for `/otta:setup`. It is also used by the README and landing page.
 
+## Proof by self-application
+
+This very wizard shipped through the Otta loop you're installing — built → reviewed → **QA caught a real gap (#26 AC3, the Pulse step had no opt-out)** → fixed → gated → merged.
+
 ## The core problem
 
 AI agents code fast but quality is inconsistent — defects ship, runs forget context, and "is this production-ready?" is a guess. Otta makes every Claude Code session a gated TDD pipeline (build → review → verify → ship). **Gates, not prompts, guarantee quality.** Pulse records every verdict so the factory learns. DORA and cost visibility come free.
