@@ -23,7 +23,14 @@ The script leaves placeholders for fields it cannot determine. Ask the developer
   - `"tag"` — a git tag triggers the release (Tauri, npm publish, Docker tag, etc.)
   - `"manual"` — deploy is triggered manually (button, script, etc.)
   - `"none"` — no automated deploy yet
-- **deploy.target** — where does it deploy? (e.g. `vercel`, `coolify`, `tauri`, `npm`, `none`)
+- **deploy.provider** — which platform deploys it? (`coolify`, `vercel`, `tauri`, or `none` for the generic path)
+- **deploy.auto** — the post-merge policy (#20). What should `/otta:ship` do once the PR is green? (choose one)
+  - `"human-approve"` (default) — stop at the green PR; the human merges. Safe, unchanged behavior. An **absent** `deploy` block also resolves to this, so existing repos are unaffected.
+  - `"merge-on-green"` — auto-merge once every Otta Gate sub-check is green; downstream deploy handled outside Otta.
+  - `"merge-and-deploy"` — merge on green, then verify the deploy reached the merged SHA (provider SHA-match) and report the live URL.
+- **deploy.target** — which environment does a merge ship to? (`production` or `staging`)
+- **deploy.verify** — how is a deploy confirmed? (`sha-match` — default; `health` — also probe a health URL; `none`)
+- **deploy.allow_production** — only relevant for `merge-and-deploy` to `production`. This **must** be set to `true` explicitly to permit a hands-off production deploy; otherwise the stage is rejected (no accidental hands-off prod deploys). Default `false`. Ask the developer to confirm before setting it true.
 - **staging-first vs prod** — does every feature branch go to a staging environment before merging to `base`? (`staging: staging` is already set if a `staging` branch was found — confirm this is the intended flow)
 - **ci.required** — which CI check names are required to pass before merge? **First auto-detect, don't just ask:** run `gh api "repos/{owner}/{repo}/branches/{base}/protection/required_status_checks/contexts"` (substitute the repo and the detected `base`). If it returns a list, pre-fill `ci.required` with it and ask the developer only to **confirm** (e.g. "Branch protection requires `["Build (ubuntu-22.04)", "test"]` — use these?"). If it 404s (no branch protection, or no admin access), fall back to asking which check names are required, e.g. `["Build (ubuntu-22.04)", "test"]`.
 

@@ -1,3 +1,10 @@
+## 0.12.0 — post-merge deploy+verify stage
+- **feat(deploy):** new post-merge `deploy+verify` stage drives a green PR through to deployment per a per-repo `.otta.yml` `deploy` policy. `scripts/otta-deploy-verify.sh` parses the policy, polls the Otta Gate to green (surfacing the blocking sub-check — e.g. a CI check stuck with no runner — instead of hanging), merges only when policy allows AND every sub-check is green, and (for `merge-and-deploy`) verifies the deploy by provider SHA-match + optional health probe. (#20)
+- **feat(.otta.yml):** `deploy` block gains `auto` (`human-approve` | `merge-on-green` | `merge-and-deploy`), `target` (`production` | `staging`), `provider` (`coolify` | `vercel` | `tauri` | `none`), `verify` (`sha-match` | `health` | `none`), and `allow_production`. **Back-compat:** an absent `deploy` block (or absent `auto`) resolves to `human-approve` — existing repos stop at the green PR exactly as before. `detect-delivery-context.sh` now emits these keys (`target` = environment, `provider` = platform); `mode`/`package_paths` retained as informational.
+- **feat(guard):** `target: production` + `auto: merge-and-deploy` is rejected unless `deploy.allow_production: true` — no accidental hands-off prod deploys (AC5). Provider logic is pluggable and env-driven (Coolify reads `OTTA_COOLIFY_*`); no infra/creds baked into the plugin.
+- **docs:** `/otta:setup` asks/writes the `deploy` policy; README documents the three modes + the prod opt-in guard; `/otta:ship`, `/otta:dev`, `/otta:build` invoke/note the stage.
+- **test:** `tests/otta-deploy-verify.test.sh` (policy parsing per `auto` value, absent → human-approve, prod+merge-and-deploy without opt-in rejected, gate-poll stall surfaces the blocker, SHA-match pass/fail, default never-merges); `detect-delivery-context.test.sh` extended for the new keys.
+
 ## 0.11.5 — gate no-origin fix
 - **fix(gate):** `check-test-coverage.sh` no longer crashes under `set -e` on a repo with no `origin/HEAD` (fresh clone / local-only — any team's first run). BASE detection degrades origin → local default → root commit. Found by a fresh-repo onboarding test. (#19)
 

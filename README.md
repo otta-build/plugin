@@ -80,6 +80,31 @@ Failures surface **before** you push, not in CI. Bypass once with `OTTA_SKIP_GAT
 
 The gate fires at two points: a **pre-push** hook (blocks `git push`), and a **build-stage** hook (`SubagentStop`) that runs after the `otta:builder` subagent finishes — so a build stage can't report "done" past a failing gate; the reasons are fed back so it keeps fixing. Same `OTTA_SKIP_GATE=1` bypass.
 
+## Post-merge deploy+verify (`.otta.yml` `deploy.auto`)
+
+By default the loop stops at a green PR for a human to merge. Opt a repo into hands-off delivery with a `deploy` block in `.otta.yml` — universal and provider-pluggable, never over-fit to one platform:
+
+```yaml
+deploy:
+  auto: human-approve   # human-approve | merge-on-green | merge-and-deploy
+  target: production    # production | staging — environment a merge ships to
+  provider: coolify     # coolify | vercel | tauri | none (generic)
+  verify: sha-match     # sha-match | health | none
+  allow_production: false  # explicit opt-in for hands-off prod (see guard below)
+```
+
+The three modes:
+
+| `auto` | What `/otta:ship`'s deploy stage does |
+|---|---|
+| `human-approve` *(default)* | Stops at the open PR — the human merges. **An absent `deploy` block resolves to this**, so existing repos are unchanged. Never auto-merges. |
+| `merge-on-green` | Polls the Otta Gate until **every** sub-check is green, then squash-merges. On a stall it prints the blocking sub-check (e.g. a `ciGreen` stuck with no runner) instead of hanging. Downstream deploy is handled outside Otta. |
+| `merge-and-deploy` | Merges on green, then verifies the deploy reached the merged SHA via `provider` (Coolify adapter, or `none` for the generic path), optionally probes a `health` URL, and reports the live URL + SHA or the exact failing step. |
+
+**Production opt-in guard.** `target: production` with `auto: merge-and-deploy` is **rejected** unless `deploy.allow_production: true` is set — so no repo ships hands-off to prod by accident. Staging needs no opt-in.
+
+**No baked-in infra.** The Coolify adapter reads `OTTA_COOLIFY_URL` / `_TOKEN` / `_APP_UUID` (and `OTTA_DEPLOY_HEALTH_URL` for `verify: health`) from the environment — no provider creds or org infra are shipped in the plugin.
+
 ## How it connects to Otta Pulse
 
 Pulse is the GitHub App that ingests your PR/CI/tag webhooks into an append-only event store and computes DORA metrics. This plugin doesn't talk to Pulse directly — it makes sure every PR body carries the `Fixes #N` + `idea_ref` linkage, which **Pulse already reads from the `pull_request` webhook**. No extra auth, no secret on your machine.

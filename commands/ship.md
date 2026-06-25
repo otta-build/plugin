@@ -28,3 +28,16 @@ Ship the current work through the Otta gate, then open the PR.
    Use `--base staging` if the repo's `.otta.yml` names a staging branch; otherwise `--base main` (the default).
 
 After merge + release tag, Pulse ingests the PR/tag webhooks automatically. The `idea_ref` + `Fixes #N` in the body are what let Pulse join the idea→issue→PR→version chain — no extra step needed.
+
+4. **Deploy+verify (per `.otta.yml` `deploy.auto` policy).** Once the PR is open, drive it through to deployment according to the repo's policy:
+
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-deploy-verify.sh" <pr-number>
+   ```
+
+   The stage reads the `deploy` block from `.otta.yml`:
+   - **`human-approve`** (default, and what an absent block resolves to) — stops at the open PR. The human merges. This preserves today's behavior exactly; nothing auto-merges.
+   - **`merge-on-green`** — polls the Otta Gate until every sub-check is green (on stall it prints the blocking sub-check — e.g. a `ciGreen` stuck with no runner — instead of hanging), then squash-merges. Downstream deploy is handled outside Otta.
+   - **`merge-and-deploy`** — merges on green, then verifies the deploy reached the merged SHA via the configured `provider` (Coolify adapter reads `OTTA_COOLIFY_*` from the env; `provider: none` is the generic path), optionally probes a health endpoint, and reports the live URL + SHA or the exact failing step.
+
+   **Prod guard (AC5):** `target: production` with `auto: merge-and-deploy` is **rejected** unless `deploy.allow_production: true` is set in `.otta.yml` — no accidental hands-off prod deploys. Coolify creds are never baked into the plugin; they come from the environment.
