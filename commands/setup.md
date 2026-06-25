@@ -35,6 +35,14 @@ Fill these answers into `.otta.yml` before continuing.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/pulse-install.sh"
 ```
 
+**Self-hosting Pulse?** By default this wires to the hosted Otta Pulse at `https://pulse.otta.build`. A team running its own Pulse instance sets `OTTA_PULSE_URL` first, and every Otta script honours it:
+
+```bash
+OTTA_PULSE_URL="https://pulse.your-team.example" bash "${CLAUDE_PLUGIN_ROOT}/scripts/pulse-install.sh"
+```
+
+Export `OTTA_PULSE_URL` in your shell profile to make it the default for this machine. The hosted default needs no config.
+
 Installing the App is interactive GitHub consent — you cannot do it for the user. Print the URL from the script and ask the user to open it, pick their account/org, and click Install. Offer to open it with `--open` if they are on this machine.
 
 After the user confirms installation, set `pulse.installed: true` in `.otta.yml`.
