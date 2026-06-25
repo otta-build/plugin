@@ -109,21 +109,27 @@ grep -q 'cost_usd' "otel-collector-config.yaml" || fail "collector yaml: cost_us
 pass "AC2: collector yaml includes cost_usd computation"
 
 # ---------------------------------------------------------------------------
-# 7. collector config: pulse export URL (default and OTTA_PULSE_URL override)
+# 7. collector config: pulse export URL — base only (otlphttp appends /v1/logs)
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo7"
 mkdir -p "$RDIR"
 cd "$RDIR"
 bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "default pulse URL run failed"
-grep -q 'pulse.otta.build' "otel-collector-config.yaml" || fail "default pulse URL not in collector yaml"
+# Exporter endpoint must be the base URL only. The otlphttp exporter appends
+# /v1/logs automatically; including /v1 in the config would produce /v1/v1/logs.
+grep -q 'endpoint: "https://pulse.otta.build"' "otel-collector-config.yaml" || \
+  fail "exporter endpoint must be bare base URL (without /v1), got: $(grep 'endpoint' otel-collector-config.yaml | tail -1)"
+# And must NOT have the doubled path
+grep -v '#' "otel-collector-config.yaml" | grep 'endpoint' | grep -v 'localhost' | grep -q '/v1"' && \
+  fail "exporter endpoint contains /v1 — would double to /v1/v1/logs" || true
 RDIR="$TMP/repo7b"
 mkdir -p "$RDIR"
 cd "$RDIR"
 OTTA_PULSE_URL="https://pulse.acme.example/" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || \
   fail "override pulse URL run failed"
-grep -q 'pulse.acme.example' "otel-collector-config.yaml" || \
-  fail "override pulse URL not in collector yaml"
-pass "AC1: pulse URL respected (default + OTTA_PULSE_URL override)"
+grep -q 'endpoint: "https://pulse.acme.example"' "otel-collector-config.yaml" || \
+  fail "override pulse URL endpoint wrong: $(grep 'endpoint' otel-collector-config.yaml | tail -1)"
+pass "AC1: pulse URL base-only in exporter endpoint (default + OTTA_PULSE_URL override)"
 
 # ---------------------------------------------------------------------------
 # 8. Merge: pre-existing settings.json keys preserved (idempotent JSON merge)

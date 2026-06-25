@@ -107,7 +107,9 @@ processors:
 
 exporters:
   otlphttp:
-    endpoint: "${PULSE}/v1"
+    # The otlphttp exporter appends /v1/logs, /v1/traces, etc. automatically.
+    # Use the base URL only — do NOT include /v1 here or it doubles the path.
+    endpoint: "${PULSE}"
     headers:
       x-pulse-token: "\${env:OTTA_PULSE_TOKEN}"
 
