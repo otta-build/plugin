@@ -116,9 +116,9 @@ Notes: `allowUnsandboxedCommands: true` keeps the loop working if a sandbox depe
 
 ## 8. (Optional) Stream Claude Code telemetry to Pulse
 
-Offer — do **not** impose. This turns on Claude Code's OTEL telemetry so per-tool/per-stage timing (logs) and spans (traces) flow into Pulse. It is **CC-process-level**, so state that clearly before writing anything:
+Offer — do **not** impose. This turns on Claude Code's OTEL telemetry so per-tool/per-stage timing (logs) and spans (traces) flow into Pulse. It is **CC-process-level** AND it has a **data destination** — state BOTH clearly before writing anything:
 
-> "I can turn on Claude Code telemetry for this repo so Pulse sees per-tool/per-stage timing. **This is process-level — once on, EVERY Claude Code session in this repo emits to Pulse, not just `/otta:dev`.** The token goes only into `.claude/settings.local.json` (gitignored), never the committed `settings.json`. Enable it?"
+> "I can turn on Claude Code telemetry for this repo so Pulse sees per-tool/per-stage timing. **This is process-level — once on, EVERY Claude Code session in this repo emits to Pulse, not just `/otta:dev`.** **By default it streams to Otta's hosted Pulse (`pulse.otta.build`) — Otta receives that telemetry. To keep it in your own infrastructure, set `OTTA_PULSE_URL` to your self-hosted Pulse *before* enabling.** The token goes only into `.claude/settings.local.json` (gitignored), never the committed `settings.json`. Enable it?"
 
 Only if the developer says yes, source the repo + per-repo token from the existing pulse wiring and invoke the writer (which **merges into an existing `env`, never clobbers**, and is idempotent):
 
