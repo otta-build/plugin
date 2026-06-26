@@ -45,7 +45,7 @@ repo_slug_full() {
 
 _stamp_session_link() {
   local wt_path="$1" branch="$2" full_repo="$3"
-  local sid="${CLAUDE_SESSION_ID:-}"
+  local sid="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
   [ -z "$sid" ] && return 0
 
   mkdir -p "${wt_path}/.otta"
