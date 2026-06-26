@@ -113,3 +113,4 @@ if [ "$TRACES" = "1" ]; then
 else
   echo "✓ Telemetry wired (logs) → ${PULSE} — written to ${SETTINGS} (gitignored). Re-run with --traces to add spans (beta)."
 fi
+echo "  ↻ Restart Claude Code in this directory for telemetry to take effect (CC reads settings at startup)."
