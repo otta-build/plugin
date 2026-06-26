@@ -1,0 +1,14 @@
+# Otta delivery contract — plugin repo (no service deployment, merge-on-green policy)
+base: "main"
+staging: null
+
+deploy:
+  auto: "merge-on-green"   # PRs auto-merge when gate+CI green; tagging done manually per release
+  target: "none"
+  provider: "none"
+
+ci:
+  required: true
+
+pulse:
+  installed: true
