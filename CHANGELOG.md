@@ -1,3 +1,10 @@
+## 0.16.0
+
+### Added
+- `scripts/otta-codex-setup.sh` — Codex CLI telemetry adapter: writes `.otta/codex.env` with standard OTEL env vars pointing to Pulse; gitignored (token-bearing); opt-in with consent disclosure
+- `scripts/otta-gemini-setup.sh` — Gemini CLI telemetry adapter: writes `.gemini/settings.json` (`enabled: true`, `otlpEndpoint`, `otlpProtocol: http/json`) + `otel-collector-config.yaml` sidecar (injects auth header via `${env:OTTA_PULSE_TOKEN}`, repo+harness attrs, cost_usd from tokens); opt-in with consent disclosure
+- Both adapters: idempotent; mirror the CC adapter pattern from v0.13.0
+
 ## 0.15.0 — awesome wizard: live gate demo + readiness score + meta-flex + first-PR-in-2-min
 - **feat(setup):** Four opt-in "awesome" features added to the guided wizard — all terminal-feasible, all skippable. (1) Live gate demo (`scripts/otta-gate-demo.sh`): shows the gate go RED (no test) → GREEN (test added) in a throwaway `mktemp -d`; never touches the user's repo; offered via AskUserQuestion at setup start. (2) Meta-flex copy in setup intro + `docs/why-otta-setup.md`: "This very wizard shipped through the Otta loop — QA caught a real gap (#26 AC3, the Pulse step had no opt-out) → fixed → gated → merged. Proof by self-application." (3) Factory Readiness Score (`scripts/otta-readiness.sh`): scores 0–8 across base/staging, CI, branch protection, gate hook, Pulse, sandbox credentials, telemetry, `.otta.yml`; pure read-only, degrades gracefully when `gh` absent; shown at setup START and END. (4) First-PR-in-2-min: AskUserQuestion at setup end offers to invoke `/otta:start <issue>` immediately. (#28)
 - **scripts:** `scripts/otta-gate-demo.sh` — isolated demo (mktemp, subshell, trap cleanup, explicit root SHA as base-ref, local git identity, no cwd change). `scripts/otta-readiness.sh` — 8-dimension readiness probe, `set -euo pipefail`-safe (each probe guarded with `|| true` / boolean flag; no single failure aborts), exits 0 always.
