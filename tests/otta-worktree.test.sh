@@ -61,24 +61,24 @@ CURL_LOG="$TMP_CURL/calls.txt"
 printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$CURL_LOG" > "$FAKE_CURL"
 chmod +x "$FAKE_CURL"
 
-# 7,8,9: CLAUDE_SESSION_ID set → session.json written + curl called
+# 7,8,9: CLAUDE_CODE_SESSION_ID set → session.json written + curl called
 (
-  export CLAUDE_SESSION_ID="test-session-abc123"
+  export CLAUDE_CODE_SESSION_ID="test-session-abc123"
   export OTTA_PULSE_URL="http://localhost:19999"
   export OTTA_PULSE_TOKEN="fake-tok"
   export PATH="${TMP_CURL}:${PATH}"
   bash "$SCRIPT" 8881 main >/dev/null 2>&1 || true
 )
 WT_8881="$TMP/wt/repo-8881"
-[ -f "${WT_8881}/.otta/session.json" ] || fail "7: session.json not written when CLAUDE_SESSION_ID set"
+[ -f "${WT_8881}/.otta/session.json" ] || fail "7: session.json not written when CLAUDE_CODE_SESSION_ID set"
 grep -q "test-session-abc123" "${WT_8881}/.otta/session.json" || fail "8: session.json missing session_id"
 grep -q "session-link" "${CURL_LOG}" 2>/dev/null || fail "9: curl not called with session-link"
 bash "$SCRIPT" --remove 8881 >/dev/null 2>&1 || true
 
-# 10,11: no CLAUDE_SESSION_ID → no session.json, no curl
+# 10,11: no CLAUDE_CODE_SESSION_ID → no session.json, no curl
 rm -f "$CURL_LOG"
 (
-  unset CLAUDE_SESSION_ID
+  unset CLAUDE_CODE_SESSION_ID
   export OTTA_PULSE_URL="http://localhost:19999"
   export OTTA_PULSE_TOKEN="fake-tok"
   export PATH="${TMP_CURL}:${PATH}"
@@ -86,8 +86,8 @@ rm -f "$CURL_LOG"
 )
 WT_8882="$TMP/wt/repo-8882"
 [ -d "$WT_8882" ] || fail "10a: worktree 8882 not created (test anchor)"
-[ ! -f "${WT_8882}/.otta/session.json" ] || fail "10: session.json created when CLAUDE_SESSION_ID unset"
-[ ! -s "${CURL_LOG}" ] || fail "11: curl called when CLAUDE_SESSION_ID unset"
+[ ! -f "${WT_8882}/.otta/session.json" ] || fail "10: session.json created when CLAUDE_CODE_SESSION_ID unset"
+[ ! -s "${CURL_LOG}" ] || fail "11: curl called when CLAUDE_CODE_SESSION_ID unset"
 bash "$SCRIPT" --remove 8882 >/dev/null 2>&1 || true
 
 rm -rf "$TMP_CURL"
