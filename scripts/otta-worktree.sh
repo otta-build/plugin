@@ -34,6 +34,40 @@ repo_slug() {
   printf '%s' "$r" | tr -cd 'A-Za-z0-9._-'
 }
 
+repo_slug_full() {
+  local r
+  r="$(git config --get remote.origin.url 2>/dev/null || true)"
+  r="${r%.git}"
+  r="${r##*:}"            # strip SSH prefix: git@github.com:
+  r="${r##*/github.com/}" # strip HTTPS prefix
+  printf '%s' "$r"
+}
+
+_stamp_session_link() {
+  local wt_path="$1" branch="$2" full_repo="$3"
+  local sid="${CLAUDE_SESSION_ID:-}"
+  [ -z "$sid" ] && return 0
+
+  mkdir -p "${wt_path}/.otta"
+  printf '{"session_id":"%s","branch":"%s","repo":"%s","started_at":"%s"}\n' \
+    "$sid" "$branch" "$full_repo" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    > "${wt_path}/.otta/session.json"
+
+  local purl="${OTTA_PULSE_URL:-}" ptok="${OTTA_PULSE_TOKEN:-}"
+  [ -z "$purl" ] || [ -z "$ptok" ] && return 0
+
+  local encoded_repo
+  encoded_repo="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$full_repo" 2>/dev/null || printf '%s' "$full_repo")"
+
+  curl -fsS -m 5 \
+    "${purl%/}/session-link?repo=${encoded_repo}" \
+    -H "x-pulse-token: ${ptok}" \
+    -H "content-type: application/json" \
+    -d "{\"session_id\":\"${sid}\",\"branch\":\"${branch}\"}" \
+    >/dev/null 2>&1 || \
+    echo "[otta-worktree] warn: /session-link POST failed (non-fatal)" >&2
+}
+
 if [ "${1:-}" = "--remove" ]; then
   ISSUE="${2:?usage: otta-worktree.sh --remove <issue>}"
   SLUG="$(repo_slug)"
@@ -116,6 +150,10 @@ else
   git worktree add -B "$BRANCH" "$WT" "$START" >/dev/null 2>&1 \
     || git worktree add "$WT" "$START" >/dev/null 2>&1
   echo "✓ worktree $WT on $BRANCH off $START" >&2
+  # gitignore session.json (token-adjacent)
+  grep -qxF '.otta/session.json' "${WT}/.gitignore" 2>/dev/null || \
+    echo '.otta/session.json' >> "${WT}/.gitignore"
+  _stamp_session_link "$WT" "$BRANCH" "$(repo_slug_full)"
 fi
 
 printf '%s\n' "$WT"
