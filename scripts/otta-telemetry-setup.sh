@@ -80,6 +80,9 @@ env.update({
     "OTEL_LOGS_EXPORTER": "otlp",
     "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/json",
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": pulse + "/v1/logs",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/json",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": pulse + "/v1/metrics",
     "OTEL_EXPORTER_OTLP_HEADERS": "x-pulse-token=" + token,
     "OTEL_RESOURCE_ATTRIBUTES": "repo=" + repo,
 })
@@ -109,8 +112,8 @@ else
 fi
 
 if [ "$TRACES" = "1" ]; then
-  echo "✓ Telemetry wired (logs + traces BETA) → ${PULSE} — written to ${SETTINGS} (gitignored)."
+  echo "✓ Telemetry wired (logs + metrics + traces BETA) → ${PULSE} — written to ${SETTINGS} (gitignored)."
 else
-  echo "✓ Telemetry wired (logs) → ${PULSE} — written to ${SETTINGS} (gitignored). Re-run with --traces to add spans (beta)."
+  echo "✓ Telemetry wired (logs + metrics) → ${PULSE} — written to ${SETTINGS} (gitignored). Re-run with --traces to add spans (beta)."
 fi
 echo "  ↻ Restart Claude Code in this directory for telemetry to take effect (CC reads settings at startup)."
