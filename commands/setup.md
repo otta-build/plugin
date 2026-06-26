@@ -243,7 +243,8 @@ Show a complete summary of what will be written based on all choices above:
 > - `.github/workflows/ci-test.yml` (CI scaffold): `{yes/no}`
 > - `.claude/settings.local.json` (telemetry, gitignored): `{yes/no — logs / logs+traces}`
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
-> - Harness context files (if absent): `CLAUDE.md`, `AGENTS.md` (Codex), `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected harnesses
+> - `CLAUDE.md` (if absent): always written — CC is the primary harness being configured
+> - Additional harness context files (if absent): `AGENTS.md` (Codex), `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected non-CC harnesses
 >
 > Confirm to proceed, or go back to change any answer."
 
@@ -268,11 +269,16 @@ Tell the developer this file is the delivery contract for the Otta loop — keep
 
 ### B1b. Write harness context files (OTTA.md mapper)
 
-For each harness detected in step 9b, write the corresponding context file **only if it does not already exist** (never overwrite):
+**Step 1 — Write `CLAUDE.md` unconditionally** (Claude Code is always the primary harness being configured by `/otta:setup`). Write `CLAUDE.md` **only if it does not already exist** (never overwrite):
+
+> Content: "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build."
+
+Log whether the file was written or already existed.
+
+**Step 2 — For each additional harness detected in step 9b** (i.e. non-CC harnesses only), write the corresponding context file **only if it does not already exist** (never overwrite):
 
 | Harness | File | Content |
 |---------|------|---------|
-| `claude_code` | `CLAUDE.md` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build." |
 | `codex` | `AGENTS.md` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Codex adapter)." |
 | `gemini` | `GEMINI.md` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Gemini adapter)." |
 | `cursor` | `.cursor/rules` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Cursor adapter coming soon)." |

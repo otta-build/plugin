@@ -93,5 +93,39 @@ OUT="$(HOME="$FAKE_HOME" PATH="$SAFE_PATH" bash "$SCRIPT" "$RDIR")"
 [ "$OUT" = "claude_code" ] || fail "Clean output: expected exactly 'claude_code', got '$OUT'"
 pass "7: output contains only harness IDs (no path output)"
 
+# ---------------------------------------------------------------------------
+# 8. No false-positive for gemini when only CLI is in PATH (no repo config)
+#    Before fix: command -v gemini succeeds → false positive
+#    After fix:  only .gemini/settings.json triggers detection
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo8"
+mkdir -p "$RDIR"
+# Put a fake gemini binary in the stub bin dir
+echo '#!/bin/sh' > "$STUB_BIN/gemini"
+chmod +x "$STUB_BIN/gemini"
+PATH_WITH_GEMINI="$STUB_BIN:/usr/bin:/bin"
+OUT="$(HOME="$FAKE_HOME" PATH="$PATH_WITH_GEMINI" bash "$SCRIPT" "$RDIR")"
+if echo "$OUT" | grep -q "gemini"; then
+  fail "False-positive gemini: detected 'gemini' in repo with no .gemini/settings.json (CLI only)"
+fi
+pass "8: no false-positive for gemini when only CLI is in PATH"
+
+# ---------------------------------------------------------------------------
+# 9. No false-positive for cursor when only CLI is in PATH (no .cursor/ dir)
+#    Before fix: command -v cursor succeeds → false positive
+#    After fix:  only .cursor/ dir triggers detection
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo9"
+mkdir -p "$RDIR"
+# Put a fake cursor binary in the stub bin dir
+echo '#!/bin/sh' > "$STUB_BIN/cursor"
+chmod +x "$STUB_BIN/cursor"
+PATH_WITH_CURSOR="$STUB_BIN:/usr/bin:/bin"
+OUT="$(HOME="$FAKE_HOME" PATH="$PATH_WITH_CURSOR" bash "$SCRIPT" "$RDIR")"
+if echo "$OUT" | grep -q "cursor"; then
+  fail "False-positive cursor: detected 'cursor' in repo with no .cursor/ dir (CLI only)"
+fi
+pass "9: no false-positive for cursor when only CLI is in PATH"
+
 echo ""
 echo "detect-harnesses: all checks passed"
