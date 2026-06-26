@@ -267,15 +267,9 @@ git commit -m "chore: add .otta.yml delivery context (Otta setup)"
 
 Tell the developer this file is the delivery contract for the Otta loop — keep it in git so all agents and CI jobs see it.
 
-### B1b. Write harness context files (OTTA.md mapper)
+### B1b. Write additional harness context files (OTTA.md mapper)
 
-**Step 1 — Write `CLAUDE.md` unconditionally** (Claude Code is always the primary harness being configured by `/otta:setup`). Write `CLAUDE.md` **only if it does not already exist** (never overwrite):
-
-> Content: "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build."
-
-Log whether the file was written or already existed.
-
-**Step 2 — For each additional harness detected in step 9b** (i.e. non-CC harnesses only), write the corresponding context file **only if it does not already exist** (never overwrite):
+For each additional harness detected in step 9b (i.e. non-CC harnesses only), write the corresponding context file **only if it does not already exist** (never overwrite):
 
 | Harness | File | Content |
 |---------|------|---------|
@@ -283,7 +277,7 @@ Log whether the file was written or already existed.
 | `gemini` | `GEMINI.md` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Gemini adapter)." |
 | `cursor` | `.cursor/rules` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Cursor adapter coming soon)." |
 
-For Cursor, create `.cursor/` if it does not exist. Log each file written. Skip any file that already exists.
+For Cursor, create `.cursor/` if it does not exist. Log each file written. Skip any file that already exists. If no additional harnesses were found, skip this step entirely.
 
 ### B2. Write sandbox credentials (if chosen)
 
@@ -348,6 +342,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$WEBHOOK_S
 ```
 
 For non-setup users, the manual env block (logs-default / traces-beta split) is documented in the README.
+
+### B6. Write CLAUDE.md (unconditional)
+
+Claude Code is always the primary harness being configured by `/otta:setup`. Write `CLAUDE.md` **only if it does not already exist** (never overwrite), regardless of what step 9b detected:
+
+> Content: "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build."
+
+Log whether the file was written or already existed.
 
 ---
 
