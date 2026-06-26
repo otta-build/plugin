@@ -201,6 +201,38 @@ Record the choice — telemetry setup is wired after confirmation in step 10.
 
 ---
 
+## 9b. Additional harness adapters
+
+Run the harness detection script to find non-CC harnesses in this repo:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-harnesses.sh"
+```
+
+For each harness found (other than `claude_code`, which was configured above), offer an adapter via AskUserQuestion:
+
+**If `codex` is detected:**
+
+Ask via AskUserQuestion — header "Codex adapter", question "Codex CLI detected. Wire Otta telemetry for Codex? (runs otta-codex-setup.sh)":
+- "Yes (recommended)" — will run `otta-codex-setup.sh` in Part B to write `.otta/codex.env`
+- "Skip" — no Codex telemetry
+
+**If `gemini` is detected:**
+
+Ask via AskUserQuestion — header "Gemini adapter", question "Gemini CLI detected. Wire Otta telemetry for Gemini? Note: Gemini has no native OTLP auth headers — a local OTel Collector sidecar is required to inject the token. (runs otta-gemini-setup.sh)":
+- "Yes" — will run `otta-gemini-setup.sh` in Part B; requires `docker` for the OTel Collector sidecar
+- "Skip" — no Gemini telemetry
+
+**If `cursor` is detected:**
+
+Inform only (no adapter available yet): "Cursor detected. A Cursor telemetry adapter is coming in a future version. Skipping for now."
+
+If no additional harnesses are found, skip this step entirely (no prompts shown).
+
+Record choices for each harness — scripts are run after confirmation in step 10.
+
+---
+
 ## 10. Write-summary — confirm before writing any file
 
 Show a complete summary of what will be written based on all choices above:
@@ -211,6 +243,7 @@ Show a complete summary of what will be written based on all choices above:
 > - `.github/workflows/ci-test.yml` (CI scaffold): `{yes/no}`
 > - `.claude/settings.local.json` (telemetry, gitignored): `{yes/no — logs / logs+traces}`
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
+> - Harness context files (if absent): `CLAUDE.md`, `AGENTS.md` (Codex), `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected harnesses
 >
 > Confirm to proceed, or go back to change any answer."
 
@@ -232,6 +265,19 @@ git commit -m "chore: add .otta.yml delivery context (Otta setup)"
 ```
 
 Tell the developer this file is the delivery contract for the Otta loop — keep it in git so all agents and CI jobs see it.
+
+### B1b. Write harness context files (OTTA.md mapper)
+
+For each harness detected in step 9b, write the corresponding context file **only if it does not already exist** (never overwrite):
+
+| Harness | File | Content |
+|---------|------|---------|
+| `claude_code` | `CLAUDE.md` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build." |
+| `codex` | `AGENTS.md` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Codex adapter)." |
+| `gemini` | `GEMINI.md` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Gemini adapter)." |
+| `cursor` | `.cursor/rules` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Cursor adapter coming soon)." |
+
+For Cursor, create `.cursor/` if it does not exist. Log each file written. Skip any file that already exists.
 
 ### B2. Write sandbox credentials (if chosen)
 
