@@ -276,12 +276,15 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-git-hooks.sh"
 
 ### B5. Wire telemetry (if chosen)
 
-If the developer chose Logs or Logs+traces in step 9, source the repo + token from `.otta/pulse.env` and invoke the writer (which **merges into an existing `env`, never clobbers**, and is idempotent):
+If the developer chose Logs or Logs+traces in step 9, ask for the **webhook secret** (found in Coolify → Otta project → pulse app → `WEBHOOK_SECRET` env var). The script calls `/token` to derive a per-repo token and writes only the derived token to `.claude/settings.local.json` — the webhook secret is **never written to any file**.
+
+Prompt via AskUserQuestion: "Paste your Pulse webhook secret (from Coolify → pulse app → WEBHOOK_SECRET):"
+
+Then invoke the writer (which **merges into an existing `env`, never clobbers**, and is idempotent):
 
 ```bash
-[ -f .otta/pulse.env ] && set -a && . .otta/pulse.env && set +a
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$OTTA_PULSE_TOKEN"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$WEBHOOK_SECRET"
 ```
 
 `OTTA_PULSE_URL` is honoured automatically (self-host); the hosted default needs no config.
@@ -289,7 +292,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$OTTA_PULS
 **Traces are a SEPARATE opt-in (beta, default NO).** Only if the developer chose Logs+traces, re-run with `--traces`:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$OTTA_PULSE_TOKEN" --traces
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$WEBHOOK_SECRET" --traces
 ```
 
 For non-setup users, the manual env block (logs-default / traces-beta split) is documented in the README.

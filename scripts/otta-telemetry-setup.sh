@@ -1,25 +1,29 @@
 #!/usr/bin/env bash
-# otta-telemetry-setup.sh <owner/repo> <pulse-token> [--traces]
+# otta-telemetry-setup.sh <owner/repo> <webhook-secret> [--traces]
 #
-# Merges an OTEL `env` block into .claude/settings.local.json (gitignored,
-# token-bearing — NEVER the committed settings.json) so Claude Code emits
-# telemetry to Otta Pulse. Logs are the default; --traces additionally opts
+# Derives a per-repo HMAC token by calling the Pulse /token endpoint with the
+# webhook secret, then merges an OTEL `env` block into .claude/settings.local.json
+# (gitignored, token-bearing — NEVER the committed settings.json) so Claude Code
+# emits telemetry to Otta Pulse. Logs are the default; --traces additionally opts
 # into the BETA traces/spans exporters. Merge-into-existing, never clobber;
 # idempotent on re-run.
 #
-# Endpoint base: OTTA_PULSE_URL if set, else the hosted default. Repo slug and
-# per-repo token come from the existing pulse wiring (.otta/pulse.env +
-# `gh repo view`); the interactive /otta:setup step sources those and passes
-# them here, so this writer stays unit-testable on its own.
+# The webhook secret is used ONLY to derive the per-repo token from Pulse; it is
+# NEVER written to any file. Only the derived token is stored.
+#
+# Endpoint base: OTTA_PULSE_URL if set, else the hosted default. Repo slug comes
+# from the caller (e.g. `gh repo view --json nameWithOwner -q .nameWithOwner`);
+# the interactive /otta:setup step passes it here, so this writer stays
+# unit-testable on its own.
 set -euo pipefail
 
 REPO="${1:-}"
-TOKEN="${2:-}"
+WEBHOOK_SECRET="${2:-}"
 TRACES=0
 [ "${3:-}" = "--traces" ] && TRACES=1
 
-if [ -z "$REPO" ] || [ -z "$TOKEN" ]; then
-  echo "usage: otta-telemetry-setup.sh <owner/repo> <pulse-token> [--traces]" >&2
+if [ -z "$REPO" ] || [ -z "$WEBHOOK_SECRET" ]; then
+  echo "usage: otta-telemetry-setup.sh <owner/repo> <webhook-secret> [--traces]" >&2
   exit 2
 fi
 
@@ -27,6 +31,21 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required for the JS
 
 PULSE="${OTTA_PULSE_URL:-https://pulse.otta.build}"
 PULSE="${PULSE%/}"            # normalize trailing slash so /v1/logs isn't doubled
+
+# Derive the per-repo token via Pulse /token (auth: webhook secret).
+# The webhook secret is NEVER written to any file — only TOKEN is stored.
+if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" \
+    -H "x-pulse-token: ${WEBHOOK_SECRET}" 2>&1); then
+  echo "Error: could not reach Pulse at ${PULSE}/token" >&2
+  echo "Response: ${RESPONSE}" >&2
+  exit 1
+fi
+TOKEN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])" 2>/dev/null) || true
+if [ -z "$TOKEN" ]; then
+  echo "Error: /token response did not contain a token field. Got: ${RESPONSE}" >&2
+  exit 1
+fi
+
 SETTINGS=".claude/settings.local.json"
 
 mkdir -p .claude
