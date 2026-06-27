@@ -121,9 +121,13 @@ service:
       receivers: [otlp]
       processors: [resource, transform/cost_usd, batch]
       exporters: [otlphttp]
+    metrics:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [otlphttp]
 YAML
 
-echo "Telemetry wired (Gemini → OTel Collector → Pulse logs) — config files written."
+echo "Telemetry wired (Gemini → OTel Collector → Pulse logs + metrics) — config files written."
 echo "Data will be sent to pulse.otta.build (hosted by Otta). Set OTTA_PULSE_URL to override."
 echo ""
 echo "Start the OTel Collector sidecar:"
