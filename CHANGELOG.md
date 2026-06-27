@@ -1,3 +1,8 @@
+## 0.16.3
+
+### Added
+- `/otta:remember` command — promotes a signal-gated learning (category must be `decision`, `gotcha`, or `failed-approach`) into a repo-local `LEARNINGS.md` file. Invalid categories exit non-zero and write nothing (mirrors the brain `/remember` signal gate). Exact-duplicate entries are not appended twice. File is created with a `# Learnings` header if absent. Invoke via `${CLAUDE_PLUGIN_ROOT}/scripts/otta-remember.sh <category> "<text>"`. (plugin#4)
+
 ## 0.16.2
 
 ### Fixed
