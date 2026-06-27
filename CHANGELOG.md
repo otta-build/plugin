@@ -1,3 +1,8 @@
+## 0.16.1
+
+### Fixed
+- `scripts/otta-telemetry-setup.sh` now writes the OTLP **metrics** exporter (`OTEL_METRICS_EXPORTER=otlp`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/json`, `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=<pulse>/v1/metrics`). Previously only the logs (and optional traces) exporters were configured — but Claude Code emits its cost/token/model data **only** as OTLP metrics, never as logs/traces. Onboarded repos therefore sent nothing usable to Pulse and `/compare` stayed empty. Verified end-to-end: with the generated config, `claude` POSTs `claude_code.cost.usage` + `claude_code.token.usage` to `/v1/metrics`. Companion server fix: otta-build/pulse#50 (Pulse materializes `agent_run` from these metrics). (plugin#43)
+
 ## 0.16.0
 
 ### Added
