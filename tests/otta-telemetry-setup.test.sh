@@ -107,6 +107,10 @@ valid_json "$SETTINGS" || fail "settings.local.json is not valid JSON"
 [ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_LOGS_PROTOCOL)" = "http/json" ] || fail "logs protocol wrong"
 [ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_LOGS_ENDPOINT)" = "${STUB_URL}/v1/logs" ] || \
   fail "logs endpoint wrong: $(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_LOGS_ENDPOINT)"
+[ "$(getenv "$SETTINGS" OTEL_METRICS_EXPORTER)" = "otlp" ] || fail "OTEL_METRICS_EXPORTER != otlp"
+[ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_METRICS_PROTOCOL)" = "http/json" ] || fail "metrics protocol wrong"
+[ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)" = "${STUB_URL}/v1/metrics" ] || \
+  fail "metrics endpoint wrong: $(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)"
 [ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_HEADERS)" = "x-pulse-token=$DERIVED_TOKEN" ] || fail "headers token wrong"
 [ "$(getenv "$SETTINGS" OTEL_RESOURCE_ATTRIBUTES)" = "repo=$REPO_SLUG" ] || fail "resource attrs wrong"
 # NO traces/beta vars
