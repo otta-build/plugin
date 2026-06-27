@@ -1,3 +1,8 @@
+## 0.16.2
+
+### Fixed
+- `scripts/otta-codex-setup.sh` and `scripts/otta-gemini-setup.sh` now also configure the OTLP **metrics** exporter/pipeline (Codex: `OTEL_METRICS_EXPORTER` + `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=<pulse>/v1/metrics`; Gemini: a `metrics` pipeline in the collector config). Mirrors the CC fix in 0.16.1 — additive, so cost/token data reaches Pulse regardless of which OTLP signal the harness emits. Live emit behavior per harness is tracked for verification in plugin#46. (plugin#46)
+
 ## 0.16.1
 
 ### Fixed
