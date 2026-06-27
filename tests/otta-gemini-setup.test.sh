@@ -228,4 +228,16 @@ if bash "$SCRIPT" >/dev/null 2>&1; then fail "missing args should exit non-zero"
 if bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing token should exit non-zero"; fi
 pass "usage guard: missing repo/token rejected"
 
+# ---------------------------------------------------------------------------
+# 14. AC2(#46): collector config includes a metrics pipeline
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo14"
+mkdir -p "$RDIR"
+cd "$RDIR"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "metrics pipeline run exited non-zero"
+YAML="otel-collector-config.yaml"
+grep -q 'metrics:' "$YAML" || \
+  fail "collector yaml: missing metrics pipeline under pipelines:"
+pass "AC2(#46): metrics pipeline present in collector yaml"
+
 echo "All otta-gemini-setup tests passed."

@@ -34,6 +34,10 @@ export OTEL_LOGS_EXPORTER=otlp
 export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${PULSE}/v1/logs
 export OTEL_EXPORTER_OTLP_LOGS_HEADERS=x-pulse-token=${TOKEN}
 export OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/json
+export OTEL_METRICS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=${PULSE}/v1/metrics
+export OTEL_EXPORTER_OTLP_METRICS_HEADERS=x-pulse-token=${TOKEN}
+export OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/json
 export OTEL_RESOURCE_ATTRIBUTES=repo=${REPO},harness=codex
 ENV
 
@@ -46,7 +50,7 @@ else
   printf '.otta/codex.env\n' > .gitignore
 fi
 
-echo "Telemetry wired (Codex → Pulse logs) — written to ${ENV_FILE} (gitignored)."
+echo "Telemetry wired (Codex → Pulse logs + metrics) — written to ${ENV_FILE} (gitignored)."
 echo "Data will be sent to pulse.otta.build (hosted by Otta). Set OTTA_PULSE_URL to override."
 echo ""
 echo "To activate, source before each Codex session:"

@@ -137,4 +137,34 @@ if bash "$SCRIPT" >/dev/null 2>&1; then fail "missing args should exit non-zero"
 if bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing token should exit non-zero"; fi
 pass "usage guard: missing repo/token rejected"
 
+# ---------------------------------------------------------------------------
+# 11. AC1(#46): metrics exporter keys present in .otta/codex.env
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo11"
+mkdir -p "$RDIR"
+cd "$RDIR"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "metrics keys run exited non-zero"
+ENV_FILE=".otta/codex.env"
+grep -q 'OTEL_METRICS_EXPORTER=otlp' "$ENV_FILE" || \
+  fail "OTEL_METRICS_EXPORTER=otlp not in $ENV_FILE"
+grep -q 'https://pulse.otta.build/v1/metrics' "$ENV_FILE" || \
+  fail "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT with /v1/metrics not in $ENV_FILE"
+grep -q 'OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/json' "$ENV_FILE" || \
+  fail "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/json not in $ENV_FILE"
+grep -q "OTEL_EXPORTER_OTLP_METRICS_HEADERS=x-pulse-token=$TOKEN" "$ENV_FILE" || \
+  fail "OTEL_EXPORTER_OTLP_METRICS_HEADERS=x-pulse-token=<token> not in $ENV_FILE"
+pass "AC1(#46): metrics exporter keys present in .otta/codex.env"
+
+# ---------------------------------------------------------------------------
+# 12. AC1(#46): OTTA_PULSE_URL override applies to metrics endpoint too
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo12"
+mkdir -p "$RDIR"
+cd "$RDIR"
+OTTA_PULSE_URL="https://pulse.acme.example/" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || \
+  fail "metrics override run exited non-zero"
+grep -q 'https://pulse.acme.example/v1/metrics' ".otta/codex.env" || \
+  fail "OTTA_PULSE_URL override not reflected in OTLP_METRICS_ENDPOINT: $(grep METRICS_ENDPOINT .otta/codex.env || echo not-found)"
+pass "AC1(#46): OTTA_PULSE_URL override reflected in metrics endpoint"
+
 echo "All otta-codex-setup tests passed."
