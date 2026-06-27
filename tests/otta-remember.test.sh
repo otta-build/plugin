@@ -23,6 +23,8 @@ bash "$SCRIPT" decision "use SQLite before splitting to DuckDB" || fail "exit no
 [ -f LEARNINGS.md ] || fail "LEARNINGS.md was not created"
 grep -q '\[decision\]' LEARNINGS.md || fail "entry missing [decision] tag"
 grep -q 'use SQLite before splitting to DuckDB' LEARNINGS.md || fail "entry missing the learning text"
+grep -Eq '^- [0-9]{4}-[0-9]{2}-[0-9]{2} \[decision\] use SQLite before splitting to DuckDB' LEARNINGS.md \
+  || fail "entry is not dated in the expected structured shape (YYYY-MM-DD [category] text)"
 # header line should exist
 grep -q '^# Learnings' LEARNINGS.md || fail "LEARNINGS.md missing header line"
 pass "AC1: creates LEARNINGS.md with header and dated entry"
