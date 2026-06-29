@@ -233,6 +233,20 @@ Record choices for each harness — scripts are run after confirmation in step 1
 
 ---
 
+## 9c. (Optional choice) Enable release versioning
+
+**Pain this solves:** Every deploy is anonymous — no version number, no `deploy_tag` event in Pulse, no upgrade story for customers.
+**Benefit you get:** Bump `package.json` version and push → the CI workflow cuts the git tag automatically → Pulse records `deploy_tag` → idea→PR→version chain is complete.
+
+Ask via AskUserQuestion — header "Release versioning", question "Enable automatic release tagging via CI?":
+- "Yes — auto-tag on version bump (recommended)" — installs `.github/workflows/otta-release.yml`; sets `release.auto: tag_on_version_bump` in the `.otta.yml` draft
+- "No — I'll tag manually" — adds one-liner to the final summary: `git tag vX.Y.Z && git push origin vX.Y.Z`; no files written
+- "Skip — no versioning needed" — silent skip; nothing written, nothing mentioned again
+
+Record the choice — the file is installed after confirmation in step 10.
+
+---
+
 ## 10. Write-summary — confirm before writing any file
 
 Show a complete summary of what will be written based on all choices above:
@@ -241,6 +255,7 @@ Show a complete summary of what will be written based on all choices above:
 > - `.otta.yml` — base: `{base}`, staging: `{staging}`, deploy.auto: `{deploy_auto}`, allow_production: `{allow_production}`, ci.required: `{ci_required}`, pulse.installed: `{pulse_installed}`
 > - `.claude/settings.json` (sandbox credentials): `{yes/no}`
 > - `.github/workflows/ci-test.yml` (CI scaffold): `{yes/no}`
+> - `.github/workflows/otta-release.yml` (release tagging): `{yes/no}`
 > - `.claude/settings.local.json` (telemetry, gitignored): `{yes/no — logs / logs+traces}`
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
 > - `CLAUDE.md` (if absent): always written — CC is the primary harness being configured
@@ -342,6 +357,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$WEBHOOK_S
 ```
 
 For non-setup users, the manual env block (logs-default / traces-beta split) is documented in the README.
+
+### B7. Install release workflow (if chosen)
+
+If the developer chose "Yes — auto-tag on version bump" in step 9c:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-release-setup.sh"
+```
 
 ### B6. Write CLAUDE.md (unconditional)
 
