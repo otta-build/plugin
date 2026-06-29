@@ -173,17 +173,23 @@ verify_deploy() {
         echo "deploy-verify: coolify provider needs OTTA_COOLIFY_URL / _TOKEN / _APP_UUID in the env" >&2
         return 2
       fi
-      # Authoritative SHA from `deployment get` (NOT cached logs).
-      local actual
-      actual="$(curl -fsS -H "Authorization: Bearer $token" \
-        "$base/api/v1/deployments?uuid=$app" 2>/dev/null \
-        | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d[0].get("commit") if isinstance(d,list) and d else d.get("commit","")) or "")' 2>/dev/null || true)"
-      if sha_match "$expected" "$actual"; then
-        echo "deploy-verify: coolify SHA-match ok ($actual)"
-      else
-        echo "deploy-verify: coolify SHA mismatch — expected $expected, deployed ${actual:-<none>}" >&2
-        return 1
-      fi
+      # Poll until the deployed SHA matches the merged SHA or timeout.
+      local actual sha_timeout="${OTTA_SHA_POLL_TIMEOUT:-120}" sha_interval=10 sha_waited=0
+      while :; do
+        actual="$(curl -fsS -H "Authorization: Bearer $token" \
+          "$base/api/v1/deployments?uuid=$app" 2>/dev/null \
+          | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d[0].get("commit") if isinstance(d,list) and d else d.get("commit","")) or "")' 2>/dev/null || true)"
+        if sha_match "$expected" "$actual"; then
+          echo "deploy-verify: coolify SHA-match ok ($actual)"
+          break
+        fi
+        if [ "$sha_waited" -ge "$sha_timeout" ]; then
+          echo "deploy-verify: coolify SHA mismatch after ${sha_timeout}s — expected $expected, deployed ${actual:-<none>}" >&2
+          return 1
+        fi
+        echo "deploy-verify: waiting for Coolify to record SHA (${sha_waited}s/${sha_timeout}s) — deployed ${actual:-<none>}"
+        sleep "$sha_interval"; sha_waited=$((sha_waited + sha_interval))
+      done
       if [ "$mode" = "health" ] && [ -n "${OTTA_DEPLOY_HEALTH_URL:-}" ]; then
         curl -fsS "$OTTA_DEPLOY_HEALTH_URL" >/dev/null 2>&1 \
           && echo "deploy-verify: health probe ok ($OTTA_DEPLOY_HEALTH_URL)" \
@@ -215,6 +221,10 @@ _run() {
   done
   [ -n "$pr" ] || { echo "usage: otta-deploy-verify.sh <pr-number> [--otta-yml <path>]" >&2; return 1; }
 
+  local gh_repo
+  gh_repo="$(git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]\(.*\)\.git$|\1|;s|.*github\.com[:/]\(.*\)$|\1|')"
+  [ -n "$gh_repo" ] || { echo "deploy: cannot determine repo from git remote origin" >&2; return 1; }
+
   local auto target provider verify allow_prod
   auto="$(parse_deploy_auto "$yml")"
   target="$(parse_deploy_target "$yml")"
@@ -241,7 +251,7 @@ _run() {
   local timeout="${OTTA_DEPLOY_POLL_TIMEOUT:-600}" interval="${OTTA_DEPLOY_POLL_INTERVAL:-15}"
   local waited=0 status_json result
   while :; do
-    status_json="$(gh pr checks "$pr" --json name,state 2>/dev/null \
+    status_json="$(gh pr checks "$pr" --repo "$gh_repo" --json name,state 2>/dev/null \
       | python3 -c 'import json,sys; rows=json.load(sys.stdin); print(json.dumps({"check_runs":[{"name":r["name"],"status":"completed" if r["state"] in ("SUCCESS","FAILURE","ERROR") else "queued","conclusion":{"SUCCESS":"success","FAILURE":"failure","ERROR":"failure"}.get(r["state"])} for r in rows]}))' 2>/dev/null || echo '{"check_runs":[]}')"
     result="$(poll_blocker "$status_json")" && break
     if [ "$waited" -ge "$timeout" ]; then
@@ -260,8 +270,8 @@ _run() {
     return 1
   fi
   local merge_sha
-  gh pr merge "$pr" --squash --delete-branch >&2 || { echo "deploy: merge failed" >&2; return 1; }
-  merge_sha="$(gh pr view "$pr" --json mergeCommit -q '.mergeCommit.oid' 2>/dev/null || true)"
+  gh pr merge "$pr" --repo "$gh_repo" --squash --delete-branch >&2 || { echo "deploy: merge failed" >&2; return 1; }
+  merge_sha="$(gh pr view "$pr" --repo "$gh_repo" --json mergeCommit -q '.mergeCommit.oid' 2>/dev/null || true)"
   echo "deploy: merged PR #$pr at ${merge_sha:-<unknown sha>}."
 
   if [ "$auto" = "merge-on-green" ]; then

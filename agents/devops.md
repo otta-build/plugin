@@ -20,11 +20,21 @@ Steps:
 3. **Confirm the PR body.** `.pr-body.md` must carry the `` ```acceptance `` block, `Fixes #<issue>`, a real `idea_ref:`, and a test or `[test-impractical:]`.
 4. **Commit and open the PR:**
    ```bash
-   gh pr create --body-file .pr-body.md --title "<conventional-commit title>"
+   REPO="$(git remote get-url origin | sed 's|.*github\.com[:/]\(.*\)\.git$|\1|;s|.*github\.com[:/]\(.*\)$|\1|')"
+   gh pr create --repo "$REPO" --body-file .pr-body.md --title "<conventional-commit title>"
    ```
    Target `staging` if the repo's `.otta.yml` names a staging branch; otherwise `main`.
-5. **Tear down the worktree** once the PR is open (the branch is pushed, so the checkout is disposable): `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-worktree.sh" --remove <issue>`. Skip if the run branched in place.
+5. **Deploy+verify per policy.** Run immediately after the PR is open — do NOT ask the human for merge approval:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-deploy-verify.sh" <pr-number>
+   ```
+   The script reads `.otta.yml` `deploy.auto` and decides autonomously:
+   - `human-approve` (default when absent) → prints "PR open — merge when ready" and exits 0. You surface this message and stop. Do not re-ask or wait.
+   - `merge-on-green` → polls CI, merges automatically when green, reports SHA.
+   - `merge-and-deploy` → polls CI, merges, waits for provider SHA-match, reports health.
+   If the script exits non-zero, surface the error verbatim — do not attempt a manual merge.
+6. **Tear down the worktree** once the PR is open (the branch is pushed, so the checkout is disposable): `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-worktree.sh" --remove <issue>`. Skip if the run branched in place.
 
 Do not merge — opening the PR is the handoff to human review + CI. After merge + release tag, Otta Pulse ingests the lifecycle from the PR body automatically.
 
-Return: the PR URL and the gate result. If the gate failed, do NOT open the PR — report the failure instead.
+Return: PR URL + otta-deploy-verify.sh output. If gate failed at step 2, do NOT open the PR — report the failure instead.

@@ -152,5 +152,38 @@ case "$out" in *generic*) check "verify_deploy none → generic message" "yes" "
 # coolify with no env → clean refusal (exit 2), no crash, no hardcoded creds.
 ( unset OTTA_COOLIFY_URL OTTA_COOLIFY_TOKEN OTTA_COOLIFY_APP_UUID; verify_deploy coolify abc123 sha-match >/dev/null 2>&1 ); check "verify_deploy coolify no-env → exit 2 (needs env)" 2 "$?"
 
+# ---------------------------------------------------------------------------
+# 7. AC2: _run() guard — fails when git remote origin is missing/empty
+# ---------------------------------------------------------------------------
+# Override git as a function (inherited by subshells) to simulate no remote.
+git() { :; }
+_ac2_out="$(_run 123 2>&1)"; _ac2_rc=$?
+unset -f git
+check "AC2 _run no-origin → exit 1" 1 "$_ac2_rc"
+case "$_ac2_out" in
+  *"cannot determine repo"*) check "AC2 _run no-origin → error message" "yes" "yes" ;;
+  *) check "AC2 _run no-origin → error message" "yes" "no ($_ac2_out)" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 8. AC3: verify_deploy coolify — polling loop retries before timing out
+# ---------------------------------------------------------------------------
+if command -v python3 >/dev/null 2>&1; then
+  # curl stub always returns a non-matching SHA so the loop must retry.
+  # sleep stub is instant so the test runs fast.
+  export OTTA_COOLIFY_URL="http://fake" OTTA_COOLIFY_TOKEN="tok" OTTA_COOLIFY_APP_UUID="app"
+  export OTTA_SHA_POLL_TIMEOUT=10
+  curl() { printf '{"commit":"deadbeef"}'; }
+  sleep() { :; }
+  _ac3_out="$(verify_deploy coolify abc123abc sha-match 2>&1)"; _ac3_rc=$?
+  unset -f curl sleep
+  unset OTTA_COOLIFY_URL OTTA_COOLIFY_TOKEN OTTA_COOLIFY_APP_UUID OTTA_SHA_POLL_TIMEOUT
+  case "$_ac3_out" in
+    *"waiting for Coolify"*) check "AC3 coolify loop emits waiting message" "yes" "yes" ;;
+    *) check "AC3 coolify loop emits waiting message" "yes" "no ($_ac3_out)" ;;
+  esac
+  check "AC3 coolify loop → exit 1 after timeout" 1 "$_ac3_rc"
+fi
+
 echo "  → $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
