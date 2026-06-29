@@ -20,7 +20,6 @@ WORKFLOW_PATH=".github/workflows/otta-release.yml"
 TMPDIR1="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR1"' EXIT
 
-(cd "$TMPDIR1" && OUTPUT="$(bash "$SCRIPT" --dry-run 2>&1)"; echo "$OUTPUT") > /tmp/release-setup-dryrun-out.txt
 EXIT_CODE=0
 (cd "$TMPDIR1" && bash "$SCRIPT" --dry-run) || EXIT_CODE=$?
 
@@ -60,8 +59,6 @@ pass "create: $WORKFLOW_PATH created with expected content"
 # ---------------------------------------------------------------------------
 # Test 3: idempotent — running twice does not overwrite the file
 # ---------------------------------------------------------------------------
-ORIGINAL_CONTENT="$(cat "$TMPDIR2/$WORKFLOW_PATH")"
-
 # Modify the file to detect overwrite
 printf 'sentinel line\n' >> "$TMPDIR2/$WORKFLOW_PATH"
 MODIFIED_CONTENT="$(cat "$TMPDIR2/$WORKFLOW_PATH")"

@@ -252,7 +252,7 @@ Record the choice — the file is installed after confirmation in step 10.
 Show a complete summary of what will be written based on all choices above:
 
 > "Here is what I will write:
-> - `.otta.yml` — base: `{base}`, staging: `{staging}`, deploy.auto: `{deploy_auto}`, allow_production: `{allow_production}`, ci.required: `{ci_required}`, pulse.installed: `{pulse_installed}`
+> - `.otta.yml` — base: `{base}`, staging: `{staging}`, deploy.auto: `{deploy_auto}`, allow_production: `{allow_production}`, ci.required: `{ci_required}`, pulse.installed: `{pulse_installed}`, release.auto: `{tag_on_version_bump/none}`
 > - `.claude/settings.json` (sandbox credentials): `{yes/no}`
 > - `.github/workflows/ci-test.yml` (CI scaffold): `{yes/no}`
 > - `.github/workflows/otta-release.yml` (release tagging): `{yes/no}`
