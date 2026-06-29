@@ -29,12 +29,12 @@ Steps:
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-deploy-verify.sh" <pr-number>
    ```
    The script reads `.otta.yml` `deploy.auto` and decides autonomously:
-   - `human-approve` (default when absent) → prints "PR open — merge when ready" and exits 0. You surface this message and stop. Do not re-ask or wait.
+   - `human-approve` (default when absent) → prints "deploy: auto=human-approve → stopping at the open PR" and exits 0. You surface this message and stop. Do not re-ask or wait.
    - `merge-on-green` → polls CI, merges automatically when green, reports SHA.
    - `merge-and-deploy` → polls CI, merges, waits for provider SHA-match, reports health.
    If the script exits non-zero, surface the error verbatim — do not attempt a manual merge.
 6. **Tear down the worktree** once the PR is open (the branch is pushed, so the checkout is disposable): `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-worktree.sh" --remove <issue>`. Skip if the run branched in place.
 
-Do not merge — opening the PR is the handoff to human review + CI. After merge + release tag, Otta Pulse ingests the lifecycle from the PR body automatically.
+After merge + release tag, Otta Pulse ingests the lifecycle from the PR body automatically.
 
 Return: PR URL + otta-deploy-verify.sh output. If gate failed at step 2, do NOT open the PR — report the failure instead.
