@@ -174,6 +174,28 @@ Record the choice — the file is written after confirmation in step 10.
 
 ---
 
+## 7b. (Optional choice) Set up a self-hosted Actions runner
+
+**Pain this solves:** Private repos on free GitHub orgs exhaust Actions minutes quickly (~2,000 min/month free). With Otta's gated pipeline (builder → reviewer → QA → DevOps), each PR can trigger 4–6 CI runs, exhausting the quota in ~15 PRs — at which point `pull_request` CI silently stops and the gate's CI sub-check is permanently unlit.
+
+**Benefit you get:** A self-hosted runner on your own infra has no minute limits — the gate's CI sub-check stays live regardless of how many PRs you ship.
+
+**Detect first — only show this step when relevant:**
+
+```bash
+gh repo view --json isPrivate --jq .isPrivate
+```
+
+If the output is `true`, show this step. If the output is `false` (public repo), skip this step entirely — free-tier minutes are not a concern for public repos.
+
+Only when repo is **private**: Ask via AskUserQuestion — header "Self-hosted runner", question "This is a private repo. Free GitHub Actions minutes (~2,000/month) run out fast with Otta's pipeline. Set up a self-hosted runner to avoid CI blackouts?":
+- "Yes — generate runner setup (recommended)" — will run `otta-runner-setup.sh` in Part B to output the docker run command and write `docs/runner-setup.md`
+- "No — I'll manage CI minutes manually" — skip; no files written
+
+Record the choice — the script is run after confirmation in step 10.
+
+---
+
 ## 8. (Optional choice) Install the local gate hook
 
 **Pain this solves:** Gate failures found only after pushing = slow feedback loop; you wait for CI and Otta Gate to report what a pre-push check would have caught immediately.
@@ -260,6 +282,7 @@ Show a complete summary of what will be written based on all choices above:
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
 > - `CLAUDE.md` (if absent): always written — CC is the primary harness being configured
 > - Additional harness context files (if absent): `AGENTS.md` (Codex), `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected non-CC harnesses
+> - `docs/runner-setup.md` (self-hosted runner instructions): `{yes/no — only for private repos where runner was chosen}`
 >
 > Confirm to proceed, or go back to change any answer."
 
@@ -365,6 +388,17 @@ If the developer chose "Yes — auto-tag on version bump" in step 9c:
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-release-setup.sh"
 ```
+
+### B7b. Generate self-hosted runner setup (if chosen)
+
+If the developer chose "Yes — generate runner setup" in step 7b:
+
+```bash
+REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-runner-setup.sh" "$REPO"
+```
+
+This outputs the docker run command to stdout and writes `docs/runner-setup.md` with full registration instructions. Print the stdout output so the developer can copy the docker run command. Tell them to follow `docs/runner-setup.md` to register the runner with GitHub.
 
 ### B6. Write CLAUDE.md (unconditional)
 
