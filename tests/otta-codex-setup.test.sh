@@ -303,4 +303,42 @@ grep -qi 'legacy\|does not read' ".otta/codex.env" || \
   fail "legacy .otta/codex.env missing 'legacy' disclaimer comment"
 pass "AC1: legacy .otta/codex.env still written with legacy comment"
 
+# ---------------------------------------------------------------------------
+# 21. AC2: re-run preserves existing [otel] direct keys, only overwrites otlp-http
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo21"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex21"
+mkdir -p "$CODEX_HOME"
+cat > "$CODEX_HOME/config.toml" <<'TOML'
+[otel]
+log_user_prompt = true
+some_custom_key = "user_value"
+TOML
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "AC2 preserve run exited non-zero"
+grep -q 'log_user_prompt = true' "$CODEX_HOME/config.toml" || \
+  fail "AC2: existing [otel] key log_user_prompt=true was clobbered: $(cat "$CODEX_HOME/config.toml")"
+grep -q 'some_custom_key = "user_value"' "$CODEX_HOME/config.toml" || \
+  fail "AC2: existing [otel] key some_custom_key was clobbered: $(cat "$CODEX_HOME/config.toml")"
+grep -q '^\[otel.exporter.otlp-http\]' "$CODEX_HOME/config.toml" || \
+  fail "AC2: [otel.exporter.otlp-http] not written after preserve: $(cat "$CODEX_HOME/config.toml")"
+pass "AC2: config.toml re-run preserves existing [otel] direct keys"
+
+# ---------------------------------------------------------------------------
+# 22. AC2: re-run with different token updates x-pulse-token without duplication
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo22"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex22"
+mkdir -p "$CODEX_HOME"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "old_token_ABC" || fail "AC2 update run 1 failed"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "new_token_XYZ" || fail "AC2 update run 2 failed"
+grep -q 'x-pulse-token = "new_token_XYZ"' "$CODEX_HOME/config.toml" || \
+  fail "AC2: new token not reflected in config.toml: $(cat "$CODEX_HOME/config.toml")"
+N="$(grep -c 'x-pulse-token' "$CODEX_HOME/config.toml")"
+[ "$N" = "1" ] || fail "AC2: x-pulse-token appears $N times in config.toml (expected 1)"
+pass "AC2: config.toml re-run updates [otel.exporter.otlp-http] without duplication"
+
 echo "All otta-codex-setup tests passed."

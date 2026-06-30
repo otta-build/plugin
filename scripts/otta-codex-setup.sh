@@ -48,27 +48,26 @@ try:
 except FileNotFoundError:
     lines = []
 
-# Strip all [otel] and [otel.*] sections (we re-append the canonical block).
-# A section runs from its [header] line until the next [header] line.
+# Strip only [otel.exporter.otlp-http] and [otel.exporter.otlp-http.headers]
+# sections. The [otel] direct-key section is preserved (AC2).
 kept = []
-in_otel = False
+has_otel = False
+in_otlp = False
 for line in lines:
     stripped = line.strip()
     if stripped.startswith('['):
-        # New section header — check if it is an otel section
-        in_otel = stripped.startswith('[otel]') or stripped.startswith('[otel.')
-    if not in_otel:
+        if stripped == '[otel]':
+            has_otel = True
+        # Only skip the two otlp-http sub-sections
+        in_otlp = stripped.startswith('[otel.exporter.otlp-http')
+    if not in_otlp:
         kept.append(line)
 
 # Remove trailing blank lines from preserved content
 content = ''.join(kept).rstrip('\n')
 
-# Canonical otel block (verified format from Codex binary analysis)
-otel_block = (
-    '[otel]\n'
-    'log_user_prompt = false\n'
-    'environment = "production"\n'
-    '\n'
+# Exporter sub-sections only (token-bearing; always overwritten)
+exporter_block = (
     '[otel.exporter.otlp-http]\n'
     'endpoint = "' + pulse + '"\n'
     'protocol = "json"\n'
@@ -77,10 +76,26 @@ otel_block = (
     'x-pulse-token = "' + token + '"\n'
 )
 
+# Default [otel] header written only when absent from existing config
+otel_header = (
+    '[otel]\n'
+    'log_user_prompt = false\n'
+    'environment = "production"\n'
+)
+
 if content:
-    final = content + '\n\n' + otel_block
+    if has_otel:
+        # Existing [otel] section present — just append exporter sub-sections
+        final = content + '\n\n' + exporter_block
+    else:
+        # No [otel] section — add defaults then exporter
+        final = content + '\n\n' + otel_header + '\n' + exporter_block
 else:
-    final = otel_block
+    if has_otel:
+        # File had only otel sections (all stripped) — just write exporter
+        final = exporter_block
+    else:
+        final = otel_header + '\n' + exporter_block
 
 with open(path, 'w') as f:
     f.write(final)
