@@ -10,6 +10,13 @@ trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "PASS: $1"; }
 
+# Sandbox the Codex config dir for ALL tests so the suite never touches the
+# developer's real ~/.codex/config.toml. Tests 13+ override CODEX_HOME locally
+# for isolated assertions; this default catches tests 1-12 which predate the
+# config.toml feature and don't set CODEX_HOME themselves.
+export CODEX_HOME="$TMP/codex_home"
+mkdir -p "$CODEX_HOME"
+
 REPO_SLUG="acme/widget"
 TOKEN="pulse_tok_SECRET123"
 
