@@ -29,8 +29,20 @@ TITLE="$(echo "$JSON" | jq -r .title)"
 BODY="$(echo "$JSON" | jq -r .body)"
 
 # Extract AC checkboxes (lines beginning with "- [ ]" or "- [x]").
+# Layer tags ([data-layer], [ui-layer], [e2e]) are preserved as part of the line text.
 AC_BLOCK="$(echo "$BODY" | grep -E '^\s*- \[[ xX]\]' || true)"
 [ -z "$AC_BLOCK" ] && AC_BLOCK="- [ ] AC1: <!-- fill in from issue #${ISSUE} -->"
+
+# If any layer-tagged ACs are present, add a layer key note for builders.
+LAYER_NOTE=""
+if echo "$AC_BLOCK" | grep -qiE '\[(data-layer|ui-layer|e2e)\]'; then
+  LAYER_NOTE="
+<!-- AC layer key:
+     [data-layer] — schema + mutations + unit tests, no UI required
+     [ui-layer]   — requires working page/component visible in the app
+     [e2e]        — requires full user flow: link → action → observable result
+     Evidence required: [data-layer] → unit test OK; [ui-layer]/[e2e] → preview URL or e2e tool. -->"
+fi
 
 cat > "$OUT" <<EOF
 ## Summary
@@ -43,7 +55,7 @@ WHEN  <!-- the action or trigger -->
 THEN  <!-- observable, verifiable outcome -->
 
 ${AC_BLOCK}
-
+${LAYER_NOTE}
 ## Out of scope
 - <!-- things explicitly NOT built in this issue -->
 
