@@ -85,6 +85,8 @@ env.update({
     "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": pulse + "/v1/metrics",
     "OTEL_EXPORTER_OTLP_HEADERS": "x-pulse-token=" + token,
     "OTEL_RESOURCE_ATTRIBUTES": "repo=" + repo,
+    "OTTA_PULSE_URL": pulse,
+    "OTTA_PULSE_TOKEN": token,
 })
 
 if traces:

@@ -113,11 +113,35 @@ valid_json "$SETTINGS" || fail "settings.local.json is not valid JSON"
   fail "metrics endpoint wrong: $(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)"
 [ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_HEADERS)" = "x-pulse-token=$DERIVED_TOKEN" ] || fail "headers token wrong"
 [ "$(getenv "$SETTINGS" OTEL_RESOURCE_ATTRIBUTES)" = "repo=$REPO_SLUG" ] || fail "resource attrs wrong"
+# AC1: OTTA_PULSE_URL written so otta-worktree.sh can POST /session-link
+[ "$(getenv "$SETTINGS" OTTA_PULSE_URL)" = "$STUB_URL" ] || \
+  fail "AC1: OTTA_PULSE_URL missing or wrong: $(getenv "$SETTINGS" OTTA_PULSE_URL)"
+# AC2: OTTA_PULSE_TOKEN written so otta-worktree.sh can authenticate /session-link
+[ "$(getenv "$SETTINGS" OTTA_PULSE_TOKEN)" = "$DERIVED_TOKEN" ] || \
+  fail "AC2: OTTA_PULSE_TOKEN missing or wrong: $(getenv "$SETTINGS" OTTA_PULSE_TOKEN)"
 # NO traces/beta vars
 for k in CLAUDE_CODE_ENHANCED_TELEMETRY_BETA OTEL_TRACES_EXPORTER OTEL_EXPORTER_OTLP_TRACES_PROTOCOL OTEL_EXPORTER_OTLP_TRACES_ENDPOINT; do
   [ -z "$(getenv "$SETTINGS" "$k")" ] || fail "traces var $k present without --traces"
 done
-pass "AC1/AC2: logs-only default (6 logs vars, no traces vars)"
+pass "AC1/AC2: logs-only default (11 vars incl. OTTA_PULSE_URL + OTTA_PULSE_TOKEN, no traces vars)"
+
+# ---------------------------------------------------------------------------
+# AC5 smoke test — settings.local.json contains all 11 expected env vars
+# ---------------------------------------------------------------------------
+R="$(newrepo smoke11)"; cd "$R"
+OTTA_PULSE_URL="$STUB_URL" bash "$SCRIPT" "$REPO_SLUG" "$WEBHOOK_SECRET" || fail "smoke11 run exited non-zero"
+EXPECTED_VARS=(
+  CLAUDE_CODE_ENABLE_TELEMETRY
+  OTEL_LOGS_EXPORTER OTEL_EXPORTER_OTLP_LOGS_PROTOCOL OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+  OTEL_METRICS_EXPORTER OTEL_EXPORTER_OTLP_METRICS_PROTOCOL OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+  OTEL_EXPORTER_OTLP_HEADERS OTEL_RESOURCE_ATTRIBUTES
+  OTTA_PULSE_URL OTTA_PULSE_TOKEN
+)
+for k in "${EXPECTED_VARS[@]}"; do
+  v="$(getenv "$SETTINGS" "$k")"
+  [ -n "$v" ] || fail "AC5: env var $k is absent from settings.local.json"
+done
+pass "AC5 smoke: all 11 expected env vars present in settings.local.json"
 
 # ---------------------------------------------------------------------------
 # 3. AC3 — --traces adds the 4 traces vars incl. beta flag (logs still present)
