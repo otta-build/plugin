@@ -34,8 +34,8 @@ _is_unit_only() {
 while IFS= read -r line; do
   # Only checked items: - [x]
   echo "$line" | grep -qiE '^\s*-\s*\[x\]' || continue
-  # Has [ui-layer] or [e2e] tag (with or without surrounding backticks)
-  echo "$line" | grep -qiE '\[(ui-layer|e2e)\]' || continue
+  # Has [ui-layer] or [e2e] as the LEADING tag (immediately after ACN), not in prose
+  echo "$line" | grep -qiE '^[-*]\s+\[[xX]\]\s+AC[0-9]+[^[]*\[(ui-layer|e2e)\]' || continue
   # Extract evidence: text after the last em-dash (—)
   echo "$line" | grep -qF "—" || continue
   evidence="$(echo "$line" | sed 's/.*—//')"
@@ -48,9 +48,9 @@ done < "$BODY"
 
 # AC3: warn (exit 0) when there are unclosed [ui-layer]/[e2e] ACs
 # and the only closed ACs are [data-layer] ones.
-UNCLOSED_UI="$(grep -iE '^\s*-\s*\[ \].*\[(ui-layer|e2e)\]' "$BODY" || true)"
-CLOSED_DATA="$(grep -iE '^\s*-\s*\[x\].*\[data-layer\]' "$BODY" || true)"
-CLOSED_UI="$(grep -iE '^\s*-\s*\[x\].*\[(ui-layer|e2e)\]' "$BODY" || true)"
+UNCLOSED_UI="$(grep -iE '^\s*-\s*\[ \]\s+AC[0-9]+[^[]*\[(ui-layer|e2e)\]' "$BODY" || true)"
+CLOSED_DATA="$(grep -iE '^\s*-\s*\[x\]\s+AC[0-9]+[^[]*\[data-layer\]' "$BODY" || true)"
+CLOSED_UI="$(grep -iE '^\s*-\s*\[x\]\s+AC[0-9]+[^[]*\[(ui-layer|e2e)\]' "$BODY" || true)"
 
 if [ -n "$UNCLOSED_UI" ] && [ -n "$CLOSED_DATA" ] && [ -z "$CLOSED_UI" ]; then
   echo "⚠ Issue has unclosed [ui-layer]/[e2e] ACs — issue will remain open after merge." >&2

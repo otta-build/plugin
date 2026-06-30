@@ -145,6 +145,23 @@ OUT5="$(OTTA_NO_CAPTURE=1 bash "$GATE" ".pr-body.md" 2>&1)" && STATUS5=0 || STAT
 pass "unchecked [ui-layer] AC with unit-test evidence → gate passes (not checked = not evidence)"
 
 # =============================================================================
+# 5b. [data-layer] AC whose PROSE mentions [ui-layer] → gate must PASS
+#     (the leading tag is [data-layer], so [ui-layer] in description is not the AC tag)
+# =============================================================================
+REPO5B="$TMP/ac2_data_prose_mentions_ui"
+make_repo "$REPO5B"
+cat > .pr-body.md <<EOF
+${VALID_PREAMBLE}- [x] AC1 [data-layer]: Given schema migrations run — bash tests/schema.test.sh
+- [x] AC2 [data-layer]: check-ac-layers.sh gate correctly anchors to leading tag; runs on a PR body where a [ui-layer] or [e2e] AC is checked — bash tests/schema.test.sh
+${VALID_POSTAMBLE}
+EOF
+
+OUT5B="$(OTTA_NO_CAPTURE=1 bash "$GATE" ".pr-body.md" 2>&1)" && STATUS5B=0 || STATUS5B=$?
+[ "$STATUS5B" -eq 0 ] \
+  || fail "AC2-data-prose: [data-layer] AC with [ui-layer] in PROSE should pass, but got exit $STATUS5B; output:\n$OUT5B"
+pass "[data-layer] AC whose prose mentions [ui-layer] → gate passes (leading tag anchored)"
+
+# =============================================================================
 # 6. AC4: seed-pr-body.sh preserves layer tags + adds layer key note when present
 # =============================================================================
 SEED="$HERE/../scripts/seed-pr-body.sh"
