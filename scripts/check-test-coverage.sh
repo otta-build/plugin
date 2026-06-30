@@ -35,7 +35,7 @@ fi
 
 # Added/modified test files in the diff (broad: *.test.* / *.spec.* / tests/ dir).
 TEST_FILES="$(git diff --name-only "$BASE"...HEAD 2>/dev/null \
-  | grep -iE '(\.(test|spec)\.[a-z]+$|(^|/)tests?/)' || true)"
+  | grep -iE '(\.(test|spec)\.[a-z]+$|(^|/)tests?/|(^|/)[0-9][0-9][0-9][0-9]-)' || true)"
 
 if [ -n "$TEST_FILES" ]; then
   echo "✓ test-coverage: diff adds/edits test file(s):"
