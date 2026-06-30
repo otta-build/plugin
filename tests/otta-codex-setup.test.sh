@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# otta-codex-setup.test.sh — regression tests for scripts/otta-codex-setup.sh (issue #30).
-# Writes .otta/codex.env with standard OTEL env vars; never uses TOML; gitignored; idempotent.
+# otta-codex-setup.test.sh — regression tests for scripts/otta-codex-setup.sh (issue #50).
+# Writes ~/.codex/config.toml [otel] block (primary); .otta/codex.env (legacy, backward compat).
 # Run: bash tests/otta-codex-setup.test.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -100,14 +100,14 @@ echo "$OUT" | grep -q 'pulse.otta.build' || fail "AC3: consent disclosure missin
 pass "AC3: consent disclosure includes pulse.otta.build"
 
 # ---------------------------------------------------------------------------
-# 8. AC3: output includes sourcing instructions
+# 8. AC1: output mentions config.toml (not env-sourcing — Codex reads toml)
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo8"
 mkdir -p "$RDIR"
 cd "$RDIR"
 OUT="$(bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" 2>&1)"
-echo "$OUT" | grep -qi 'source' || fail "AC3: sourcing instructions missing from output"
-pass "AC3: sourcing instructions included in output"
+echo "$OUT" | grep -q 'config.toml' || fail "AC1: output must mention config.toml (Codex reads toml, not env)"
+pass "AC1: output mentions config.toml"
 
 # ---------------------------------------------------------------------------
 # 9. AC5: literal token NOT in any git-staged file
@@ -166,5 +166,141 @@ OTTA_PULSE_URL="https://pulse.acme.example/" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN
 grep -q 'https://pulse.acme.example/v1/metrics' ".otta/codex.env" || \
   fail "OTTA_PULSE_URL override not reflected in OTLP_METRICS_ENDPOINT: $(grep METRICS_ENDPOINT .otta/codex.env || echo not-found)"
 pass "AC1(#46): OTTA_PULSE_URL override reflected in metrics endpoint"
+
+command -v python3 >/dev/null 2>&1 || { echo "SKIP: python3 required for config.toml tests"; exit 0; }
+
+# ---------------------------------------------------------------------------
+# 13. AC1: config.toml created at $CODEX_HOME/config.toml
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo13"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex13"
+mkdir -p "$CODEX_HOME"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "config.toml basic run exited non-zero"
+[ -f "$CODEX_HOME/config.toml" ] || fail "config.toml not created at CODEX_HOME/config.toml"
+pass "AC1: config.toml created at CODEX_HOME/config.toml"
+
+# ---------------------------------------------------------------------------
+# 14. AC1: config.toml has [otel] section with log_user_prompt and environment
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo14"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex14"
+mkdir -p "$CODEX_HOME"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "otel section run exited non-zero"
+grep -q '^\[otel\]' "$CODEX_HOME/config.toml" || \
+  fail "config.toml missing [otel] section: $(cat "$CODEX_HOME/config.toml")"
+grep -q 'log_user_prompt = false' "$CODEX_HOME/config.toml" || \
+  fail "config.toml missing log_user_prompt = false"
+grep -q 'environment = "production"' "$CODEX_HOME/config.toml" || \
+  fail "config.toml missing environment = \"production\""
+pass "AC1: config.toml [otel] section with log_user_prompt + environment"
+
+# ---------------------------------------------------------------------------
+# 15. AC1: config.toml has [otel.exporter.otlp-http] with endpoint + protocol
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo15"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex15"
+mkdir -p "$CODEX_HOME"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "otlp-http run exited non-zero"
+grep -q '^\[otel.exporter.otlp-http\]' "$CODEX_HOME/config.toml" || \
+  fail "config.toml missing [otel.exporter.otlp-http]: $(cat "$CODEX_HOME/config.toml")"
+grep -q 'endpoint = "https://pulse.otta.build"' "$CODEX_HOME/config.toml" || \
+  fail "config.toml endpoint wrong (must be base URL, no /v1 path): $(grep endpoint "$CODEX_HOME/config.toml" || echo not-found)"
+grep -q 'protocol = "json"' "$CODEX_HOME/config.toml" || \
+  fail "config.toml missing protocol = \"json\""
+pass "AC1: config.toml [otel.exporter.otlp-http] with base endpoint + protocol=json"
+
+# ---------------------------------------------------------------------------
+# 16. AC1: config.toml has [otel.exporter.otlp-http.headers] with x-pulse-token
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo16"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex16"
+mkdir -p "$CODEX_HOME"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "headers run exited non-zero"
+grep -q '^\[otel.exporter.otlp-http.headers\]' "$CODEX_HOME/config.toml" || \
+  fail "config.toml missing [otel.exporter.otlp-http.headers]: $(cat "$CODEX_HOME/config.toml")"
+grep -q "x-pulse-token = \"$TOKEN\"" "$CODEX_HOME/config.toml" || \
+  fail "config.toml missing x-pulse-token = \"<token>\": $(cat "$CODEX_HOME/config.toml")"
+pass "AC1: config.toml [otel.exporter.otlp-http.headers] with x-pulse-token"
+
+# ---------------------------------------------------------------------------
+# 17. AC1: OTTA_PULSE_URL override applies to config.toml endpoint
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo17"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex17"
+mkdir -p "$CODEX_HOME"
+OTTA_PULSE_URL="https://pulse.acme.example/" CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || \
+  fail "OTTA_PULSE_URL override run exited non-zero"
+grep -q 'endpoint = "https://pulse.acme.example"' "$CODEX_HOME/config.toml" || \
+  fail "OTTA_PULSE_URL override not reflected in config.toml: $(grep endpoint "$CODEX_HOME/config.toml" || echo not-found)"
+pass "AC1: OTTA_PULSE_URL override (trailing slash normalized) in config.toml"
+
+# ---------------------------------------------------------------------------
+# 18. AC1: config.toml merge preserves pre-existing non-otel content
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo18"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex18"
+mkdir -p "$CODEX_HOME"
+cat > "$CODEX_HOME/config.toml" <<'TOML'
+[model]
+provider = "anthropic"
+name = "claude-opus-4-5"
+
+[history]
+max_entries = 100
+TOML
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "merge run exited non-zero"
+grep -q '^\[model\]' "$CODEX_HOME/config.toml" || \
+  fail "merge: [model] section clobbered: $(cat "$CODEX_HOME/config.toml")"
+grep -q 'provider = "anthropic"' "$CODEX_HOME/config.toml" || \
+  fail "merge: model.provider clobbered"
+grep -q '^\[history\]' "$CODEX_HOME/config.toml" || \
+  fail "merge: [history] section clobbered"
+grep -q '^\[otel\]' "$CODEX_HOME/config.toml" || \
+  fail "merge: [otel] section not written"
+pass "AC1: config.toml merge preserves non-otel sections"
+
+# ---------------------------------------------------------------------------
+# 19. AC1: config.toml merge is idempotent (byte-stable, no duplicate otel)
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo19"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex19"
+mkdir -p "$CODEX_HOME"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "idempotent config.toml run 1 failed"
+FIRST="$(cat "$CODEX_HOME/config.toml")"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "idempotent config.toml run 2 failed"
+SECOND="$(cat "$CODEX_HOME/config.toml")"
+[ "$FIRST" = "$SECOND" ] || fail "config.toml re-run is not idempotent (content changed)"
+# No duplicate [otel] sections
+N="$(grep -c '^\[otel\]' "$CODEX_HOME/config.toml")"
+[ "$N" = "1" ] || fail "duplicate [otel] sections after re-run (count=$N)"
+pass "AC1: config.toml idempotent re-run (byte-stable, no duplicate sections)"
+
+# ---------------------------------------------------------------------------
+# 20. AC1: legacy .otta/codex.env still written with "legacy" comment
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo20"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex20"
+mkdir -p "$CODEX_HOME"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "legacy env run exited non-zero"
+[ -f ".otta/codex.env" ] || fail "legacy .otta/codex.env not written"
+grep -qi 'legacy\|does not read' ".otta/codex.env" || \
+  fail "legacy .otta/codex.env missing 'legacy' disclaimer comment"
+pass "AC1: legacy .otta/codex.env still written with legacy comment"
 
 echo "All otta-codex-setup tests passed."
