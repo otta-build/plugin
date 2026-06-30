@@ -1,3 +1,14 @@
+## 0.18.0
+
+### Added
+- **AC layer-tag enforcement** — `[ui-layer]` and `[e2e]` ACs now require preview URL or e2e evidence; unit-test-only evidence fails the gate with an explanatory message. `[data-layer]` ACs pass with unit tests. `seed-pr-body.sh` preserves layer tags and injects a layer-key note. `skills/otta-dev.md` documents the tag system. (plugin#65)
+- **Self-hosted runner setup** — `/otta:setup` detects private repos and offers an opt-in runner provisioning step (`scripts/otta-runner-setup.sh`): generates the `gh api` registration-token command + a `docker run` command using `myoung34/github-runner:latest`, and writes `docs/runner-setup.md` with full instructions. Addresses the Actions-minutes exhaustion on free orgs. (plugin#58)
+
+### Fixed
+- `scripts/otta-codex-setup.sh` now writes `~/.codex/config.toml` `[otel.exporter.otlp-http]` (endpoint `<pulse>/v1/logs`, `protocol = "json"`) and `[otel.metrics_exporter.otlp-http]` (`<pulse>/v1/metrics`) instead of env vars. Codex CLI ignores OTEL env vars — config.toml is the only path. Existing `[otel]` direct keys are preserved on re-run; only the exporter sub-sections are overwritten (idempotent). (plugin#50)
+- `scripts/check-test-coverage.sh` now also recognises `<4-digit-number>-<name>.sh` files as test files (adds `(^|/)[0-9][0-9][0-9][0-9]-` alternative to the test-file grep). (plugin#62)
+- `scripts/otta-telemetry-setup.sh` writes `OTTA_PULSE_URL` and `OTTA_PULSE_TOKEN` to the `.claude/settings.local.json` env block, so `otta-worktree.sh`'s `_stamp_session_link` can POST `/session-link` without manual env wiring. (plugin#61)
+
 ## 0.16.3
 
 ### Added
