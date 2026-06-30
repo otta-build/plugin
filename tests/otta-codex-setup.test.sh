@@ -216,11 +216,11 @@ mkdir -p "$CODEX_HOME"
 CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "otlp-http run exited non-zero"
 grep -q '^\[otel.exporter.otlp-http\]' "$CODEX_HOME/config.toml" || \
   fail "config.toml missing [otel.exporter.otlp-http]: $(cat "$CODEX_HOME/config.toml")"
-grep -q 'endpoint = "https://pulse.otta.build"' "$CODEX_HOME/config.toml" || \
-  fail "config.toml endpoint wrong (must be base URL, no /v1 path): $(grep endpoint "$CODEX_HOME/config.toml" || echo not-found)"
+grep -q 'endpoint = "https://pulse.otta.build/v1/logs"' "$CODEX_HOME/config.toml" || \
+  fail "config.toml log endpoint wrong (must include /v1/logs): $(grep endpoint "$CODEX_HOME/config.toml" || echo not-found)"
 grep -q 'protocol = "json"' "$CODEX_HOME/config.toml" || \
   fail "config.toml missing protocol = \"json\""
-pass "AC1: config.toml [otel.exporter.otlp-http] with base endpoint + protocol=json"
+pass "AC1: config.toml [otel.exporter.otlp-http] with /v1/logs endpoint + protocol=json"
 
 # ---------------------------------------------------------------------------
 # 16. AC1: config.toml has [otel.exporter.otlp-http.headers] with x-pulse-token
@@ -247,9 +247,9 @@ CODEX_HOME="$TMP/codex17"
 mkdir -p "$CODEX_HOME"
 OTTA_PULSE_URL="https://pulse.acme.example/" CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || \
   fail "OTTA_PULSE_URL override run exited non-zero"
-grep -q 'endpoint = "https://pulse.acme.example"' "$CODEX_HOME/config.toml" || \
-  fail "OTTA_PULSE_URL override not reflected in config.toml: $(grep endpoint "$CODEX_HOME/config.toml" || echo not-found)"
-pass "AC1: OTTA_PULSE_URL override (trailing slash normalized) in config.toml"
+grep -q 'endpoint = "https://pulse.acme.example/v1/logs"' "$CODEX_HOME/config.toml" || \
+  fail "OTTA_PULSE_URL override not reflected in config.toml (must include /v1/logs): $(grep endpoint "$CODEX_HOME/config.toml" || echo not-found)"
+pass "AC1: OTTA_PULSE_URL override (trailing slash normalized) in config.toml with /v1/logs"
 
 # ---------------------------------------------------------------------------
 # 18. AC1: config.toml merge preserves pre-existing non-otel content
@@ -345,7 +345,26 @@ CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "new_token_XYZ" || fail "AC
 grep -q 'x-pulse-token = "new_token_XYZ"' "$CODEX_HOME/config.toml" || \
   fail "AC2: new token not reflected in config.toml: $(cat "$CODEX_HOME/config.toml")"
 N="$(grep -c 'x-pulse-token' "$CODEX_HOME/config.toml")"
-[ "$N" = "1" ] || fail "AC2: x-pulse-token appears $N times in config.toml (expected 1)"
+[ "$N" = "2" ] || fail "AC2: x-pulse-token appears $N times in config.toml (expected 2: log + metrics headers)"
 pass "AC2: config.toml re-run updates [otel.exporter.otlp-http] without duplication"
+
+# ---------------------------------------------------------------------------
+# 23. Bug fix: [otel.metrics_exporter.otlp-http] written with /v1/metrics endpoint
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo23"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex23"
+mkdir -p "$CODEX_HOME"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "metrics exporter run exited non-zero"
+grep -q '^\[otel.metrics_exporter.otlp-http\]' "$CODEX_HOME/config.toml" || \
+  fail "Bug2: config.toml missing [otel.metrics_exporter.otlp-http]: $(cat "$CODEX_HOME/config.toml")"
+grep -q 'endpoint = "https://pulse.otta.build/v1/metrics"' "$CODEX_HOME/config.toml" || \
+  fail "Bug2: metrics endpoint wrong (must be /v1/metrics): $(grep endpoint "$CODEX_HOME/config.toml" || echo not-found)"
+grep -q '^\[otel.metrics_exporter.otlp-http.headers\]' "$CODEX_HOME/config.toml" || \
+  fail "Bug2: config.toml missing [otel.metrics_exporter.otlp-http.headers]"
+grep -q "x-pulse-token = \"$TOKEN\"" "$CODEX_HOME/config.toml" || \
+  fail "Bug2: metrics exporter headers missing x-pulse-token"
+pass "Bug fix: config.toml [otel.metrics_exporter.otlp-http] with /v1/metrics endpoint + token"
 
 echo "All otta-codex-setup tests passed."

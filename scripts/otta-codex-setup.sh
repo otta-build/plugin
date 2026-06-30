@@ -48,7 +48,7 @@ try:
 except FileNotFoundError:
     lines = []
 
-# Strip only [otel.exporter.otlp-http] and [otel.exporter.otlp-http.headers]
+# Strip only [otel.exporter.otlp-http*] and [otel.metrics_exporter.otlp-http*]
 # sections. The [otel] direct-key section is preserved (AC2).
 kept = []
 has_otel = False
@@ -58,8 +58,9 @@ for line in lines:
     if stripped.startswith('['):
         if stripped == '[otel]':
             has_otel = True
-        # Only skip the two otlp-http sub-sections
-        in_otlp = stripped.startswith('[otel.exporter.otlp-http')
+        # Only skip the otlp-http exporter sub-sections (log + metrics)
+        in_otlp = (stripped.startswith('[otel.exporter.otlp-http')
+                   or stripped.startswith('[otel.metrics_exporter.otlp-http'))
     if not in_otlp:
         kept.append(line)
 
@@ -69,10 +70,17 @@ content = ''.join(kept).rstrip('\n')
 # Exporter sub-sections only (token-bearing; always overwritten)
 exporter_block = (
     '[otel.exporter.otlp-http]\n'
-    'endpoint = "' + pulse + '"\n'
+    'endpoint = "' + pulse + '/v1/logs"\n'
     'protocol = "json"\n'
     '\n'
     '[otel.exporter.otlp-http.headers]\n'
+    'x-pulse-token = "' + token + '"\n'
+    '\n'
+    '[otel.metrics_exporter.otlp-http]\n'
+    'endpoint = "' + pulse + '/v1/metrics"\n'
+    'protocol = "json"\n'
+    '\n'
+    '[otel.metrics_exporter.otlp-http.headers]\n'
     'x-pulse-token = "' + token + '"\n'
 )
 
