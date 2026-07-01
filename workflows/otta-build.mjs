@@ -88,7 +88,9 @@ const verify = await agent(
     `   ${GATE}\n` +
     `2. Run the project's own tests (bash scripts/gate.sh if present, else typecheck + affected tests).\n` +
     `3. Adversarially verify EACH acceptance criterion in .pr-body.md — produce concrete evidence or mark it FAILED.\n` +
-    `Return the gate result (gatePassed) and per-AC verdicts (allAcsPass + detail).`,
+    `4. If the change touches UI/frontend files, headlessly launch the app (Playwright MCP — no local Chrome session, this runs unattended) ` +
+    `and screenshot the golden path yourself to confirm it renders/works before marking any UI-related AC as passed. Typecheck and unit tests do not verify feature correctness. Skip for backend/CLI-only changes.\n` +
+    `Return the gate result (gatePassed) and per-AC verdicts (allAcsPass + detail, including the UI screenshot evidence when applicable).`,
   { agentType: 'otta:qa', label: 'verify', phase: 'Verify', schema: VERIFY_SCHEMA },
 )
 
