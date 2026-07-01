@@ -10,7 +10,7 @@
 #   echo "$JSON" | otta-status.sh
 #   otta-status.sh <<< "$JSON"
 #
-# Input JSON shape:
+# Input JSON shape (single-issue mode):
 #   {
 #     "issue": "82",
 #     "stages": {
@@ -21,14 +21,22 @@
 #       "release": {"status": "pass|fail|pending", "detail": "..."}
 #     }
 #   }
+#
+# Dashboard mode: pass an "issues" array instead of "issue"/"stages" to render
+# one compact row per issue (issue #, title, one glyph per stage) instead of
+# the full 5-line checklist:
+#   {
+#     "issues": [
+#       {"issue": "82", "title": "...", "stages": { ...same shape as above... }},
+#       ...
+#     ]
+#   }
 set -euo pipefail
 
 command -v jq >/dev/null || { echo "ERROR: jq not found. Install jq." >&2; exit 1; }
 
 INPUT="$(cat)"
 echo "$INPUT" | jq -e . >/dev/null 2>&1 || { echo "ERROR: invalid JSON input" >&2; exit 2; }
-
-ISSUE="$(echo "$INPUT" | jq -r '.issue // "?"')"
 
 marker() {
   case "$1" in
@@ -37,6 +45,37 @@ marker() {
     *)    echo "○" ;;
   esac
 }
+
+render_dashboard() {
+  local input="$1"
+  echo "Otta Status — dashboard"
+  echo "----------------------------------------"
+  local count
+  count="$(echo "$input" | jq '.issues | length')"
+  if [ "$count" -eq 0 ]; then
+    echo "No open issues found."
+    return 0
+  fi
+  echo "$input" | jq -c '.issues[]' | while IFS= read -r item; do
+    local issue title glyphs=""
+    issue="$(echo "$item" | jq -r '.issue // "?"')"
+    title="$(echo "$item" | jq -r '.title // ""')"
+    for key in idea build gate ci release; do
+      local status
+      status="$(echo "$item" | jq -r --arg k "$key" '.stages[$k].status // "pending"')"
+      glyphs="${glyphs}$(marker "$status")"
+    done
+    printf '#%-6s %s  %s\n' "$issue" "$glyphs" "$title"
+  done
+  echo "----------------------------------------"
+}
+
+if echo "$INPUT" | jq -e 'has("issues")' >/dev/null 2>&1; then
+  render_dashboard "$INPUT"
+  exit 0
+fi
+
+ISSUE="$(echo "$INPUT" | jq -r '.issue // "?"')"
 
 echo "Otta Status — issue #$ISSUE"
 echo "----------------------------------------"
