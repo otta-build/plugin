@@ -1,3 +1,8 @@
+## 0.18.1
+
+### Fixed
+- `/otta:build` crashed at 0s with `Workflow script file not found` — `commands/build.md` invoked the Workflow tool with `scriptPath: ".../workflows/otta:build.mjs"` (colon), which never matched the real file `workflows/otta-build.mjs`. (plugin#74)
+
 ## 0.18.0
 
 ### Added
