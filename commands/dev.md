@@ -17,6 +17,8 @@ Run the Otta shipping pipeline for issue **#$1** **interactively, in this sessio
 
 3. **Build.** Dispatch the `otta:builder` subagent (`name: "otta-builder-#$1"`) to implement test-first against the ACs. **If the builder returns a question, NEEDS_CONTEXT, or a real design decision, surface it to the developer, get the answer, then re-dispatch the builder with it.** Do not guess on the developer's behalf for genuine decisions.
 
+3.5. **Visual verify (frontend changes only).** If the build touched UI/frontend files (components, pages, styles), invoke the `run` skill now to launch the app and observe the golden path in a real browser before spec review — typecheck and unit tests verify code correctness, not that the feature looks/works right. Skip this step entirely for backend-only, CLI-only, or non-UI changes.
+
 4. **Spec Review.** Dispatch `otta:reviewer` (`name: "otta-reviewer-#$1"`). If it reports gaps, send them to the builder (ask the developer first if a gap is ambiguous), then re-review.
 
 5. **Verify.** Dispatch `otta:qa` (`name: "otta-qa-#$1"`) to run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-gate.sh"` (this also captures the verdict to the LEARN ledger) and adversarially verify each AC. If a gate or AC fails, surface it — fix with the builder, or ask the developer how to proceed.
