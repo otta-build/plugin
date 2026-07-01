@@ -23,8 +23,8 @@ cat > "$HOOK" <<EOF
 # Bypass once with: OTTA_SKIP_GATE=1 git push
 [ -n "\${OTTA_SKIP_GATE:-}" ] && exit 0
 VERSIONS_DIR="$VERSIONS_DIR"
-LATEST="\$(ls -d "\$VERSIONS_DIR"/*/ 2>/dev/null | sort -V | tail -1)"
-GATE="\${LATEST}scripts/otta-gate.sh"
+LATEST="\$(cd "\$VERSIONS_DIR" 2>/dev/null && ls -d */ 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+/\$' | sort -V | tail -1)"
+GATE="\${VERSIONS_DIR}/\${LATEST}scripts/otta-gate.sh"
 [ -f "\$GATE" ] || GATE="$INSTALL_TIME_SCRIPT"
 exec "\$GATE"
 EOF
