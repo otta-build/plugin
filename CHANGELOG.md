@@ -1,3 +1,9 @@
+## 0.23.0
+
+### Added
+
+- /otta:status v2 — surface real Pulse grade+lifecycle data (#90)
+
 ## 0.22.0
 
 ### Added
