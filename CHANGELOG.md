@@ -1,3 +1,9 @@
+## 0.20.0
+
+### Added
+
+- wire UI visual-verify into /otta:dev and /otta:build (#77)
+
 ## 0.19.0
 
 ### Added
