@@ -58,6 +58,18 @@ else
   touch "$TMPFILE"
 fi
 
+# Normalize: strip trailing blank lines left by the awk pass so the file is
+# byte-stable between runs.  python3 is already required by the telemetry
+# script so this adds no new dependency.
+python3 - "$TMPFILE" <<'PY'
+import sys
+path = sys.argv[1]
+content = open(path).read().rstrip('\n')
+with open(path, 'w') as f:
+    if content:
+        f.write(content + '\n')
+PY
+
 # Append a blank line separator (only if file has content) then the fresh block
 if [ -s "$TMPFILE" ]; then
   printf '\n' >> "$TMPFILE"

@@ -205,13 +205,16 @@ grep -q "existing cursor content" "$TMPDIR70/.cursor/rules" \
 grep -q "# otta:begin" "$TMPDIR70/.cursor/rules" \
   || fail "#70 AC2: # otta:begin block not appended to .cursor/rules"
 
-# #70 AC3: idempotent — running twice keeps block once
+# #70 AC3: idempotent — running twice keeps block once AND file is byte-stable
 echo "fresh file" > "$TMPDIR70/idem.md"
-bash "$APPEND_SCRIPT" "$TMPDIR70/idem.md" html
-bash "$APPEND_SCRIPT" "$TMPDIR70/idem.md" html
+bash "$APPEND_SCRIPT" "$TMPDIR70/idem.md" html          # run 1
+cp "$TMPDIR70/idem.md" "$TMPDIR70/idem_after_run1.md"
+bash "$APPEND_SCRIPT" "$TMPDIR70/idem.md" html          # run 2
 COUNT=$(grep -c "otta:begin" "$TMPDIR70/idem.md" || true)
 [ "$COUNT" -eq 1 ] \
   || fail "#70 AC3: otta:begin appears $COUNT times after two runs (expected 1)"
+diff -q "$TMPDIR70/idem_after_run1.md" "$TMPDIR70/idem.md" > /dev/null 2>&1 \
+  || fail "#70 AC3: file is not byte-stable between run 1 and run 2 (blank lines accumulating)"
 
 # #70 AC4: hosted Pulse path — no auth header in curl call
 MOCKDIR="$(mktemp -d)"
