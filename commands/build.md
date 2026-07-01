@@ -13,7 +13,7 @@ Then invoke the **Workflow** tool with the bundled pipeline script (this is an e
 
 ```
 Workflow({
-  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/otta:build.mjs",
+  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/otta-build.mjs",
   args: { issue: "$1", pluginRoot: "${CLAUDE_PLUGIN_ROOT}" }
 })
 ```
