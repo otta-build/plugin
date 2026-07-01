@@ -9,12 +9,24 @@ HOOKS_DIR="$(git rev-parse --git-path hooks)"
 mkdir -p "$HOOKS_DIR"
 HOOK="$HOOKS_DIR/pre-push"
 
+# Plugins are cached one directory per version (…/otta/otta/X.Y.Z/scripts).
+# Baking in $HERE would freeze the hook at today's version forever — every
+# later plugin update ships gate fixes this repo would never see. Instead the
+# hook resolves the newest sibling version dir at RUN time, falling back to
+# the install-time path if the parent isn't a version-dir layout.
+INSTALL_TIME_SCRIPT="$HERE/otta-gate.sh"
+VERSIONS_DIR="$(cd "$HERE/../.." && pwd)"
+
 cat > "$HOOK" <<EOF
 #!/usr/bin/env bash
 # Installed by the Otta plugin — local mirror of the Pulse merge gates.
 # Bypass once with: OTTA_SKIP_GATE=1 git push
 [ -n "\${OTTA_SKIP_GATE:-}" ] && exit 0
-exec "$HERE/otta-gate.sh"
+VERSIONS_DIR="$VERSIONS_DIR"
+LATEST="\$(ls -d "\$VERSIONS_DIR"/*/ 2>/dev/null | sort -V | tail -1)"
+GATE="\${LATEST}scripts/otta-gate.sh"
+[ -f "\$GATE" ] || GATE="$INSTALL_TIME_SCRIPT"
+exec "\$GATE"
 EOF
 chmod +x "$HOOK"
 echo "✓ installed pre-push gate → $HOOK"
