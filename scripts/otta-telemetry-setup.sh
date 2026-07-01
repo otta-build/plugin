@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
-# otta-telemetry-setup.sh <owner/repo> <webhook-secret> [--traces]
+# otta-telemetry-setup.sh <owner/repo> [webhook-secret] [--traces]
 #
-# Derives a per-repo HMAC token by calling the Pulse /token endpoint with the
-# webhook secret, then merges an OTEL `env` block into .claude/settings.local.json
-# (gitignored, token-bearing — NEVER the committed settings.json) so Claude Code
-# emits telemetry to Otta Pulse. Logs are the default; --traces additionally opts
-# into the BETA traces/spans exporters. Merge-into-existing, never clobber;
-# idempotent on re-run.
+# Derives a per-repo token by calling the Pulse /token endpoint, then merges an
+# OTEL `env` block into .claude/settings.local.json (gitignored, token-bearing —
+# NEVER the committed settings.json) so Claude Code emits telemetry to Otta Pulse.
+# Logs are the default; --traces additionally opts into the BETA traces/spans
+# exporters. Merge-into-existing, never clobber; idempotent on re-run.
 #
-# The webhook secret is used ONLY to derive the per-repo token from Pulse; it is
-# NEVER written to any file. Only the derived token is stored.
+# Auth behaviour:
+#   Hosted (OTTA_PULSE_URL unset, webhook-secret omitted):
+#     GET /token?repo=<repo>  — no auth header; hosted Pulse verifies GitHub App
+#     installation and issues a token.
+#   Self-hosted (OTTA_PULSE_URL set):
+#     webhook-secret is REQUIRED; passed as x-pulse-token header.
+#     Exits non-zero if omitted.
+#
+# The webhook secret (when provided) is NEVER written to any file — only the
+# derived token is stored.
 #
 # Endpoint base: OTTA_PULSE_URL if set, else the hosted default. Repo slug comes
 # from the caller (e.g. `gh repo view --json nameWithOwner -q .nameWithOwner`);
@@ -18,13 +25,27 @@
 set -euo pipefail
 
 REPO="${1:-}"
-WEBHOOK_SECRET="${2:-}"
-TRACES=0
-[ "${3:-}" = "--traces" ] && TRACES=1
 
-if [ -z "$REPO" ] || [ -z "$WEBHOOK_SECRET" ]; then
-  echo "usage: otta-telemetry-setup.sh <owner/repo> <webhook-secret> [--traces]" >&2
+# Parse optional positional args: $2 may be webhook-secret or --traces
+WEBHOOK_SECRET=""
+TRACES=0
+if [ "${2:-}" = "--traces" ]; then
+  TRACES=1
+elif [ -n "${2:-}" ]; then
+  WEBHOOK_SECRET="${2}"
+  [ "${3:-}" = "--traces" ] && TRACES=1
+fi
+
+if [ -z "$REPO" ]; then
+  echo "usage: otta-telemetry-setup.sh <owner/repo> [webhook-secret] [--traces]" >&2
   exit 2
+fi
+
+# Self-hosted path requires a webhook secret
+if [ -n "${OTTA_PULSE_URL:-}" ] && [ -z "$WEBHOOK_SECRET" ]; then
+  echo "Error: OTTA_PULSE_URL is set (self-hosted Pulse) but no webhook-secret was provided." >&2
+  echo "usage: otta-telemetry-setup.sh <owner/repo> <webhook-secret> [--traces]" >&2
+  exit 1
 fi
 
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required for the JSON merge." >&2; exit 1; }
@@ -32,10 +53,17 @@ command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required for the JS
 PULSE="${OTTA_PULSE_URL:-https://pulse.otta.build}"
 PULSE="${PULSE%/}"            # normalize trailing slash so /v1/logs isn't doubled
 
-# Derive the per-repo token via Pulse /token (auth: webhook secret).
+# Derive the per-repo token via Pulse /token.
+# Hosted path: no auth header (GitHub App install is the proof).
+# Self-hosted path: x-pulse-token header with the webhook secret.
 # The webhook secret is NEVER written to any file — only TOKEN is stored.
-if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" \
-    -H "x-pulse-token: ${WEBHOOK_SECRET}" 2>&1); then
+if [ -n "$WEBHOOK_SECRET" ]; then
+  CURL_ARGS=(-fsS -m 10 "${PULSE}/token?repo=${REPO}" -H "x-pulse-token: ${WEBHOOK_SECRET}")
+else
+  CURL_ARGS=(-fsS -m 10 "${PULSE}/token?repo=${REPO}")
+fi
+
+if ! RESPONSE=$(curl "${CURL_ARGS[@]}" 2>&1); then
   echo "Error: could not reach Pulse at ${PULSE}/token" >&2
   echo "Response: ${RESPONSE}" >&2
   exit 1

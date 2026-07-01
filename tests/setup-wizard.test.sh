@@ -167,3 +167,84 @@ grep -qiE "Ship your first|first.*gated PR|otta:start.*issue|first PR in" "$SETU
 check_step_has_aqu "## 13\.\|Ship your first|First PR in" "first-PR (step 13)"
 
 echo "✓ setup-wizard: all checks passed (AC1–AC6 + #28 AC2/AC3/AC5/AC6)"
+
+# ---------------------------------------------------------------------------
+# Issue #70 — append-context + hosted-Pulse-no-secret
+# ---------------------------------------------------------------------------
+
+APPEND_SCRIPT="$HERE/../scripts/otta-append-context.sh"
+TELEMETRY_SCRIPT="$HERE/../scripts/otta-telemetry-setup.sh"
+
+# #70 AC1/AC2: appending to an existing file
+TMPDIR70="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR70"' EXIT
+
+echo "existing content" > "$TMPDIR70/CLAUDE.md"
+bash "$APPEND_SCRIPT" "$TMPDIR70/CLAUDE.md" html \
+  || fail "#70 AC1: otta-append-context.sh exited non-zero"
+grep -q "existing content" "$TMPDIR70/CLAUDE.md" \
+  || fail "#70 AC1: original content was clobbered"
+grep -q "otta:begin" "$TMPDIR70/CLAUDE.md" \
+  || fail "#70 AC1: otta:begin block not appended to CLAUDE.md"
+
+echo "existing agents content" > "$TMPDIR70/AGENTS.md"
+bash "$APPEND_SCRIPT" "$TMPDIR70/AGENTS.md" html \
+  || fail "#70 AC2: otta-append-context.sh exited non-zero on AGENTS.md"
+grep -q "existing agents content" "$TMPDIR70/AGENTS.md" \
+  || fail "#70 AC2: original content clobbered in AGENTS.md"
+grep -q "otta:begin" "$TMPDIR70/AGENTS.md" \
+  || fail "#70 AC2: otta:begin block not appended to AGENTS.md"
+
+# Test .cursor/rules with hash-comment delimiters
+mkdir -p "$TMPDIR70/.cursor"
+echo "existing cursor content" > "$TMPDIR70/.cursor/rules"
+bash "$APPEND_SCRIPT" "$TMPDIR70/.cursor/rules" hash \
+  || fail "#70 AC2: otta-append-context.sh exited non-zero on .cursor/rules"
+grep -q "existing cursor content" "$TMPDIR70/.cursor/rules" \
+  || fail "#70 AC2: original content clobbered in .cursor/rules"
+grep -q "# otta:begin" "$TMPDIR70/.cursor/rules" \
+  || fail "#70 AC2: # otta:begin block not appended to .cursor/rules"
+
+# #70 AC3: idempotent — running twice keeps block once
+echo "fresh file" > "$TMPDIR70/idem.md"
+bash "$APPEND_SCRIPT" "$TMPDIR70/idem.md" html
+bash "$APPEND_SCRIPT" "$TMPDIR70/idem.md" html
+COUNT=$(grep -c "otta:begin" "$TMPDIR70/idem.md" || true)
+[ "$COUNT" -eq 1 ] \
+  || fail "#70 AC3: otta:begin appears $COUNT times after two runs (expected 1)"
+
+# #70 AC4: hosted Pulse path — no auth header in curl call
+MOCKDIR="$(mktemp -d)"
+CURL_ARGS_FILE="$MOCKDIR/curl_args"
+cat > "$MOCKDIR/curl" <<'MOCK'
+#!/usr/bin/env bash
+echo "$@" >> "$CURL_ARGS_FILE"
+printf '{"token":"test-token-abc"}\n'
+MOCK
+chmod +x "$MOCKDIR/curl"
+mkdir -p "$TMPDIR70/hosted-run/.claude"
+(
+  cd "$TMPDIR70/hosted-run"
+  # Unset OTTA_PULSE_URL so hosted path is exercised even if env has it set
+  env -u OTTA_PULSE_URL \
+    PATH="$MOCKDIR:$PATH" CURL_ARGS_FILE="$CURL_ARGS_FILE" \
+    bash "$TELEMETRY_SCRIPT" owner/repo \
+  || true
+)
+if [ -f "$CURL_ARGS_FILE" ]; then
+  if grep -q "\-H" "$CURL_ARGS_FILE"; then
+    fail "#70 AC4: hosted Pulse call included -H header (should be headerless)"
+  fi
+else
+  fail "#70 AC4: mock curl was never called"
+fi
+
+# #70 AC5: self-hosted path with no secret must exit non-zero
+TMPDIR70B="$(mktemp -d)"
+if OTTA_PULSE_URL="http://self-hosted.example" \
+     bash "$TELEMETRY_SCRIPT" owner/repo 2>/dev/null; then
+  fail "#70 AC5: self-hosted path without secret should exit non-zero, but exited 0"
+fi
+rm -rf "$TMPDIR70B"
+
+echo "✓ setup-wizard: #70 AC1–AC5 passed"

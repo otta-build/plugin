@@ -280,8 +280,8 @@ Show a complete summary of what will be written based on all choices above:
 > - `.github/workflows/otta-release.yml` (release tagging): `{yes/no}`
 > - `.claude/settings.local.json` (telemetry, gitignored): `{yes/no — logs / logs+traces}`
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
-> - `CLAUDE.md` (if absent): always written — CC is the primary harness being configured
-> - Additional harness context files (if absent): `AGENTS.md` (Codex), `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected non-CC harnesses
+> - `CLAUDE.md`: always updated — gate notice block appended or replaced in place; existing content preserved
+> - Additional harness context files: `AGENTS.md` (Codex), `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — gate notice block appended or replaced in place; only for detected non-CC harnesses
 > - `docs/runner-setup.md` (self-hosted runner instructions): `{yes/no — only for private repos where runner was chosen}`
 >
 > Confirm to proceed, or go back to change any answer."
@@ -307,15 +307,22 @@ Tell the developer this file is the delivery contract for the Otta loop — keep
 
 ### B1b. Write additional harness context files (OTTA.md mapper)
 
-For each additional harness detected in step 9b (i.e. non-CC harnesses only), write the corresponding context file **only if it does not already exist** (never overwrite):
+For each additional harness detected in step 9b (i.e. non-CC harnesses only), append the Otta gate notice to the corresponding context file using the append helper. The helper appends the block if absent, or replaces it in place if already present — original content is never clobbered.
 
-| Harness | File | Content |
-|---------|------|---------|
-| `codex` | `AGENTS.md` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Codex adapter)." |
-| `gemini` | `GEMINI.md` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Gemini adapter)." |
-| `cursor` | `.cursor/rules` | "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build (Cursor adapter coming soon)." |
+| Harness | File | Style arg |
+|---------|------|-----------|
+| `codex` | `AGENTS.md` | `html` |
+| `gemini` | `GEMINI.md` | `html` |
+| `cursor` | `.cursor/rules` | `hash` |
 
-For Cursor, create `.cursor/` if it does not exist. Log each file written. Skip any file that already exists. If no additional harnesses were found, skip this step entirely.
+```bash
+# Run only for detected harnesses:
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-append-context.sh" AGENTS.md html
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-append-context.sh" GEMINI.md html
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-append-context.sh" .cursor/rules hash
+```
+
+The helper creates `.cursor/` if it does not exist. Log each file updated. If no additional harnesses were found, skip this step entirely.
 
 ### B2. Write sandbox credentials (if chosen)
 
@@ -360,22 +367,34 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-git-hooks.sh"
 
 ### B5. Wire telemetry (if chosen)
 
-If the developer chose Logs or Logs+traces in step 9, ask for the **webhook secret** (found in Coolify → Otta project → pulse app → `WEBHOOK_SECRET` env var). The script calls `/token` to derive a per-repo token and writes only the derived token to `.claude/settings.local.json` — the webhook secret is **never written to any file**.
-
-Prompt via AskUserQuestion: "Paste your Pulse webhook secret (from Coolify → pulse app → WEBHOOK_SECRET):"
-
-Then invoke the writer (which **merges into an existing `env`, never clobbers**, and is idempotent):
+If the developer chose Logs or Logs+traces in step 9:
 
 ```bash
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+```
+
+**Hosted `pulse.otta.build` (default — `OTTA_PULSE_URL` not set):** No secret needed. Token is derived via a public `GET /token?repo=` call — hosted Pulse verifies the GitHub App is installed on the repo and issues a token. No prompt required.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO"
+```
+
+**Self-hosted (`OTTA_PULSE_URL` set):** A webhook secret is required (found in Coolify → Otta project → pulse app → `WEBHOOK_SECRET` env var). The script calls `/token` to derive a per-repo token and writes only the derived token to `.claude/settings.local.json` — the webhook secret is **never written to any file**.
+
+Only for self-hosted: Prompt via AskUserQuestion: "Paste your Pulse webhook secret (from Coolify → pulse app → WEBHOOK_SECRET):"
+
+```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$WEBHOOK_SECRET"
 ```
 
-`OTTA_PULSE_URL` is honoured automatically (self-host); the hosted default needs no config.
+The writer **merges into an existing `env`, never clobbers**, and is idempotent.
 
-**Traces are a SEPARATE opt-in (beta, default NO).** Only if the developer chose Logs+traces, re-run with `--traces`:
+**Traces are a SEPARATE opt-in (beta, default NO).** Only if the developer chose Logs+traces, append `--traces`:
 
 ```bash
+# Hosted:
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" --traces
+# Self-hosted:
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$WEBHOOK_SECRET" --traces
 ```
 
@@ -402,11 +421,13 @@ This outputs the docker run command to stdout and writes `docs/runner-setup.md` 
 
 ### B6. Write CLAUDE.md (unconditional)
 
-Claude Code is always the primary harness being configured by `/otta:setup`. Write `CLAUDE.md` **only if it does not already exist** (never overwrite), regardless of what step 9b detected:
+Claude Code is always the primary harness being configured by `/otta:setup`. Append the Otta gate notice to `CLAUDE.md` using the append helper — appends if absent, replaces the block in place if already present, never clobbers content outside the delimiters.
 
-> Content: "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build."
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-append-context.sh" CLAUDE.md html
+```
 
-Log whether the file was written or already existed.
+Log whether the block was freshly appended or updated in place.
 
 ---
 
