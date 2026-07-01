@@ -1,3 +1,8 @@
+## 0.18.2
+
+### Fixed
+- `/otta:dev` dispatched builder/reviewer/qa/devops subagents via the Task tool with no explicit `name`, so background-agent completion notifications showed an opaque hash ("Teammate @acca6adc... finished") instead of which stage finished. Each dispatch now names itself (`otta-builder-#N`, `otta-reviewer-#N`, `otta-qa-#N`, `otta-devops-#N`). (plugin#75)
+
 ## 0.18.1
 
 ### Fixed
