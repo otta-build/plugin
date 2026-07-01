@@ -1,3 +1,9 @@
+## 0.21.0
+
+### Added
+
+- add /otta:status command for pipeline stage tracking (#83)
+
 ## 0.20.2
 
 ### Fixed
