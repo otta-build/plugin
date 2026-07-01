@@ -1,0 +1,258 @@
+name: Auto-release on main
+
+# After every push to main, automatically compute the next semver version from
+# conventional-commit messages since the last tag, bump .claude-plugin/plugin.json,
+# append a CHANGELOG.md entry, commit, tag, and create the GitHub Release.
+#
+# Net effect: merging a fix/feat PR to main is enough — no separate manual
+# "chore: release vX.Y.Z" step required.
+#
+# Idempotency: skips if HEAD is already tagged, if there are no commits since
+# the last tag, or if HEAD is itself a prior release-bump commit from this
+# workflow (its own push re-triggers `push: main` — this guard breaks the loop).
+#
+# Versioning: conventional-commits-style.
+#   Any "BREAKING CHANGE" or "major:" prefix → major bump
+#   Any "feat" prefix                       → minor bump
+#   Otherwise (fix/chore/refactor/docs/...)  → patch bump
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  auto-release:
+    name: Compute next version and release
+    if: "github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore: release v')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Idempotency — skip if tag already on HEAD or HEAD is a release-bump
+        id: idempotency
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git tag --points-at HEAD | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            existing=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+            echo "Found existing tag $existing on HEAD. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git log -1 --format=%s HEAD | grep -qE '^chore: release v'; then
+            echo "HEAD is a release-bump commit. Skipping to avoid loop."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next version
+        id: version
+        if: steps.idempotency.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          LAST_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          if [ -z "$LAST_TAG" ]; then
+            LAST_TAG="v0.0.0"
+            echo "No prior semver tag found; starting from $LAST_TAG"
+          fi
+
+          VERSION="${LAST_TAG#v}"
+          MAJOR="${VERSION%%.*}"
+          REST="${VERSION#*.}"
+          MINOR="${REST%%.*}"
+          PATCH="${REST#*.}"
+
+          if git rev-parse "$LAST_TAG" >/dev/null 2>&1; then
+            COMMIT_RANGE="${LAST_TAG}..HEAD"
+          else
+            COMMIT_RANGE="HEAD"
+          fi
+          COMMITS=$(git log "$COMMIT_RANGE" --pretty=format:'%s%n%b' || true)
+          NON_MERGE_COMMITS=$(git log "$COMMIT_RANGE" --no-merges --pretty=format:'%s%n%b' || true)
+
+          if [ -z "$COMMITS" ]; then
+            echo "No commits since $LAST_TAG; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if echo "$NON_MERGE_COMMITS" | grep -qiE '^BREAKING CHANGE|^major:|BREAKING CHANGE:'; then
+            BUMP="major"
+            NEW_VERSION="$((MAJOR + 1)).0.0"
+          elif echo "$NON_MERGE_COMMITS" | grep -qE '^feat[(:]'; then
+            BUMP="minor"
+            NEW_VERSION="${MAJOR}.$((MINOR + 1)).0"
+          else
+            BUMP="patch"
+            NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+
+          while git rev-parse "v${NEW_VERSION}" >/dev/null 2>&1; do
+            echo "WARN: v${NEW_VERSION} already exists, bumping patch"
+            BASE="${NEW_VERSION%.*}"
+            P="${NEW_VERSION##*.}"
+            NEW_VERSION="${BASE}.$((P + 1))"
+          done
+
+          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "bump=${BUMP}" >> "$GITHUB_OUTPUT"
+          echo "last_tag=${LAST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo ""
+          echo "Bump: $BUMP"
+          echo "Last tag: $LAST_TAG"
+          echo "New version: $NEW_VERSION"
+
+      - name: Bump plugin.json + CHANGELOG.md
+        id: changelog
+        if: steps.idempotency.outputs.skip != 'true' && steps.version.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+          LAST_TAG="${{ steps.version.outputs.last_tag }}"
+
+          # Bump version field in plugin.json
+          tmp=$(mktemp)
+          jq --arg v "$NEW_VERSION" '.version = $v' .claude-plugin/plugin.json > "$tmp"
+          mv "$tmp" .claude-plugin/plugin.json
+
+          # Bucket commit subjects by conventional-commit prefix
+          if git rev-parse "$LAST_TAG" >/dev/null 2>&1; then
+            RANGE="${LAST_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          FIXED=$(git log "$RANGE" --no-merges --pretty=format:'%s' | grep -E '^fix[(:]' | sed -E 's/^fix(\([^)]+\))?:[[:space:]]*/- /' || true)
+          ADDED=$(git log "$RANGE" --no-merges --pretty=format:'%s' | grep -E '^feat[(:]' | sed -E 's/^feat(\([^)]+\))?:[[:space:]]*/- /' || true)
+          OTHER=$(git log "$RANGE" --no-merges --pretty=format:'%s' | grep -vE '^(fix|feat)[(:]' | sed -E 's/^/- /' || true)
+
+          entry_file=$(mktemp)
+          {
+            echo "## ${NEW_VERSION}"
+            echo ""
+            if [ -n "$ADDED" ]; then
+              echo "### Added"
+              echo ""
+              echo "$ADDED"
+              echo ""
+            fi
+            if [ -n "$FIXED" ]; then
+              echo "### Fixed"
+              echo ""
+              echo "$FIXED"
+              echo ""
+            fi
+            if [ -n "$OTHER" ]; then
+              echo "### Changed"
+              echo ""
+              echo "$OTHER"
+              echo ""
+            fi
+          } > "$entry_file"
+
+          cat "$entry_file" CHANGELOG.md > CHANGELOG.md.new
+          mv CHANGELOG.md.new CHANGELOG.md
+          rm -f "$entry_file"
+
+      - name: Commit, tag, push
+        if: steps.idempotency.outputs.skip != 'true' && steps.version.outputs.skip != 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          LAST_TAG="${{ steps.version.outputs.last_tag }}"
+          BUMP="${{ steps.version.outputs.bump }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .claude-plugin/plugin.json CHANGELOG.md
+          git commit -m "chore: release ${TAG}"
+
+          git tag -a "$TAG" -m "Auto-released after merge to main.
+
+          Bump: $BUMP from $LAST_TAG.
+
+          Commits in this release:
+          $(git log -50 "${LAST_TAG}..HEAD~1" --pretty=format:'  - %s')
+          "
+          git push origin HEAD:main
+          git push origin "$TAG"
+          echo "✓ Pushed $TAG"
+
+      - name: Create GitHub Release
+        if: steps.idempotency.outputs.skip != 'true' && steps.version.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          LAST_TAG="${{ steps.version.outputs.last_tag }}"
+          BUMP="${{ steps.version.outputs.bump }}"
+
+          NOTES_BODY=$(git log -50 "${LAST_TAG}..${TAG}" --no-merges --pretty=format:'- %s')
+          if [ -z "$NOTES_BODY" ]; then
+            NOTES_BODY="- (no commit subjects available)"
+          fi
+
+          TITLE_SUBJECT=$(git log "${LAST_TAG}..${TAG}" --no-merges --pretty=format:'%s' | grep -m1 -E '^feat[(:]' || true)
+          if [ -z "$TITLE_SUBJECT" ]; then
+            TITLE_SUBJECT=$(git log -1 "${LAST_TAG}..${TAG}" --no-merges --pretty=format:'%s' || echo "release")
+          fi
+          CLEAN_TITLE=$(echo "$TITLE_SUBJECT" | sed -E 's/^(feat|fix|chore|docs|refactor|test|perf|ci|build)(\([^)]+\))?:[[:space:]]*//')
+          CLEAN_TITLE="${CLEAN_TITLE:0:80}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $TAG already exists — skipping create."
+            exit 0
+          fi
+
+          NOTES_FILE=$(mktemp)
+          {
+            echo "## Highlights"
+            echo ""
+            echo "$NOTES_BODY"
+            echo ""
+            echo "Auto-released after merge to main. Bump: $BUMP from $LAST_TAG."
+          } > "$NOTES_FILE"
+
+          gh release create "$TAG" \
+            --title "$TAG — $CLEAN_TITLE" \
+            --notes-file "$NOTES_FILE"
+          rm -f "$NOTES_FILE"
+          echo "✓ Created GitHub Release $TAG"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Auto-release"
+            echo ""
+            if [ "${{ steps.idempotency.outputs.skip }}" = "true" ]; then
+              echo "**Skipped**: HEAD already tagged or is itself a release-bump commit."
+            elif [ "${{ steps.version.outputs.skip }}" = "true" ]; then
+              echo "**Skipped**: no commits since the previous tag, nothing to release."
+            else
+              echo "**Released**: \`${{ steps.version.outputs.tag }}\` (\`${{ steps.version.outputs.bump }}\` bump from \`${{ steps.version.outputs.last_tag }}\`)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
