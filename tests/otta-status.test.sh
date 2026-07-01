@@ -131,4 +131,108 @@ EMPTY_DASHBOARD='{"issues": []}'
 OUTPUT="$(printf '%s' "$EMPTY_DASHBOARD" | bash "$SCRIPT" 2>&1)" || fail "script failed on empty dashboard input:\n$OUTPUT"
 echo "  ✓ empty dashboard input handled without crash"
 
-echo "✓ otta-status: all checks passed (all-pass render, mixed markers, detail text, header, invalid-input guard, dashboard mode, empty dashboard)"
+# =============================================================================
+# 8. Dashboard mode sorts most-blocked/stalest first (AC89):
+#    rank 0 = any stage "fail", rank 1 = any stage "pending" (no fail),
+#    rank 2 = all "pass"; ties broken by createdAt ascending (older first).
+# =============================================================================
+UNSORTED='{
+  "issues": [
+    {
+      "issue": "10", "title": "all pass, newer", "createdAt": "2026-06-20T00:00:00Z",
+      "stages": {
+        "idea": {"status": "pass"}, "build": {"status": "pass"}, "gate": {"status": "pass"},
+        "ci": {"status": "pass"}, "release": {"status": "pass"}
+      }
+    },
+    {
+      "issue": "20", "title": "has a fail, older", "createdAt": "2026-06-01T00:00:00Z",
+      "stages": {
+        "idea": {"status": "pass"}, "build": {"status": "pass"}, "gate": {"status": "fail"},
+        "ci": {"status": "pending"}, "release": {"status": "pending"}
+      }
+    },
+    {
+      "issue": "30", "title": "has a fail, newer", "createdAt": "2026-06-15T00:00:00Z",
+      "stages": {
+        "idea": {"status": "pass"}, "build": {"status": "pass"}, "gate": {"status": "fail"},
+        "ci": {"status": "pending"}, "release": {"status": "pending"}
+      }
+    },
+    {
+      "issue": "40", "title": "pending only, older", "createdAt": "2026-06-05T00:00:00Z",
+      "stages": {
+        "idea": {"status": "pass"}, "build": {"status": "pending"}, "gate": {"status": "pending"},
+        "ci": {"status": "pending"}, "release": {"status": "pending"}
+      }
+    }
+  ]
+}'
+OUTPUT="$(printf '%s' "$UNSORTED" | bash "$SCRIPT" 2>&1)" || fail "script failed on unsorted dashboard input:\n$OUTPUT"
+ORDER="$(echo "$OUTPUT" | grep -oE '#[0-9]+' | tr -d '#')"
+EXPECTED=$'20\n30\n40\n10'
+[ "$ORDER" = "$EXPECTED" ] || fail "dashboard rows not sorted most-blocked/stalest first, got:\n$ORDER\nexpected:\n$EXPECTED"
+echo "  ✓ dashboard mode sorts most-blocked/stalest first (fail > pending > pass, ties by createdAt ascending)"
+
+# =============================================================================
+# 9. Dashboard mode falls back to numeric issue number for tiebreak when
+#    createdAt is absent (older gh versions / callers that omit it).
+# =============================================================================
+NO_CREATED_AT='{
+  "issues": [
+    {"issue": "9", "title": "pending, no createdAt", "stages": {"idea": {"status":"pending"}, "build":{"status":"pending"}, "gate":{"status":"pending"}, "ci":{"status":"pending"}, "release":{"status":"pending"}}},
+    {"issue": "100", "title": "pending, no createdAt", "stages": {"idea": {"status":"pending"}, "build":{"status":"pending"}, "gate":{"status":"pending"}, "ci":{"status":"pending"}, "release":{"status":"pending"}}}
+  ]
+}'
+OUTPUT="$(printf '%s' "$NO_CREATED_AT" | bash "$SCRIPT" 2>&1)" || fail "script failed on no-createdAt dashboard input:\n$OUTPUT"
+ORDER="$(echo "$OUTPUT" | grep -oE '#[0-9]+' | tr -d '#')"
+EXPECTED=$'9\n100'
+[ "$ORDER" = "$EXPECTED" ] || fail "expected numeric issue-number tiebreak fallback, got:\n$ORDER"
+echo "  ✓ dashboard mode falls back to numeric issue-number tiebreak when createdAt absent"
+
+# =============================================================================
+# 10. format-gate-detail: extracts the most recent /grade verdict feedback
+#     for the matching branch, using synthetic Pulse JSON (no live network).
+# =============================================================================
+GRADE_JSON='{
+  "counts": {"total": 4, "pass": 2, "fail": 2, "bySource": {}},
+  "defects": {"issueReopened": 0, "prReverted": 0, "total": 0},
+  "verdicts": [
+    {"ts": "2026-06-30T12:00:00Z", "source": "gate", "event": "loop_verdict", "score": 0, "branch": "otta/89", "feedback": "tsc failed: 2 errors"},
+    {"ts": "2026-06-29T12:00:00Z", "source": "gate", "event": "loop_verdict", "score": 1, "branch": "otta/89", "feedback": ""},
+    {"ts": "2026-06-28T12:00:00Z", "source": "gate", "event": "loop_verdict", "score": 1, "branch": "otta/other", "feedback": ""}
+  ]
+}'
+OUT="$(printf '%s' "$GRADE_JSON" | bash "$SCRIPT" format-gate-detail "otta/89")" || fail "format-gate-detail failed:\n$OUT"
+[ "$OUT" = "gate failed: tsc failed: 2 errors" ] || fail "expected most-recent-verdict fail text, got: $OUT"
+echo "  ✓ format-gate-detail returns most recent verdict's failure feedback for the branch"
+
+OUT="$(printf '%s' "$GRADE_JSON" | bash "$SCRIPT" format-gate-detail "otta/other")" || fail "format-gate-detail failed:\n$OUT"
+[ "$OUT" = "gate passed" ] || fail "expected pass text for otta/other, got: $OUT"
+echo "  ✓ format-gate-detail returns pass text when the matching verdict passed"
+
+OUT="$(printf '%s' "$GRADE_JSON" | bash "$SCRIPT" format-gate-detail "otta/no-such-branch")" || fail "format-gate-detail failed:\n$OUT"
+[ -z "$OUT" ] || fail "expected empty output when no verdict matches the branch, got: $OUT"
+echo "  ✓ format-gate-detail returns empty string when no verdict matches the branch"
+
+# =============================================================================
+# 11. format-release-detail: extracts /lifecycle version + shipped_at for the
+#     matching issue, using synthetic Pulse JSON (no live network).
+# =============================================================================
+LIFECYCLE_JSON='{
+  "repo": "otta-build/plugin",
+  "items": [
+    {"idea_ref": "issue:#89", "gh_issue": 89, "pr": 90, "commit": "abc123", "version": "v0.23.0", "shipped_at": "2026-07-01T09:00:00Z"},
+    {"idea_ref": "issue:#82", "gh_issue": 82, "pr": 83, "commit": "def456", "version": "v0.22.0", "shipped_at": "2026-06-29T09:00:00Z"}
+  ],
+  "stats": {}
+}'
+OUT="$(printf '%s' "$LIFECYCLE_JSON" | bash "$SCRIPT" format-release-detail "89")" || fail "format-release-detail failed:\n$OUT"
+[ "$OUT" = "merged + shipped v0.23.0 (2026-07-01T09:00:00Z)" ] || fail "expected shipped detail for issue 89, got: $OUT"
+echo "  ✓ format-release-detail returns version + shipped_at for the matching issue"
+
+OUT="$(printf '%s' "$LIFECYCLE_JSON" | bash "$SCRIPT" format-release-detail "999")" || fail "format-release-detail failed:\n$OUT"
+[ -z "$OUT" ] || fail "expected empty output when no lifecycle item matches the issue, got: $OUT"
+echo "  ✓ format-release-detail returns empty string when no lifecycle item matches the issue"
+
+echo "✓ otta-status: all checks passed (all-pass render, mixed markers, detail text, header, invalid-input guard, dashboard mode, empty dashboard, dashboard sort + tiebreak, Pulse grade/lifecycle detail formatting)"

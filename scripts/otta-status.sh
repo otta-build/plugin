@@ -31,9 +31,47 @@
 #       ...
 #     ]
 #   }
+# Subcommands (read Pulse API JSON from stdin, print a plain-text detail
+# string, empty string if nothing matches — never fail the caller):
+#   otta-status.sh format-gate-detail <branch>   — most recent /grade verdict
+#     for <branch>, e.g. "gate failed: tsc failed: 2 errors" / "gate passed".
+#   otta-status.sh format-release-detail <issue> — /lifecycle ship info for
+#     <issue>, e.g. "merged + shipped v0.23.0 (2026-07-01T09:00:00Z)".
 set -euo pipefail
 
 command -v jq >/dev/null || { echo "ERROR: jq not found. Install jq." >&2; exit 1; }
+
+if [ "${1:-}" = "format-gate-detail" ]; then
+  BRANCH="${2:?branch required}"
+  GRADE_JSON="$(cat)"
+  echo "$GRADE_JSON" | jq -e . >/dev/null 2>&1 || { echo "ERROR: invalid JSON input" >&2; exit 2; }
+  # verdicts are already ordered most-recent-first by the Pulse /grade endpoint.
+  echo "$GRADE_JSON" | jq -r --arg b "$BRANCH" '
+    ([.verdicts[]? | select(.branch == $b)] | first) as $v
+    | if $v == null then ""
+      elif $v.score == 0 then "gate failed" + (if ($v.feedback // "") != "" then ": " + $v.feedback else "" end)
+      else "gate passed" + (if ($v.feedback // "") != "" then ": " + $v.feedback else "" end)
+      end
+  '
+  exit 0
+fi
+
+if [ "${1:-}" = "format-release-detail" ]; then
+  ISSUE="${2:?issue required}"
+  LIFECYCLE_JSON="$(cat)"
+  echo "$LIFECYCLE_JSON" | jq -e . >/dev/null 2>&1 || { echo "ERROR: invalid JSON input" >&2; exit 2; }
+  # items are already ordered most-recent-first by the Pulse /lifecycle endpoint.
+  echo "$LIFECYCLE_JSON" | jq -r --arg i "$ISSUE" '
+    ([.items[]? | select((.gh_issue|tostring) == $i)] | first) as $it
+    | if $it == null then ""
+      elif ($it.version // "") != "" and ($it.shipped_at // "") != "" then "merged + shipped " + $it.version + " (" + $it.shipped_at + ")"
+      elif ($it.version // "") != "" then "merged + shipped " + $it.version
+      elif ($it.shipped_at // "") != "" then "merged + shipped (" + $it.shipped_at + ")"
+      else ""
+      end
+  '
+  exit 0
+fi
 
 INPUT="$(cat)"
 echo "$INPUT" | jq -e . >/dev/null 2>&1 || { echo "ERROR: invalid JSON input" >&2; exit 2; }
@@ -56,7 +94,19 @@ render_dashboard() {
     echo "No open issues found."
     return 0
   fi
-  echo "$input" | jq -c '.issues[]' | while IFS= read -r item; do
+  # Most-blocked/stalest first: rank 0 = any stage "fail", rank 1 = any stage
+  # "pending" (no fail), rank 2 = all "pass". Ties break by createdAt ascending
+  # (older first), falling back to numeric issue number when createdAt is absent.
+  echo "$input" | jq -c '
+    .issues
+    | sort_by(
+        (if ([.stages[].status] | index("fail")) then 0
+         elif ([.stages[].status] | index("pending")) then 1
+         else 2 end),
+        (.createdAt // (.issue | tonumber))
+      )
+    | .[]
+  ' | while IFS= read -r item; do
     local issue title glyphs=""
     issue="$(echo "$item" | jq -r '.issue // "?"')"
     title="$(echo "$item" | jq -r '.title // ""')"
