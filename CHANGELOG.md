@@ -1,3 +1,9 @@
+## 0.20.1
+
+### Fixed
+
+- catch stale .pr-body.md referencing an already-closed issue (#79)
+
 ## 0.20.0
 
 ### Added
