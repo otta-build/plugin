@@ -1,3 +1,9 @@
+## 0.19.0
+
+### Added
+
+- auto-release on push to main
+
 ## 0.18.2
 
 ### Fixed
