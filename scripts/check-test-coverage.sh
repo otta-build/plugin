@@ -9,6 +9,7 @@ set -euo pipefail
 
 BASE="${1:-}"
 BODY="${2:-.pr-body.md}"
+TAG="[otta-gate:test-coverage]"
 
 if [ -z "$BASE" ]; then
   # Default branch from origin/HEAD when present. The trailing `|| true` keeps
@@ -29,7 +30,7 @@ fi
 # No changes at all between base and HEAD → nothing to gate yet. Don't emit a
 # coverage failure for an empty diff (e.g. a fresh worktree before the first edit).
 if [ -z "$(git diff --name-only "$BASE"...HEAD 2>/dev/null)" ]; then
-  echo "✓ test-coverage: no changes to gate yet (empty $BASE...HEAD diff)."
+  echo "✓ $TAG no changes to gate yet (empty $BASE...HEAD diff)."
   exit 0
 fi
 
@@ -38,16 +39,16 @@ TEST_FILES="$(git diff --name-only "$BASE"...HEAD 2>/dev/null \
   | grep -iE '(\.(test|spec)\.[a-z]+$|(^|/)tests?/|(^|/)[0-9][0-9][0-9][0-9]-)' || true)"
 
 if [ -n "$TEST_FILES" ]; then
-  echo "✓ test-coverage: diff adds/edits test file(s):"
+  echo "✓ $TAG diff adds/edits test file(s):"
   echo "$TEST_FILES" | sed 's/^/    /'
   exit 0
 fi
 
 if [ -f "$BODY" ] && grep -qiE '\[test-impractical:' "$BODY"; then
-  echo "✓ test-coverage: no test in diff, but [test-impractical: …] declared in $BODY"
+  echo "✓ $TAG no test in diff, but [test-impractical: …] declared in $BODY"
   exit 0
 fi
 
-echo "⛔ test-coverage gate: diff adds no test file and $BODY has no [test-impractical: <reason>]." >&2
+echo "⛔ $TAG diff adds no test file and $BODY has no [test-impractical: <reason>]." >&2
 echo "   Add a focused test, or justify with [test-impractical: <reason>] in the PR body." >&2
 exit 1

@@ -10,13 +10,14 @@
 set -euo pipefail
 
 BODY="${1:-.pr-body.md}"
+TAG="[otta-gate:pr-body]"
 if [ ! -f "$BODY" ]; then
-  echo "⛔ $BODY missing. Run /otta:start <issue> to create it." >&2
+  echo "⛔ $TAG $BODY missing. Run /otta:start <issue> to create it." >&2
   exit 1
 fi
 
 fail=0
-note() { echo "  ✗ $1" >&2; fail=1; }
+note() { echo "  ⛔ $TAG $1" >&2; fail=1; }
 
 grep -qE '```acceptance' "$BODY" || note "no \`\`\`acceptance fenced block (acceptance-block gate)"
 
@@ -41,7 +42,7 @@ fi
 
 if [ "$fail" -ne 0 ]; then
   echo "" >&2
-  echo "⛔ otta gate: $BODY incomplete — fix the items above before pushing." >&2
+  echo "⛔ $TAG $BODY incomplete — fix the items above before pushing." >&2
   exit 1
 fi
-echo "✓ otta gate: $BODY has acceptance block, Fixes #N, idea_ref"
+echo "✓ $TAG $BODY has acceptance block, Fixes #N, idea_ref"

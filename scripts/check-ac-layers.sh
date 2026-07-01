@@ -14,7 +14,8 @@
 set -euo pipefail
 
 BODY="${1:-.pr-body.md}"
-[ -f "$BODY" ] || { echo "✓ ac-layers: no $BODY found, skipping layer check"; exit 0; }
+TAG="[otta-gate:ac-layers]"
+[ -f "$BODY" ] || { echo "✓ $TAG no $BODY found, skipping layer check"; exit 0; }
 
 fail=0
 
@@ -40,7 +41,7 @@ while IFS= read -r line; do
   echo "$line" | grep -qF "—" || continue
   evidence="$(echo "$line" | sed 's/.*—//')"
   if _is_unit_only "$evidence"; then
-    echo "⛔ AC tagged [ui-layer]/[e2e] requires preview URL or e2e evidence — unit test insufficient." >&2
+    echo "⛔ $TAG AC tagged [ui-layer]/[e2e] requires preview URL or e2e evidence — unit test insufficient." >&2
     echo "   Failing AC: $line" >&2
     fail=1
   fi
@@ -53,10 +54,10 @@ CLOSED_DATA="$(grep -iE '^\s*-\s*\[x\]\s+AC[0-9]+[^[]*\[data-layer\]' "$BODY" ||
 CLOSED_UI="$(grep -iE '^\s*-\s*\[x\]\s+AC[0-9]+[^[]*\[(ui-layer|e2e)\]' "$BODY" || true)"
 
 if [ -n "$UNCLOSED_UI" ] && [ -n "$CLOSED_DATA" ] && [ -z "$CLOSED_UI" ]; then
-  echo "⚠ Issue has unclosed [ui-layer]/[e2e] ACs — issue will remain open after merge." >&2
+  echo "⚠ $TAG Issue has unclosed [ui-layer]/[e2e] ACs — issue will remain open after merge." >&2
 fi
 
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi
-echo "✓ ac-layers: layer tag evidence checks passed."
+echo "✓ $TAG layer tag evidence checks passed."
