@@ -1,3 +1,9 @@
+## 0.21.1
+
+### Fixed
+
+- version-resolve must skip non-semver sibling dirs (#86)
+
 ## 0.21.0
 
 ### Added
