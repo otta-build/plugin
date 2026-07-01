@@ -1,9 +1,31 @@
 ---
-description: Show pipeline status (Idea → Build → Gate → CI → Release/Deploy) for an issue or PR
-argument-hint: <issue-or-pr-number>
+description: Show pipeline status (Idea → Build → Gate → CI → Release/Deploy) for an issue or PR, or a dashboard across all open issues
+argument-hint: [issue-or-pr-number]
 ---
 
-Show a stage-by-stage progress checklist for **#$1** — where this piece of work sits in the Otta pipeline right now. Read-only: this command never writes, merges, or pushes anything.
+Show where work sits in the Otta pipeline (Idea → Build → Gate → CI → Release/Deploy) right now: a stage-by-stage checklist for a single **#$1**, or — if no argument is given — a dashboard across all open issues. Read-only: this command never writes, merges, or pushes anything.
+
+## Dashboard mode (no `$1`)
+
+If `$1` is empty/absent, don't require an issue number — instead enumerate open issues and render a compact one-row-per-issue table:
+
+1. `REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"`.
+2. `gh issue list --repo "$REPO" --state open --limit 20 --json number,title` — capped at **20 issues** by default to avoid unbounded API calls. If there are more open issues than the cap, note the cap in your response (e.g. "showing 20 of N open issues").
+3. For **each** issue returned, resolve its 5 stages using the exact same steps 1–6 below (Idea/Build/Gate/CI/Release resolution, including the optional Pulse corroboration) that single-issue mode uses — don't duplicate that logic, just apply it per issue.
+4. Build one JSON object shaped like:
+   ```json
+   {
+     "issues": [
+       {"issue": "82", "title": "...", "stages": { "idea": {"status": "..."}, "build": {"status": "..."}, "gate": {"status": "..."}, "ci": {"status": "..."}, "release": {"status": "..."} }},
+       ...
+     ]
+   }
+   ```
+   (`detail` per stage is optional in dashboard mode — omit it to keep rows compact; the renderer falls back to `pending` for missing statuses.)
+5. Pipe it into the same renderer: `echo "$JSON" | bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-status.sh"`. It detects the `"issues"` array and renders one compact row per issue (issue #, title, one glyph per stage — Idea/Build/Gate/CI/Release in that order) instead of the full 5-line checklist.
+6. Report the rendered table verbatim to the developer as your response.
+
+## Single-issue mode (`$1` given)
 
 1. **Resolve the repo + the item.** `REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"`. Try `gh pr view $1 --repo "$REPO" --json number,title,state,url,mergedAt,body` first — if `$1` is a PR, that's your Build+Release source directly and its body's `Fixes #N` / `Closes #N` gives you the issue. If it errors (not a PR), treat `$1` as an issue number instead.
 

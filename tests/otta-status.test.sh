@@ -78,4 +78,57 @@ if printf 'not json' | bash "$SCRIPT" > /dev/null 2>&1; then
 fi
 echo "  ✓ invalid JSON input rejected"
 
-echo "✓ otta-status: all checks passed (all-pass render, mixed markers, detail text, header, invalid-input guard)"
+
+# =============================================================================
+# 6. Dashboard mode (AC84): "issues" array renders one compact row per issue
+#    with a glyph per stage, instead of the full 5-line checklist.
+# =============================================================================
+DASHBOARD='{
+  "issues": [
+    {
+      "issue": "82", "title": "Add otta:status command",
+      "stages": {
+        "idea":    {"status": "pass"},
+        "build":   {"status": "pass"},
+        "gate":    {"status": "pass"},
+        "ci":      {"status": "pass"},
+        "release": {"status": "pass"}
+      }
+    },
+    {
+      "issue": "84", "title": "status dashboard mode",
+      "stages": {
+        "idea":    {"status": "pass"},
+        "build":   {"status": "pass"},
+        "gate":    {"status": "fail"},
+        "ci":      {"status": "pending"},
+        "release": {"status": "pending"}
+      }
+    }
+  ]
+}'
+OUTPUT="$(printf '%s' "$DASHBOARD" | bash "$SCRIPT" 2>&1)" || fail "script failed on dashboard input:\n$OUTPUT"
+
+echo "$OUTPUT" | grep -q "82" || fail "issue #82 missing from dashboard output:\n$OUTPUT"
+echo "$OUTPUT" | grep -q "84" || fail "issue #84 missing from dashboard output:\n$OUTPUT"
+echo "$OUTPUT" | grep -q "Add otta:status command" || fail "issue #82 title missing:\n$OUTPUT"
+echo "$OUTPUT" | grep -q "status dashboard mode" || fail "issue #84 title missing:\n$OUTPUT"
+
+ROW_82="$(echo "$OUTPUT" | grep "82")"
+ROW_84="$(echo "$OUTPUT" | grep "84")"
+[ "$(echo "$ROW_82" | grep -o '✓' | wc -l | tr -d ' ')" -eq 5 ] || fail "issue #82 row should have 5 ✓ glyphs:\n$ROW_82"
+echo "$ROW_84" | grep -q '✗' || fail "issue #84 row should have a ✗ glyph (gate failed):\n$ROW_84"
+echo "$ROW_84" | grep -q '○' || fail "issue #84 row should have a ○ glyph (ci/release pending):\n$ROW_84"
+
+LINE_COUNT_82="$(echo "$OUTPUT" | grep -c "82")"
+[ "$LINE_COUNT_82" -eq 1 ] || fail "issue #82 should render as exactly one compact row, not a full checklist:\n$OUTPUT"
+echo "  ✓ dashboard mode renders one compact row per issue with per-stage glyphs"
+
+# =============================================================================
+# 7. Dashboard mode with zero open issues still renders cleanly (no crash)
+# =============================================================================
+EMPTY_DASHBOARD='{"issues": []}'
+OUTPUT="$(printf '%s' "$EMPTY_DASHBOARD" | bash "$SCRIPT" 2>&1)" || fail "script failed on empty dashboard input:\n$OUTPUT"
+echo "  ✓ empty dashboard input handled without crash"
+
+echo "✓ otta-status: all checks passed (all-pass render, mixed markers, detail text, header, invalid-input guard, dashboard mode, empty dashboard)"
