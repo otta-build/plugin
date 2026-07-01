@@ -1,3 +1,9 @@
+## 0.22.0
+
+### Added
+
+- /otta:status no-arg dashboard mode — list all open issues (#87)
+
 ## 0.21.1
 
 ### Fixed
