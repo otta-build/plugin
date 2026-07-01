@@ -1,3 +1,9 @@
+## 0.20.2
+
+### Fixed
+
+- pre-push hook now resolves the newest plugin version at run time (#81)
+
 ## 0.20.1
 
 ### Fixed
