@@ -56,4 +56,33 @@ OUT2="$(cd "$REPO" && bash "$HOOK" 2>&1)"
 [ "$OUT2" = "gate-version:0.20.1" ] \
   || fail "hook ran '$OUT2', expected 'gate-version:0.20.1' after a later upgrade with no reinstall"
 
+# Marketplace-style layout: siblings are plugin NAMES, not semver dirs (e.g.
+# .../marketplaces/{otta,superpowers-marketplace,...}). A naive `sort -V |
+# tail -1` over ALL siblings could alphabetically pick a non-otta sibling's
+# scripts/otta-gate.sh (or silently pass validation by luck of the fallback).
+# The version filter must skip non-semver dirs entirely.
+MKT_ROOT="$TMPDIR/marketplaces"
+mkdir -p "$MKT_ROOT/otta/scripts" "$MKT_ROOT/zzz-other-plugin/scripts"
+cat > "$MKT_ROOT/otta/scripts/otta-gate.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "gate-version:marketplace-otta"
+EOF
+chmod +x "$MKT_ROOT/otta/scripts/otta-gate.sh"
+cat > "$MKT_ROOT/zzz-other-plugin/scripts/otta-gate.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "gate-version:WRONG-unrelated-plugin"
+EOF
+chmod +x "$MKT_ROOT/zzz-other-plugin/scripts/otta-gate.sh"
+
+MKT_REPO="$TMPDIR/mkt-repo"
+mkdir -p "$MKT_REPO" && (cd "$MKT_REPO" && git init -q)
+cp "$INSTALLER" "$MKT_ROOT/otta/scripts/install-git-hooks.sh"
+(cd "$MKT_REPO" && bash "$MKT_ROOT/otta/scripts/install-git-hooks.sh") >/dev/null
+
+MKT_HOOK="$MKT_REPO/.git/hooks/pre-push"
+[ -f "$MKT_HOOK" ] || fail "pre-push hook was not installed at $MKT_HOOK (marketplace layout)"
+MKT_OUT="$(cd "$MKT_REPO" && bash "$MKT_HOOK" 2>&1)"
+[ "$MKT_OUT" = "gate-version:marketplace-otta" ] \
+  || fail "marketplace-layout hook ran '$MKT_OUT', expected 'gate-version:marketplace-otta' — it must not alphabetically pick an unrelated sibling plugin dir"
+
 echo "✓ install-git-hooks-live-resolve: hook tracks the newest plugin version automatically"
