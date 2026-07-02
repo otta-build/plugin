@@ -51,6 +51,7 @@ fi
 # Run the full gate. Capture stdout+stderr so the failing-check detail (not just
 # the final verdict) is fed back to the builder. The gate also writes its verdict
 # to the LEARN ledger on every run — so each build-stage check is captured too.
+echo "[otta-gate] re-running gate (subagent-stop check)" >&2
 if ! out="$(bash "$HERE/../scripts/otta-gate.sh" 2>&1)"; then
   {
     echo "⛔ Otta gate failed at the build stage — do not finish until it passes:"

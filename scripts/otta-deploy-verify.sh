@@ -173,8 +173,10 @@ verify_deploy() {
         echo "deploy-verify: coolify provider needs OTTA_COOLIFY_URL / _TOKEN / _APP_UUID in the env" >&2
         return 2
       fi
-      # Poll until the deployed SHA matches the merged SHA or timeout.
-      local actual sha_timeout="${OTTA_SHA_POLL_TIMEOUT:-120}" sha_interval=10 sha_waited=0
+      # Poll until the deployed SHA matches the merged SHA or timeout. Status
+      # lines are throttled to at most once per 60s of elapsed wait (still
+      # printed on the very first tick) so a long poll doesn't spam the log.
+      local actual sha_timeout="${OTTA_SHA_POLL_TIMEOUT:-120}" sha_interval=10 sha_waited=0 sha_last_print=-60
       while :; do
         actual="$(curl -fsS -H "Authorization: Bearer $token" \
           "$base/api/v1/deployments?uuid=$app" 2>/dev/null \
@@ -187,7 +189,10 @@ verify_deploy() {
           echo "deploy-verify: coolify SHA mismatch after ${sha_timeout}s — expected $expected, deployed ${actual:-<none>}" >&2
           return 1
         fi
-        echo "deploy-verify: waiting for Coolify to record SHA (${sha_waited}s/${sha_timeout}s) — deployed ${actual:-<none>}"
+        if [ $((sha_waited - sha_last_print)) -ge 60 ]; then
+          echo "deploy-verify: waiting for Coolify to record SHA (${sha_waited}s/${sha_timeout}s) — deployed ${actual:-<none>}"
+          sha_last_print=$sha_waited
+        fi
         sleep "$sha_interval"; sha_waited=$((sha_waited + sha_interval))
       done
       if [ "$mode" = "health" ] && [ -n "${OTTA_DEPLOY_HEALTH_URL:-}" ]; then
@@ -248,8 +253,10 @@ _run() {
   fi
 
   # Poll the Otta Gate until green or timeout; surface the blocker on stall.
+  # Status lines are throttled to at most once per 60s of elapsed wait (still
+  # printed on the very first tick) so a long poll doesn't spam the log.
   local timeout="${OTTA_DEPLOY_POLL_TIMEOUT:-600}" interval="${OTTA_DEPLOY_POLL_INTERVAL:-15}"
-  local waited=0 status_json result
+  local waited=0 status_json result last_print=-60
   while :; do
     status_json="$(gh pr checks "$pr" --repo "$gh_repo" --json name,state 2>/dev/null \
       | python3 -c 'import json,sys; rows=json.load(sys.stdin); print(json.dumps({"check_runs":[{"name":r["name"],"status":"completed" if r["state"] in ("SUCCESS","FAILURE","ERROR") else "queued","conclusion":{"SUCCESS":"success","FAILURE":"failure","ERROR":"failure"}.get(r["state"])} for r in rows]}))' 2>/dev/null || echo '{"check_runs":[]}')"
@@ -258,7 +265,10 @@ _run() {
       echo "deploy: gate did NOT go green within ${timeout}s — blocking sub-check → $result" >&2
       return 1
     fi
-    echo "deploy: waiting for gate ($result) — ${waited}s/${timeout}s"
+    if [ $((waited - last_print)) -ge 60 ]; then
+      echo "deploy: waiting for gate ($result) — ${waited}s/${timeout}s"
+      last_print=$waited
+    fi
     sleep "$interval"; waited=$((waited + interval))
   done
   echo "deploy: gate green — all sub-checks passed."

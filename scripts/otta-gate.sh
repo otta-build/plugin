@@ -51,7 +51,7 @@ fi
 
 if [ "$ok" -ne 0 ]; then
   echo "" >&2
-  echo "⛔ otta gate failed — fix the above before pushing (or you'll fail CI)." >&2
+  echo "⛔ [otta-gate] failed — fix the above before pushing (or you'll fail CI)." >&2
   exit 1
 fi
-echo "✓ otta gate passed — clear to push."
+echo "✓ [otta-gate] passed — clear to push."

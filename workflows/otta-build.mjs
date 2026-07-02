@@ -39,6 +39,11 @@ const VERIFY_SCHEMA = {
   required: ['gatePassed', 'allAcsPass', 'detail'],
 }
 
+// Note: unlike commands/dev.md's direct Task calls (plugin#75), the Workflow
+// tool's agent() helper here has no documented `name` option — `label`/`phase`
+// are the only namespacing it exposes, and it's unverified whether either
+// reaches the harness's "Teammate @X finished" notification chrome. Not
+// faking a `name:` field until that's confirmed; see plugin#88 for the gap.
 // 1. BUILD — seed the body via the engine if needed, then implement test-first
 phase('Build')
 const built = await agent(

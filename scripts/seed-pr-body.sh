@@ -53,6 +53,7 @@ cat > "$OUT" <<EOF
 GIVEN <!-- starting state / context -->
 WHEN  <!-- the action or trigger -->
 THEN  <!-- observable, verifiable outcome -->
+\`\`\`
 
 ${AC_BLOCK}
 ${LAYER_NOTE}
@@ -63,9 +64,8 @@ ${LAYER_NOTE}
 - unit: <!-- test file / command, or "n/a — reason" -->
 - e2e: <!-- e2e spec / flow, or "n/a — reason" -->
 - preview: <!-- deployed-env observation, or "n/a — no preview env" -->
-\`\`\`
 
-## Acceptance
+## Acceptance Evidence
 
 <!-- After merge, echo each AC with evidence:
 - [x] AC1: <restated> — <evidence: test name / preview obs>

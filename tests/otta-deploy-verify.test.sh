@@ -185,5 +185,39 @@ if command -v python3 >/dev/null 2>&1; then
   check "AC3 coolify loop → exit 1 after timeout" 1 "$_ac3_rc"
 fi
 
+# ---------------------------------------------------------------------------
+# 9. AC2 (issue #88): poll-loop status lines throttled to <=1 per 60s of wait,
+#    not once per tick — otherwise a 600s/10s poll spams 60 lines.
+# ---------------------------------------------------------------------------
+if command -v python3 >/dev/null 2>&1; then
+  # sha-poll loop: interval=10s, timeout=130s → 13 ticks; throttled to 60s
+  # apart should emit far fewer than 13 "waiting" lines.
+  export OTTA_COOLIFY_URL="http://fake" OTTA_COOLIFY_TOKEN="tok" OTTA_COOLIFY_APP_UUID="app"
+  export OTTA_SHA_POLL_TIMEOUT=130
+  curl() { printf '{"commit":"deadbeef"}'; }
+  sleep() { :; }
+  _ac9_out="$(verify_deploy coolify abc123abc sha-match 2>&1)"
+  unset -f curl sleep
+  unset OTTA_COOLIFY_URL OTTA_COOLIFY_TOKEN OTTA_COOLIFY_APP_UUID OTTA_SHA_POLL_TIMEOUT
+  _ac9_lines="$(printf '%s\n' "$_ac9_out" | grep -c 'waiting for Coolify')"
+  check "AC2 sha-poll throttled (<=3 lines over 130s/10s ticks, not 13)" "yes" "$([ "$_ac9_lines" -le 3 ] && echo yes || echo "no ($_ac9_lines)")"
+
+  # gate-poll loop inside _run: interval=10s, timeout=130s, gate never green.
+  git() { [ "$1" = "remote" ] && echo "https://github.com/acme/widgets.git" || :; }
+  gh() { echo '[{"name":"ciGreen","state":"QUEUED"}]'; }
+  export -f git gh
+  export OTTA_DEPLOY_POLL_TIMEOUT=130 OTTA_DEPLOY_POLL_INTERVAL=10
+  Y="$(mk_yml gatepoll 'deploy:
+  auto: merge-on-green
+  target: staging
+  provider: none')"
+  sleep() { :; }
+  _ac9b_out="$(_run 99 --otta-yml "$Y" 2>&1)"
+  unset -f sleep git gh
+  unset OTTA_DEPLOY_POLL_TIMEOUT OTTA_DEPLOY_POLL_INTERVAL
+  _ac9b_lines="$(printf '%s\n' "$_ac9b_out" | grep -c 'waiting for gate')"
+  check "AC2 gate-poll throttled (<=3 lines over 130s/10s ticks, not 13)" "yes" "$([ "$_ac9b_lines" -le 3 ] && echo yes || echo "no ($_ac9b_lines)")"
+fi
+
 echo "  → $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
