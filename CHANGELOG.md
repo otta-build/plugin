@@ -1,3 +1,9 @@
+## 0.23.1
+
+### Fixed
+
+- reduce DX pipeline noise across gate, deploy-verify, and PR body rendering (#91)
+
 ## 0.23.0
 
 ### Added
