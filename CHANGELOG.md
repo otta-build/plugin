@@ -1,3 +1,9 @@
+## 0.24.0
+
+### Added
+
+- /otta:setup v2 — detect delivery context, write .otta.yml (#93)
+
 ## 0.23.1
 
 ### Fixed
