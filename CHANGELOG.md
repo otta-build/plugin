@@ -1,3 +1,9 @@
+## 0.24.1
+
+### Fixed
+
+- align setup.md wizard with v2 .otta.yml schema (#95)
+
 ## 0.24.0
 
 ### Added
