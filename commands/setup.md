@@ -47,7 +47,7 @@ Run the detection script to inspect the repo and surface branch/deploy signals.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-delivery-context.sh"
 ```
 
-Show the developer the detection output. It will contain detected CI workflow names and `paths:` filters, any `deploy` signal found in the workflow files, and Linear/tracker signals. Use this information to pre-fill the deploy and tracker answers for the steps below before anything is committed.
+Show the developer the detection output. It will contain detected CI workflow names and `paths:` filters, any `deploy` signal found in the workflow files, and Linear/tracker signals. This includes `deploy.mode` — one of `"auto-on-merge"`, `"tag"`, `"manual"`, `"none"` — an informational delivery signal detected from CI; it is display-only here and is **not** one of the fields written to `.otta.yml` (the v2 contract's `deploy` block only has `target` and `project` — see step 2). Use this information to pre-fill the deploy and tracker answers for the steps below before anything is committed.
 
 ---
 

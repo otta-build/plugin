@@ -26,15 +26,17 @@ grep -qi "why Otta\|why-otta\|gated.*quality\|quality.*gate\|AI agents code\|AI 
 
 # ---------------------------------------------------------------------------
 # AC2: Teach-blurbs — each decision step must state pain AND benefit
-# Base/staging step
-grep -qi "branch flow\|route PRs\|auto-target\|staging.*promot\|promot.*staging" "$SETUP" \
-  || fail "AC2: base/staging teach-blurb missing (branch flow / PR routing benefit)"
-# deploy.auto step
-grep -qi "safety level\|accidental.*prod\|never accidental\|pipeline drive" "$SETUP" \
-  || fail "AC2: deploy.auto teach-blurb missing (safety level / no accidental prod)"
-# ci.required step
-grep -qi "production.ready\|production-ready\|agents can.t merge red\|authoritative" "$SETUP" \
-  || fail "AC2: ci.required teach-blurb missing (authoritative gate / agents can't merge red)"
+#
+# NOTE (OTT-36 v2 schema, issue #94): the v1-schema base/staging, deploy.auto,
+# and ci.required steps were removed from the wizard because write-otta-contract.sh
+# (the v2 .otta.yml author) does not emit those fields — see commands/setup.md
+# step 2 (now "Deploy target and project", mapping --deploy-target/--deploy-project)
+# and issue #94's acceptance criteria. Their teach-blurb assertions are retired
+# below rather than kept as false regression signals.
+#
+# deploy target/project step (v2 replacement for base/staging + deploy.auto)
+grep -qi "write-otta-contract\|deploy\.target\|deploy\.project" "$SETUP" \
+  || fail "AC2: deploy target/project teach-blurb missing (v2 deploy fields)"
 # Pulse App step
 grep -qi "amnesia\|DORA\|escape.*detect\|LEARN.*data\|data.*LEARN" "$SETUP" \
   || fail "AC2: Pulse App teach-blurb missing (amnesia / DORA / LEARN data)"
@@ -71,10 +73,12 @@ check_step_has_aqu() {
     || fail "AC3(co-occur): step '$step_name' section has no AskUserQuestion directive — every decision step must ask via AskUserQuestion"
 }
 
-# 8 named decision steps, each requiring a co-occurring AskUserQuestion
-check_step_has_aqu "Confirm or override.*base\|## 2\." "base/staging branches"
-check_step_has_aqu "Deploy automation\|## 3\." "deploy.auto policy"
-check_step_has_aqu "Required CI\|## 4\." "ci.required"
+# Decision steps, each requiring a co-occurring AskUserQuestion.
+# NOTE (OTT-36 v2 / issue #94): old steps 3 (deploy.auto policy) and 4
+# (ci.required) were removed — write-otta-contract.sh never emitted those
+# fields. Step 2 is now "Deploy target and project" (v2 --deploy-target /
+# --deploy-project), replacing the old base/staging + deploy.auto steps.
+check_step_has_aqu "Deploy target and project\|## 2\." "deploy target/project"
 check_step_has_aqu "Onboard.*Pulse\|## 5\." "Pulse App"
 check_step_has_aqu "Harden against credential\|## 6\." "sandbox.credentials"
 check_step_has_aqu "Scaffold.*CI\|## 7\." "CI workflow scaffold"
