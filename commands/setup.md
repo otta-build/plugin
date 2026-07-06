@@ -47,76 +47,26 @@ Run the detection script to inspect the repo and surface branch/deploy signals.
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-delivery-context.sh"
 ```
 
-Show the developer the detection output. It will contain the detected `base`, `staging`, CI workflow names and `paths:` filters, and any `deploy` signal found in the workflow files. Use this information to pre-fill the answers for steps 2–9 before anything is committed.
+Show the developer the detection output. It will contain detected CI workflow names and `paths:` filters, any `deploy` signal found in the workflow files, and Linear/tracker signals. This includes `deploy.mode` — one of `"auto-on-merge"`, `"tag"`, `"manual"`, `"none"` — an informational delivery signal detected from CI; it is display-only here and is **not** one of the fields written to `.otta.yml` (the v2 contract's `deploy` block only has `target` and `project` — see step 2). Use this information to pre-fill the deploy and tracker answers for the steps below before anything is committed.
 
 ---
 
-## 2. Confirm or override: base and staging branches
+## 2. Deploy target and project
 
-**Pain this solves:** Otta must know your branch flow to route PRs and deploys correctly.
-**Benefit you get:** PRs auto-target the right branch; staging-accumulate → promote works without manual config.
+**Pain this solves:** Otta needs to know where this repo deploys so `write-otta-contract.sh` can wire the right platform and project into `.otta.yml`.
+**Benefit you get:** `deploy.target` and `deploy.project` are filled in — the pipeline knows how to verify a deploy.
 
-Ask via AskUserQuestion — header "Branch flow", question "Confirm the detected base and staging branches (or override):":
-- "Use detected: `{detected_base}` base → confirm" (recommended, safe default) — uses what the script found; no change needed
-- "Override base branch" — enter a different base branch name
-- "Override both base + staging" — enter base and staging manually
+Ask via AskUserQuestion — header "Deploy platform", question "Which platform does this repo deploy to?":
+- `cloudflare-pages` — Cloudflare Pages
+- `vercel` — Vercel
+- `coolify` — Coolify (self-hosted)
+- `none` — no deploy (library, internal tool)
 
-Apply the answer to `.otta.yml` `base` and `staging` fields (in the draft, not yet committed).
+Then ask for the project name on that platform (the Cloudflare project, Vercel project, or Coolify app name). Enter `none` if not applicable.
 
----
+These answers map directly to the `--deploy-target` and `--deploy-project` flags of `write-otta-contract.sh`, which writes `deploy.target` and `deploy.project` into `.otta.yml`.
 
-## 3. Deploy automation policy
-
-**Pain this solves:** How far should the pipeline drive? Stop at a green PR? Auto-merge? Auto-deploy to production?
-**Benefit you get:** You pick the safety level. `human-approve` ships nothing without you — never an accidental prod deploy. You can tighten or loosen per repo at any time.
-
-Ask via AskUserQuestion — header "Deploy automation", question "What should `/otta:ship` do once the PR is green?":
-- "human-approve (recommended)" — stop at the green PR; you merge. Safest, no accidental prod. An absent `deploy` block also resolves to this — existing repos are unaffected.
-- "merge-on-green" — auto-merge once every Otta Gate sub-check is green; downstream deploy handled outside Otta
-- "merge-and-deploy" — merge on green, then verify the deploy reached the merged SHA and report the live URL
-
-Set `deploy.auto` to the chosen value in the draft.
-
-### 3b. Production opt-in guard (only for `merge-and-deploy` targeting production)
-
-**Pain this solves:** Hands-off production deploys are powerful but risky — a misconfigured gate could ship a broken build.
-**Benefit you get:** The guard requires explicit opt-in; no accidental hands-off production deploys.
-
-If the developer chose `merge-and-deploy` AND `deploy.target` is `production`, ask via AskUserQuestion — header "Production safety", question "Permit hands-off production deploys? This is a one-time explicit opt-in.":
-- "No, keep the production guard (recommended)" — `allow_production` stays `false`; merge-and-deploy stops before production
-- "Yes, permit hands-off production deploy" — will set `deploy.allow_production: true` at commit time
-
-Record the choice.
-
-### 3c. Non-detectable deploy fields
-
-Ask the developer for any fields the detection script left as placeholders:
-- **deploy.mode** — what does "deployed" mean? (`"auto-on-merge"`, `"tag"`, `"manual"`, `"none"`)
-- **deploy.provider** — which platform? (`coolify`, `vercel`, `tauri`, or `none`)
-- **deploy.target** — which environment? (`production` or `staging`)
-- **deploy.verify** — how is a deploy confirmed? (`sha-match` — default; `health`; `none`)
-
-Record the answers; they go into `.otta.yml` at commit time.
-
----
-
-## 4. Required CI checks
-
-**Pain this solves:** You need one authoritative "is this production-ready?" signal that every agent and the gate obey.
-**Benefit you get:** The gate aggregates YOUR CI checks — agents can't merge red; no green-but-broken surprises.
-
-First, auto-detect — don't just ask. Run:
-```bash
-gh api "repos/{owner}/{repo}/branches/{base}/protection/required_status_checks/contexts"
-```
-(substitute the repo and the detected `base`).
-
-Ask via AskUserQuestion — header "Required CI checks", question "Which CI checks must pass before merge?":
-- "Use detected: `{ci_checks}` — confirm (recommended)" — use the branch-protection list; most common case
-- "Enter check names manually" — enter comma-separated check names (e.g. `Build (ubuntu-22.04), test`)
-- "Skip (no required checks yet)" — sets `ci.required: false`; the gate's CI sub-check will be skipped
-
-Record the choice.
+Record the answers.
 
 ---
 
@@ -143,7 +93,7 @@ OTTA_PULSE_URL="https://pulse.your-team.example" bash "${CLAUDE_PLUGIN_ROOT}/scr
 
 Print the installation URL from the script and ask the user to open it, pick their account/org, and click Install. Offer to open it with `--open` if they are on this machine.
 
-After the user confirms installation, record `pulse.installed: true` (written to `.otta.yml` at commit time). On "Skip", record `pulse.installed: false` — do NOT run `pulse-install.sh`.
+After the user confirms installation, record the choice; it is passed as the `--pulse` flag to `write-otta-contract.sh` → sets `telemetry.pulse: true` in `.otta.yml`. On "Skip", no flag is passed → `telemetry.pulse: false`. Do NOT run `pulse-install.sh` on "Skip".
 
 ---
 
@@ -165,7 +115,7 @@ Record the choice — the file is written after confirmation in step 10.
 **Pain this solves:** No CI → the gate's CI check can never go green; the gate's authoritative "production-ready?" signal stays permanently unlit.
 **Benefit you get:** A minimal test-runner makes the gate real — the quality loop closes; agents know when they broke something.
 
-If the repo has a deployable package (`deploy.mode` is not `none`) but no CI workflow covering it yet:
+If the repo deploys something (deploy target is not `none`) but has no CI workflow covering it yet:
 
 Ask via AskUserQuestion — header "CI workflow", question "Scaffold a minimal CI test-runner workflow?":
 - "Yes, add a starter CI workflow (recommended if none exists)" — will generate `.github/workflows/ci-test.yml`: checkout → install deps → run tests; matches `deploy.package_paths` if set
@@ -262,7 +212,7 @@ Record choices for each harness — scripts are run after confirmation in step 1
 **Benefit you get:** Bump `package.json` version and push → the CI workflow cuts the git tag automatically → Pulse records `deploy_tag` → idea→PR→version chain is complete.
 
 Ask via AskUserQuestion — header "Release versioning", question "Enable automatic release tagging via CI?":
-- "Yes — auto-tag on version bump (recommended)" — installs `.github/workflows/otta-release.yml`; sets `release.auto: tag_on_version_bump` in the `.otta.yml` draft
+- "Yes — auto-tag on version bump (recommended)" — installs `.github/workflows/otta-release.yml`; bump `package.json` version and push → CI cuts a git tag automatically
 - "No — I'll tag manually" — adds one-liner to the final summary: `git tag vX.Y.Z && git push origin vX.Y.Z`; no files written
 - "Skip — no versioning needed" — silent skip; nothing written, nothing mentioned again
 
@@ -275,7 +225,7 @@ Record the choice — the file is installed after confirmation in step 10.
 Show a complete summary of what will be written based on all choices above:
 
 > "Here is what I will write:
-> - `.otta.yml` — base: `{base}`, staging: `{staging}`, deploy.auto: `{deploy_auto}`, allow_production: `{allow_production}`, ci.required: `{ci_required}`, pulse.installed: `{pulse_installed}`, release.auto: `{tag_on_version_bump/none}`
+> - `.otta.yml` — tracker: `{kind: linear, team: {team} | kind: gh}`, autonomy: `{auto | human-gated}`, deploy: `{target: {target}, project: {project}}`, gates: `[pr-body-acceptance, test-coverage, review-thread]`, telemetry: `{pulse: {true|false}, otel: {endpoint|null}}`, loops: `{[dev_loop] | [dev_loop, seo_geo]}`
 > - `.claude/settings.json` (sandbox credentials): `{yes/no}`
 > - `.github/workflows/ci-test.yml` (CI scaffold): `{yes/no}`
 > - `.github/workflows/otta-release.yml` (release tagging): `{yes/no}`
