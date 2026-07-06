@@ -14,7 +14,11 @@
 #   loops:     [dev_loop]  (+seo_geo when --seo-geo is passed)
 #
 # AUTONOMY DETECTION — mirrors otta-engine/src/selfloop/repo_tier.py
-#   is_autonomy_eligible() exactly.  Source of truth: repo_tier.py.
+#   is_autonomy_eligible().  Source of truth: repo_tier.py.
+#   The python3/node parse path mirrors it exactly. The grep-only fallback
+#   (used only when NEITHER python3 nor node exists) is a fail-closed
+#   APPROXIMATION: a valid multi-line package.json without `workspaces` may
+#   resolve to human-gated instead of auto. Fail-closed (never fail-open).
 #   Rule: root astro.config.{mjs,ts,js} present AND no "workspaces" key in
 #   root package.json → autonomy: auto; anything else → human-gated.
 #   Fails closed: missing file, malformed JSON → human-gated (never raises).
@@ -72,7 +76,8 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. AUTONOMY — mirrors repo_tier.py is_autonomy_eligible() exactly.
+# 2. AUTONOMY — mirrors repo_tier.py is_autonomy_eligible() (python3/node path
+#    exact; grep-only fallback is a fail-closed approximation — see header).
 #    Source of truth: otta-engine/src/selfloop/repo_tier.py
 #    Rule: root astro.config.{mjs,ts,js} present AND no "workspaces" key in
 #    root package.json → auto; else human-gated. Fails closed.
