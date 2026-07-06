@@ -40,13 +40,14 @@ Steps 1–9 collect choices only. No optional file is written until after the su
 
 ## 1. Detect delivery context
 
-Run the detection script to produce a draft `.otta.yml`:
+Run the detection script to inspect the repo and surface branch/deploy signals.
+**Do NOT write to `.otta.yml` here** — Part B step B1 is the sole author of the v2 contract.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-delivery-context.sh" --output .otta.yml
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-delivery-context.sh"
 ```
 
-Show the developer the pre-filled `.otta.yml`. It will contain the detected `base`, `staging`, CI workflow names and `paths:` filters, and any `deploy` signal found in the workflow files. This draft is reviewed through the following steps before anything is committed.
+Show the developer the detection output. It will contain the detected `base`, `staging`, CI workflow names and `paths:` filters, and any `deploy` signal found in the workflow files. Use this information to pre-fill the answers for steps 2–9 before anything is committed.
 
 ---
 
@@ -296,14 +297,29 @@ Ask via AskUserQuestion — header "Confirm setup", question "Write these files 
 
 ### B1. Write .otta.yml and commit
 
-Fill all collected answers into `.otta.yml`, then:
+Write the v2 contract file — the single per-repo interface every loop + Paperclip dispatch reads.
+Pass the collected answers as flags (omit flags for fields that were left as defaults):
+
+```bash
+# Build the flag list from answers collected in Part A:
+#   --deploy-target <target>   (e.g. cloudflare-pages, vercel, coolify, none)
+#   --deploy-project <name>    (project name on the deploy platform)
+#   --pulse                    (if developer chose Pulse telemetry in step 5)
+#   --otel <endpoint>          (if developer provided an OTEL endpoint in step 9)
+#   --seo-geo                  (if the developer opts this repo into the seo_geo loop)
+#   LINEAR_TEAM=<team>         (set as env var if a Linear team was identified)
+
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/write-otta-contract.sh" --output .otta.yml
+```
+
+Then commit:
 
 ```bash
 git add .otta.yml
-git commit -m "chore: add .otta.yml delivery context (Otta setup)"
+git commit -m "chore: add .otta.yml delivery contract (Otta setup v2)"
 ```
 
-Tell the developer this file is the delivery contract for the Otta loop — keep it in git so all agents and CI jobs see it.
+Tell the developer this file is the v2 delivery contract — keep it in git so all agents and CI jobs see it. Fields marked `# FILL IN` should be reviewed and updated before the commit if the values are known.
 
 ### B1b. Write additional harness context files (OTTA.md mapper)
 
