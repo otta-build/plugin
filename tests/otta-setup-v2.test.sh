@@ -222,5 +222,44 @@ print('  python3 YAML assertions: ok')
 " || fail "YAML failed python3 schema assertion"
 fi
 
+# =============================================================================
+# AC8: no phantom v1 fields in setup.md wizard prompts/summary
+# The 6 field names emitted by write-otta-contract.sh are:
+#   tracker, autonomy, deploy, gates, telemetry, loops
+# The following OLD-schema fields must NOT appear anywhere in setup.md:
+#   deploy.auto, ci.required, pulse.installed, release.auto
+# For base/staging: check only the step-10 .otta.yml bullet for field refs.
+# =============================================================================
+SETUP="$HERE/../commands/setup.md"
+grep -q 'deploy\.auto\|deploy.auto:' "$SETUP" \
+  && fail "AC8: setup.md still references phantom field 'deploy.auto'"
+grep -q 'ci\.required\|ci.required:' "$SETUP" \
+  && fail "AC8: setup.md still references phantom field 'ci.required'"
+grep -q 'pulse\.installed\|pulse.installed:' "$SETUP" \
+  && fail "AC8: setup.md still references phantom field 'pulse.installed'"
+grep -q 'release\.auto\|release.auto:' "$SETUP" \
+  && fail "AC8: setup.md still references phantom field 'release.auto'"
+# Extract the step-10 .otta.yml summary bullet (Markdown blockquote list item)
+# and check for base:/staging: field refs
+_step10_line="$(grep '^> - .*\.otta\.yml' "$SETUP" | head -1)"
+echo "$_step10_line" | grep -q 'base:' \
+  && fail "AC8: step-10 .otta.yml bullet still references phantom field 'base:'"
+echo "$_step10_line" | grep -q 'staging:' \
+  && fail "AC8: step-10 .otta.yml bullet still references phantom field 'staging:'"
+echo "✓ AC8: no phantom v1 fields in setup.md wizard prompts/summary"
+
+# =============================================================================
+# AC9: step-10 .otta.yml summary bullet lists all 6 v2 schema keys
+# =============================================================================
+_step10_line="$(grep '^> - .*\.otta\.yml' "$SETUP" | head -1)"
+[ -n "$_step10_line" ] || fail "AC9: could not find .otta.yml summary bullet in step 10"
+echo "$_step10_line" | grep -q 'tracker'   || fail "AC9: step-10 .otta.yml bullet missing 'tracker'"
+echo "$_step10_line" | grep -q 'autonomy'  || fail "AC9: step-10 .otta.yml bullet missing 'autonomy'"
+echo "$_step10_line" | grep -q 'deploy'    || fail "AC9: step-10 .otta.yml bullet missing 'deploy'"
+echo "$_step10_line" | grep -q 'gates'     || fail "AC9: step-10 .otta.yml bullet missing 'gates'"
+echo "$_step10_line" | grep -q 'telemetry' || fail "AC9: step-10 .otta.yml bullet missing 'telemetry'"
+echo "$_step10_line" | grep -q 'loops'     || fail "AC9: step-10 .otta.yml bullet missing 'loops'"
+echo "✓ AC9: step-10 .otta.yml bullet lists all 6 v2 schema keys"
+
 echo ""
 echo "✓ otta-setup-v2: all checks passed"
