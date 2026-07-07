@@ -78,6 +78,8 @@ Every gate run appends a `{score, feedback}` record to a local ledger at `~/.ott
 
 Failures surface **before** you push, not in CI. Bypass once with `OTTA_SKIP_GATE=1 git push`.
 
+> **PR body is branch-local.** Each branch maintains its own `.pr-body.md`; the copy on `main` is just whatever the last merged PR left behind. `/otta:setup` and `/otta:start` both run `scripts/install-merge-ours.sh`, which registers a `merge=ours` git driver and adds `.pr-body.md merge=ours` to `.gitattributes` — so merging or rebasing from main never overwrites your branch's body and never produces a conflict on that file.
+
 The gate fires at two points: a **pre-push** hook (blocks `git push`), and a **build-stage** hook (`SubagentStop`) that runs after the `otta:builder` subagent finishes — so a build stage can't report "done" past a failing gate; the reasons are fed back so it keeps fixing. Same `OTTA_SKIP_GATE=1` bypass.
 
 ## Post-merge deploy+verify (`.otta.yml` `deploy.auto`)

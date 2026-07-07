@@ -82,3 +82,10 @@ EOF
 
 echo "✓ seeded $OUT from #${ISSUE} ($(echo "$AC_BLOCK" | grep -c '^\s*- \[' || echo 0) AC checkbox(es))"
 echo "  repo: $REPO"
+
+# Ensure .pr-body.md is protected from merge conflicts on every future rebase/merge.
+# Guard: only run inside a real git repo — test harnesses seed from bare tmpdirs.
+MERGE_OURS_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-merge-ours.sh"
+if [ -f "$MERGE_OURS_SCRIPT" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  bash "$MERGE_OURS_SCRIPT"
+fi
