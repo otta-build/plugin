@@ -231,6 +231,7 @@ Show a complete summary of what will be written based on all choices above:
 > - `.github/workflows/otta-release.yml` (release tagging): `{yes/no}`
 > - `.claude/settings.local.json` (telemetry, gitignored): `{yes/no — logs / logs+traces}`
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
+> - `.gitattributes` — `.pr-body.md merge=ours` entry (always written, idempotent)
 > - `CLAUDE.md` (if absent): always written — CC is the primary harness being configured
 > - Additional harness context files (if absent): `AGENTS.md` (Codex), `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected non-CC harnesses
 > - `docs/runner-setup.md` (self-hosted runner instructions): `{yes/no — only for private repos where runner was chosen}`
@@ -322,6 +323,14 @@ If the developer chose Yes in step 8:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-git-hooks.sh"
+```
+
+### B4b. Install PR-body merge driver (unconditional)
+
+Always run after writing `.pr-body.md`. Installs the `merge=ours` git driver so `.pr-body.md` is never overwritten during a merge or rebase from main — each branch keeps its own PR body:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-merge-ours.sh"
 ```
 
 ### B5. Wire telemetry (if chosen)
