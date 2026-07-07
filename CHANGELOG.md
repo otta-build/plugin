@@ -1,3 +1,9 @@
+## 0.24.2
+
+### Fixed
+
+- .pr-body.md merge=ours driver — kill merge-train conflicts (#96)
+
 ## 0.24.1
 
 ### Fixed
