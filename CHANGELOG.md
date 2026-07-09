@@ -1,3 +1,9 @@
+## 0.25.0
+
+### Added
+
+- add Pulse GitHub App doctor
+
 ## 0.24.2
 
 ### Fixed
