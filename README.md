@@ -36,6 +36,7 @@ This runs a **guided wizard** that teaches why each step exists (pain → benefi
 | `/otta:build <issue>` | Run the pipeline **autonomously** as a workflow (unattended, can't ask) |
 | `/otta:ship` | Run the local gate, then open the PR with the seeded body (manual ship) |
 | `/otta:setup` | Install the pre-push gate hook + onboard the Pulse GitHub App |
+| `/otta:pulse-doctor [owner/repo]` | Verify the Pulse GitHub App installation has `checks:write` |
 | `/otta:schedule` | Set up a cloud routine that runs the pipeline autonomously (laptop-off) |
 
 ## Two ways to run the pipeline
@@ -112,6 +113,22 @@ The three modes:
 Pulse is the GitHub App that ingests your PR/CI/tag webhooks into an append-only event store and computes DORA metrics. This plugin doesn't talk to Pulse directly — it makes sure every PR body carries the `Fixes #N` + `idea_ref` linkage, which **Pulse already reads from the `pull_request` webhook**. No extra auth, no secret on your machine.
 
 **Hosted or self-hosted.** By default Otta uses the hosted Pulse at `https://pulse.otta.build`. To run your own, set `OTTA_PULSE_URL` (e.g. `export OTTA_PULSE_URL=https://pulse.your-team.example`) before `/otta:setup` — every Otta script reads it, so a team can point the whole loop at a private Pulse with no code changes.
+
+### Pulse App doctor
+
+If a normal `gh api repos/<owner>/<repo>/installation` call returns an auth-type
+error, use the Pulse doctor instead of treating the user token as evidence. It
+uses the GitHub App's own JWT to find the repo installation, mint an installation
+token, and confirm `checks: write`:
+
+```bash
+export OTTA_PULSE_APP_ID=<app-id>
+export OTTA_PULSE_PRIVATE_KEY_PATH=/path/to/github-app-private-key.pem
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-pulse-doctor.sh" <owner/repo>
+```
+
+The doctor prints installation metadata and permission status only; it never
+prints the minted installation token.
 
 ## Claude Code telemetry → Pulse (opt-in)
 
