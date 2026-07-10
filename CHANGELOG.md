@@ -1,3 +1,9 @@
+## 0.28.0
+
+### Added
+
+- pipeline stage checklist — /otta:dev and /otta:build surface live stage/status (#113)
+
 ## 0.27.0
 
 ### Added
