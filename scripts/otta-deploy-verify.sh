@@ -155,6 +155,114 @@ PY
 }
 
 # ===========================================================================
+# Deploy self-audit (issue #100) — pre-ready checks before declaring deploy-ready
+# ===========================================================================
+
+# _audit_incident <repo> <pr> <finding> <detail>
+#   Appends one structured incident line to ~/.otta/ledger/<repo-slug>.jsonl.
+#   Uses `engine incident` CLI when available; falls back to plain jsonl append.
+_audit_incident() {
+  local repo="${1:-}" pr="${2:-}" finding="${3:-unknown}" detail="${4:-}"
+  local now; now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  local slug="${repo//\//-}"
+  local ledger_dir="${OTTA_LEDGER_DIR:-${HOME}/.otta/ledger}"
+  mkdir -p "$ledger_dir"
+  printf '{"ts":"%s","source":"deploy_audit","repo":"%s","pr":"%s","finding":"%s","detail":"%s"}\n' \
+    "$now" "$repo" "$pr" "$finding" "$detail" >> "${ledger_dir}/${slug}.jsonl"
+}
+
+# self_audit <check-runs-json> [repo] [pr-number]
+#   Answers the 4 pre-deploy readiness questions, logging evidence for each:
+#     Q1: any green check actually skipped/neutral? (AC2: green-but-skipped)
+#     Q2: /health commit == PR head SHA? (when OTTA_DEPLOY_HEALTH_URL + expected SHA set)
+#     Q3: aggregate gate stale vs its children?
+#     Q4: required connectors (Pulse) reachable?
+#   Returns 0 if all pass, 1 if any finding. Findings append to the ledger (AC3).
+self_audit() {
+  local json="$1" repo="${2:-}" pr="${3:-}"
+  local found=0
+
+  command -v python3 >/dev/null 2>&1 || { echo "deploy-audit: skip — python3 unavailable"; return 0; }
+
+  # Q1 — green-but-skipped: skipped/neutral conclusions are NOT truly passing.
+  local skipped_names
+  skipped_names="$(python3 - "$json" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+runs = data.get("check_runs", data) if isinstance(data, dict) else data
+names = [r.get("name","?") for r in runs
+         if r.get("conclusion") in ("skipped", "neutral", "stale")]
+print(", ".join(names))
+PY
+)" || skipped_names=""
+  if [ -n "$skipped_names" ]; then
+    echo "deploy-audit: WARN Q1 — green-but-skipped checks (NOT truly passing): $skipped_names" >&2
+    _audit_incident "$repo" "$pr" "green-but-skipped" "$skipped_names"
+    found=1
+  else
+    echo "deploy-audit: ok Q1 — no skipped/neutral checks"
+  fi
+
+  # Q2 — /health SHA match (when health URL + expected SHA are both available).
+  local expected_sha="${OTTA_AUDIT_EXPECTED_SHA:-}"
+  if [ -n "${OTTA_DEPLOY_HEALTH_URL:-}" ] && [ -n "$expected_sha" ]; then
+    local health_body health_sha
+    health_body="$(curl -fsS -m 5 "${OTTA_DEPLOY_HEALTH_URL}" 2>/dev/null || true)"
+    health_sha="$(printf '%s' "$health_body" | python3 -c \
+      'import json,sys; d=json.load(sys.stdin); print(d.get("commit",d.get("sha",d.get("version",""))))' 2>/dev/null || true)"
+    if [ -n "$health_sha" ] && ! sha_match "$expected_sha" "$health_sha"; then
+      echo "deploy-audit: WARN Q2 — /health SHA mismatch: expected $expected_sha, got $health_sha" >&2
+      _audit_incident "$repo" "$pr" "health-sha-mismatch" "expected:$expected_sha got:$health_sha"
+      found=1
+    else
+      echo "deploy-audit: ok Q2 — /health SHA ok (expected=$expected_sha actual=${health_sha:-<not checked>})"
+    fi
+  else
+    echo "deploy-audit: skip Q2 — /health check not configured (set OTTA_DEPLOY_HEALTH_URL + OTTA_AUDIT_EXPECTED_SHA)"
+  fi
+
+  # Q3 — stale aggregate: the aggregate gate check should be at least as recent as its children.
+  local stale_children
+  stale_children="$(python3 - "$json" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+runs = data.get("check_runs", data) if isinstance(data, dict) else data
+agg = next((r for r in runs
+            if "otta" in r.get("name","").lower() and "gate" in r.get("name","").lower()), None)
+if not agg:
+    print("")
+    sys.exit(0)
+agg_ts = agg.get("completed_at") or agg.get("started_at") or ""
+stale = [r.get("name","?") for r in runs
+         if r is not agg and (r.get("completed_at","") or "") > agg_ts and r.get("completed_at")]
+print(", ".join(stale))
+PY
+)" || stale_children=""
+  if [ -n "$stale_children" ]; then
+    echo "deploy-audit: WARN Q3 — aggregate gate may be stale vs children: $stale_children" >&2
+    _audit_incident "$repo" "$pr" "stale-aggregate" "$stale_children"
+    found=1
+  else
+    echo "deploy-audit: ok Q3 — aggregate gate not stale vs children"
+  fi
+
+  # Q4 — connector availability: Pulse reachable when configured.
+  if [ -n "${OTTA_PULSE_URL:-}" ]; then
+    if curl -fsS -m 5 "${OTTA_PULSE_URL%/}/health" >/dev/null 2>&1; then
+      echo "deploy-audit: ok Q4 — Pulse connector reachable (${OTTA_PULSE_URL%/}/health)"
+    else
+      echo "deploy-audit: WARN Q4 — Pulse connector unreachable at ${OTTA_PULSE_URL%/}/health" >&2
+      _audit_incident "$repo" "$pr" "connector-unreachable" "pulse:${OTTA_PULSE_URL%/}/health"
+      found=1
+    fi
+  else
+    echo "deploy-audit: skip Q4 — Pulse connector check not configured (OTTA_PULSE_URL unset)"
+  fi
+
+  return "$found"
+}
+
+# ===========================================================================
 # Provider deploy verification (pluggable adapters — env-driven, no hardcoding)
 # ===========================================================================
 
@@ -272,6 +380,12 @@ _run() {
     sleep "$interval"; waited=$((waited + interval))
   done
   echo "deploy: gate green — all sub-checks passed."
+
+  # Self-audit: 4 pre-ready checks before declaring deploy-ready (#100).
+  # Runs after gate is green; a finding logs an incident but does NOT block the
+  # merge (audit is advisory — the gate is the authoritative readiness signal).
+  self_audit "$status_json" "$gh_repo" "$pr" || \
+    echo "deploy: self-audit found issues (logged to ledger); merge proceeding per gate verdict."
 
   # Decide + merge.
   local decision; decision="$(decide_merge "$auto" "true" "$target" "$allow_prod")" || true
