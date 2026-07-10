@@ -1,3 +1,9 @@
+## 0.26.2
+
+### Fixed
+
+- append to existing context files + hosted Pulse no-secret token flow (#111)
+
 ## 0.26.1
 
 ### Changed
