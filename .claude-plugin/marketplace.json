@@ -1,13 +1,13 @@
 {
   "name": "otta",
-  "description": "Otta \u2014 the self-learning AI software factory for Claude Code",
+  "description": "Otta — the self-learning AI software factory for Claude Code",
   "owner": {
     "name": "Sam Petrenko"
   },
   "plugins": [
     {
       "name": "otta",
-      "description": "The self-learning AI software factory. Turns any Claude Code session into a TDD build \u2192 review \u2192 verify \u2192 ship pipeline run by specialist subagents, gated on acceptance criteria and schedulable as a cloud routine. Every gate verdict feeds the LEARN layer (GEPA) so the factory improves itself \u2014 plus DORA + idea\u2192version metrics via the Otta Pulse GitHub App.",
+      "description": "The self-learning AI software factory. Turns any Claude Code session into a TDD build → review → verify → ship pipeline run by specialist subagents, gated on acceptance criteria and schedulable as a cloud routine. Every gate verdict feeds the LEARN layer (GEPA) so the factory improves itself — plus DORA + idea→version metrics via the Otta Pulse GitHub App.",
       "version": "1.0.0",
       "source": "./",
       "author": {

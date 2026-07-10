@@ -1,3 +1,9 @@
+## 1.0.0
+
+### Changed
+
+- release: v1.0.0 — first production-ready release (#115)
+
 ## 0.28.0
 
 ### Added
