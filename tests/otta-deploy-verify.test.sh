@@ -219,5 +219,55 @@ if command -v python3 >/dev/null 2>&1; then
   check "AC2 gate-poll throttled (<=3 lines over 130s/10s ticks, not 13)" "yes" "$([ "$_ac9b_lines" -le 3 ] && echo yes || echo "no ($_ac9b_lines)")"
 fi
 
+# ---------------------------------------------------------------------------
+# 10. AC (issue #100): self_audit — green-but-skipped detection (AC2)
+# ---------------------------------------------------------------------------
+if command -v python3 >/dev/null 2>&1; then
+  # All success → self_audit returns 0, no incident written.
+  ALL_SUCCESS='{"check_runs":[{"name":"Otta Gate","status":"completed","conclusion":"success"},{"name":"ci","status":"completed","conclusion":"success"}]}'
+  AUDIT_LEDGER="$TMP/audit-ledger"
+  mkdir -p "$AUDIT_LEDGER"
+  OTTA_LEDGER_DIR="$AUDIT_LEDGER" self_audit "$ALL_SUCCESS" "acme/widget" "42"; _sa_rc=$?
+  check "AC(#100) all-success → self_audit returns 0" 0 "$_sa_rc"
+  # No incident written for all-success.
+  check "AC(#100) all-success → no incident file" "no" "$([ -f "$AUDIT_LEDGER/acme-widget.jsonl" ] && echo yes || echo no)"
+
+  # Skipped check → self_audit returns non-zero + incident written.
+  SKIPPED='{"check_runs":[{"name":"Otta Gate","status":"completed","conclusion":"success"},{"name":"ci","status":"completed","conclusion":"skipped"}]}'
+  OTTA_LEDGER_DIR="$AUDIT_LEDGER" self_audit "$SKIPPED" "acme/widget" "42" 2>/dev/null; _sa_skipped_rc=$?
+  check "AC(#100) skipped check → self_audit returns non-zero" 1 "$_sa_skipped_rc"
+
+  # AC3: incident jsonl written with source:deploy_audit.
+  INCIDENT_FILE="$AUDIT_LEDGER/acme-widget.jsonl"
+  [ -f "$INCIDENT_FILE" ] || { check "AC(#100) incident file created" yes "no (file absent)"; }
+  if [ -f "$INCIDENT_FILE" ]; then
+    case "$(cat "$INCIDENT_FILE")" in
+      *'"source":"deploy_audit"'*) check "AC(#100) incident has source:deploy_audit" yes yes ;;
+      *) check "AC(#100) incident has source:deploy_audit" yes "no ($(cat "$INCIDENT_FILE"))" ;;
+    esac
+    case "$(cat "$INCIDENT_FILE")" in
+      *'"finding":"green-but-skipped"'*) check "AC(#100) incident has finding:green-but-skipped" yes yes ;;
+      *) check "AC(#100) incident has finding:green-but-skipped" yes "no ($(cat "$INCIDENT_FILE"))" ;;
+    esac
+    case "$(cat "$INCIDENT_FILE")" in
+      *'"repo":"acme/widget"'*) check "AC(#100) incident has repo field" yes yes ;;
+      *) check "AC(#100) incident has repo field" yes "no ($(cat "$INCIDENT_FILE"))" ;;
+    esac
+  fi
+
+  # Neutral conclusion also treated as NOT passing.
+  NEUTRAL_LEDGER="$TMP/neutral-ledger"; mkdir -p "$NEUTRAL_LEDGER"
+  NEUTRAL='{"check_runs":[{"name":"Otta Gate","status":"completed","conclusion":"success"},{"name":"optional-check","status":"completed","conclusion":"neutral"}]}'
+  OTTA_LEDGER_DIR="$NEUTRAL_LEDGER" self_audit "$NEUTRAL" "acme/widget" "43" 2>/dev/null; _sa_neutral_rc=$?
+  check "AC(#100) neutral check → self_audit returns non-zero" 1 "$_sa_neutral_rc"
+
+  # Logging: self_audit emits one status line per question (4 questions = 4 lines).
+  LOGGING_LEDGER="$TMP/log-ledger"; mkdir -p "$LOGGING_LEDGER"
+  _audit_log="$(OTTA_LEDGER_DIR="$LOGGING_LEDGER" self_audit "$ALL_SUCCESS" "acme/widget" "0" 2>&1)"
+  _audit_lines="$(printf '%s\n' "$_audit_log" | grep -c "deploy-audit:" || true)"
+  check "AC(#100) self_audit logs at least 4 status lines (one per question)" "yes" \
+    "$([ "$_audit_lines" -ge 4 ] && echo yes || echo "no ($_audit_lines lines)")"
+fi
+
 echo "  → $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
