@@ -49,6 +49,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-delivery-context.sh"
 
 Show the developer the detection output. It will contain detected CI workflow names and `paths:` filters, any `deploy` signal found in the workflow files, and Linear/tracker signals. This includes `deploy.mode` — one of `"auto-on-merge"`, `"tag"`, `"manual"`, `"none"` — an informational delivery signal detected from CI; it is display-only here and is **not** one of the fields written to `.otta.yml` (the v2 contract's `deploy` block only has `target` and `project` — see step 2). Use this information to pre-fill the deploy and tracker answers for the steps below before anything is committed.
 
+> **Preview vs. v2 contract mismatch:** `detect-delivery-context.sh` outputs a "preview" of detected fields. This preview may include keys (e.g., `deploy.mode`, `deploy.provider`) that do **not** appear in the written `.otta.yml` — the v2 contract schema is fixed at 6 keys (`tracker`, `autonomy`, `deploy`, `gates`, `telemetry`, `loops`). Treat the preview as diagnostic input, not as a draft of the final contract.
+
 ---
 
 ## 2. Deploy target and project
@@ -188,12 +190,12 @@ Record the choice — the script is run after confirmation in step 10.
 
 ---
 
-## 8. (Optional choice) Install the local gate hook
+## 8. (Optional) Install the local gate hook
 
 **Pain this solves:** Gate failures found only after pushing = slow feedback loop; you wait for CI and Otta Gate to report what a pre-push check would have caught immediately.
 **Benefit you get:** The same gate runs pre-push — fewer red PRs, faster iteration, no wasted push-wait cycles.
 
-Ask via AskUserQuestion — header "Local gate hook", question "Install the pre-push gate hook?":
+Ask via AskUserQuestion — header "Local gate hook (optional)", question "Install the pre-push gate hook? (optional — skip if you prefer CI-only feedback)":
 - "Yes, install pre-push hook (recommended)" — will run `install-git-hooks.sh` to mirror the gate locally
 - "No, skip" — rely on CI + Otta Gate only; slower feedback loop
 
@@ -403,6 +405,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$WEBHOOK_S
 
 For non-setup users, the manual env block (logs-default / traces-beta split) is documented in the README.
 
+### B6. Write CLAUDE.md (unconditional)
+
+Claude Code is always the primary harness being configured by `/otta:setup`. Write `CLAUDE.md` **only if it does not already exist** (never overwrite), regardless of what step 9b detected:
+
+> Content: "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build."
+
+Log whether the file was written or already existed.
+
 ### B7. Install release workflow (if chosen)
 
 If the developer chose "Yes — auto-tag on version bump" in step 9c:
@@ -421,14 +431,6 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-runner-setup.sh" "$REPO"
 ```
 
 This outputs the docker run command to stdout and writes `docs/runner-setup.md` with full registration instructions. Print the stdout output so the developer can copy the docker run command. Tell them to follow `docs/runner-setup.md` to register the runner with GitHub.
-
-### B6. Write CLAUDE.md (unconditional)
-
-Claude Code is always the primary harness being configured by `/otta:setup`. Write `CLAUDE.md` **only if it does not already exist** (never overwrite), regardless of what step 9b detected:
-
-> Content: "# Otta Gate Active\n\nThis repo runs the Otta gate hook before push. Gate: `bash .claude/hooks/pre-push-gate.sh`. Pulse wired: telemetry flows to pulse.otta.build."
-
-Log whether the file was written or already existed.
 
 ---
 

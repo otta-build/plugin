@@ -12,7 +12,7 @@ It's the *discipline layer* of Otta. It needs no private engine and no secrets �
 
 ```
 /plugin marketplace add otta-build/plugin
-/plugin install otta@otta
+/plugin install --scope user otta@otta
 ```
 
 > **After installing, fully restart Claude Code** (not just `/reload-plugins` — command registration needs a fresh process). If you don't see `/otta:` commands after restarting, the plugin is installed but **not enabled**: run `/plugin`, find **otta**, and toggle it **on**.
@@ -74,10 +74,13 @@ Every gate run appends a `{score, feedback}` record to a local ledger at `~/.ott
 
 - a ` ```acceptance ` fenced block in `.pr-body.md`
 - a test in the diff, OR `[test-impractical: <reason>]`
+- AC-layer tag enforcement (`[ui-layer]` / `[e2e]` ACs must have a preview URL or e2e evidence — unit tests alone are not sufficient)
 - `Fixes #<issue>` — so the issue→PR link exists in GitHub
 - `idea_ref:` — so Pulse can join idea → issue → PR → version
 
 Failures surface **before** you push, not in CI. Bypass once with `OTTA_SKIP_GATE=1 git push`.
+
+> **Review-thread gate: local vs. server split.** The local `otta-gate.sh` does not check for review-thread resolution — it cannot, because reviews only exist after the PR is open. The `review-thread` sub-check listed in `.otta.yml`'s `gates:` block is a *server-side* Pulse merge gate: it blocks the merge until every open review thread is resolved. The local gate catches the body/test/AC-layer checks before push; Pulse enforces the review-thread check at merge time.
 
 > **PR body is branch-local.** Each branch maintains its own `.pr-body.md`; the copy on `main` is just whatever the last merged PR left behind. `/otta:setup` and `/otta:start` both run `scripts/install-merge-ours.sh`, which registers a `merge=ours` git driver and adds `.pr-body.md merge=ours` to `.gitattributes` — so merging or rebasing from main never overwrites your branch's body and never produces a conflict on that file.
 
