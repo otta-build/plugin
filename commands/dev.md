@@ -9,6 +9,22 @@ Run the Otta shipping pipeline for issue **#$1** **interactively, in this sessio
 
 **Name every dispatch.** Pass an explicit `name` to each Task/Agent call (e.g. `otta-builder-#$1`, `otta-reviewer-#$1`, `otta-qa-#$1`, `otta-devops-#$1`) instead of leaving it unnamed. Without a name, background-agent notifications ("Teammate @<hash> finished") show an opaque hash instead of which stage just completed.
 
+**Stage checklist (create immediately, before stage 1).** Create a task/todo checklist at the start of this run using the harness's native task tool (TaskCreate / TodoCreate if available). One item per pipeline stage:
+
+```
+[ ] Seed     — seed .pr-body.md from issue #$1
+[ ] Learn    — consult Pulse for prior run history
+[ ] Build    — implement test-first
+[ ] Review   — spec-review: every AC met, nothing extra
+[ ] QA       — gate + adversarial AC verification
+[ ] Ship     — commit + open PR
+[ ] Deploy   — deploy-verify per .otta.yml policy
+```
+
+Update each item to `in_progress` when starting it and `completed` when done. Also update the `activeForm` field (if available) on each Task/Agent dispatch to show the current stage in the agent switcher (e.g. `"Building #$1"`, `"QA #$1"`, `"Waiting CI #$1"`). If the harness has no native task/todo tool, print the checklist as a markdown block in chat and update it inline at each stage transition.
+
+**Stage failures:** when a stage fails or is blocked, annotate the checklist item with the failure reason (e.g. `✗ QA — gate failed: tsc errors in src/foo.ts`) so the developer sees at a glance which stage blocked and why without reading the full log.
+
 1. **Seed.** If `.pr-body.md` is missing, run:
    `bash "${CLAUDE_PLUGIN_ROOT}/scripts/seed-pr-body.sh" $1`
    Read it. If the issue has no acceptance criteria, ask the developer to add them before continuing.

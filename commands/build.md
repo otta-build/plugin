@@ -7,6 +7,8 @@ Run the Otta shipping pipeline for issue **#$1** as a dynamic workflow.
 
 First make sure the workspace is seeded — if `.pr-body.md` doesn't exist yet, run `/otta:start $1` to seed the acceptance criteria.
 
+**Stage checklist (create before launching the Workflow).** Before dispatching the Workflow tool, create a task/todo checklist using the harness's native task tool (TaskCreate / TodoCreate if available). One item per pipeline stage: `Seed`, `Learn`, `Build`, `Review`, `QA`, `Ship`, `Deploy`. Mark `Seed` and `Learn` completed (they run before the Workflow), then update the remaining items as the Workflow reports stage transitions. If no native task tool is available, render the checklist as a markdown block in chat. Stage failures annotate the item with the failure reason (e.g. `✗ QA — gate failed: ...`).
+
 Then **learn before building**: run the `learn-from-pulse` skill (the `idea_ref` now exists in `.pr-body.md`). It consults Pulse for this idea's prior shipped work, escaped defects, and loop verdicts so the pipeline doesn't repeat a failure the factory already caught. If Pulse isn't configured it no-ops. Fold anything it surfaces into `.pr-body.md` as a guarding AC before the workflow runs.
 
 Then invoke the **Workflow** tool with the bundled pipeline script (this is an explicit, user-invoked opt-in to orchestration):
