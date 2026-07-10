@@ -227,12 +227,14 @@ fi
 # The 6 field names emitted by write-otta-contract.sh are:
 #   tracker, autonomy, deploy, gates, telemetry, loops
 # The following OLD-schema fields must NOT appear anywhere in setup.md:
-#   deploy.auto, ci.required, pulse.installed, release.auto
+#   ci.required, pulse.installed, release.auto
+# Note: deploy.auto is a VALID v2 sub-field of the deploy block (used by
+#   otta-deploy-verify.sh and written by write-otta-contract.sh --deploy-auto).
+#   It is intentionally referenced in the setup wizard (step 3) — do NOT add it
+#   back to this phantom-field guard.
 # For base/staging: check only the step-10 .otta.yml bullet for field refs.
 # =============================================================================
 SETUP="$HERE/../commands/setup.md"
-grep -q 'deploy\.auto\|deploy.auto:' "$SETUP" \
-  && fail "AC8: setup.md still references phantom field 'deploy.auto'"
 grep -q 'ci\.required\|ci.required:' "$SETUP" \
   && fail "AC8: setup.md still references phantom field 'ci.required'"
 grep -q 'pulse\.installed\|pulse.installed:' "$SETUP" \

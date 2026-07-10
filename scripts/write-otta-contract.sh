@@ -35,20 +35,30 @@ OUTPUT_FILE=""
 SEO_GEO=false
 DEPLOY_TARGET="null"
 DEPLOY_PROJECT="null"
+DEPLOY_AUTO="human-approve"
+ALLOW_PRODUCTION=false
 PULSE=false
 OTEL_ENDPOINT="null"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --output)         OUTPUT_FILE="$2"; shift 2 ;;
-    --seo-geo)        SEO_GEO=true; shift ;;
-    --deploy-target)  DEPLOY_TARGET="$2"; shift 2 ;;
-    --deploy-project) DEPLOY_PROJECT="$2"; shift 2 ;;
-    --pulse)          PULSE=true; shift ;;
-    --otel)           OTEL_ENDPOINT="$2"; shift 2 ;;
+    --output)             OUTPUT_FILE="$2"; shift 2 ;;
+    --seo-geo)            SEO_GEO=true; shift ;;
+    --deploy-target)      DEPLOY_TARGET="$2"; shift 2 ;;
+    --deploy-project)     DEPLOY_PROJECT="$2"; shift 2 ;;
+    --deploy-auto)        DEPLOY_AUTO="$2"; shift 2 ;;
+    --allow-production)   ALLOW_PRODUCTION=true; shift ;;
+    --pulse)              PULSE=true; shift ;;
+    --otel)               OTEL_ENDPOINT="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
+
+# Validate deploy-auto value
+case "$DEPLOY_AUTO" in
+  human-approve|merge-on-green|merge-and-deploy) ;;
+  *) echo "unknown --deploy-auto value: $DEPLOY_AUTO (must be human-approve|merge-on-green|merge-and-deploy)" >&2; exit 1 ;;
+esac
 
 # ---------------------------------------------------------------------------
 # 1. TRACKER — detect linear team or fall back to gh
@@ -153,6 +163,13 @@ else
   DEPLOY_PROJECT_YAML="$DEPLOY_PROJECT"
 fi
 
+DEPLOY_AUTO_YAML="$DEPLOY_AUTO"
+if $ALLOW_PRODUCTION; then
+  ALLOW_PRODUCTION_YAML="true"
+else
+  ALLOW_PRODUCTION_YAML=""  # omit unless explicitly enabled
+fi
+
 # ---------------------------------------------------------------------------
 # 4. GATES — always the same 3 (locked per the Autonomous Marketing Plan §2)
 # ---------------------------------------------------------------------------
@@ -196,6 +213,10 @@ fi
   printf '%s\n' "deploy:"
   printf '  target:  %s\n' "$DEPLOY_TARGET_YAML"
   printf '  project: %s\n' "$DEPLOY_PROJECT_YAML"
+  printf '  auto: %s\n' "$DEPLOY_AUTO_YAML"
+  if [ -n "$ALLOW_PRODUCTION_YAML" ]; then
+    printf '  allow_production: %s\n' "$ALLOW_PRODUCTION_YAML"
+  fi
   printf 'gates: %s\n' "$GATES_YAML"
   printf '%s\n' "telemetry:"
   printf '  pulse: %s\n' "$PULSE_YAML"
