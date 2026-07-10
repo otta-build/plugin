@@ -1,3 +1,9 @@
+## 0.25.2
+
+### Fixed
+
+- sync marketplace.json version to 0.25.0 + add CI check (#71) (#107)
+
 ## 0.25.1
 
 ### Fixed
