@@ -1,3 +1,9 @@
+## 0.26.3
+
+### Fixed
+
+- ledger-stream Test 4 nc binding race — AC1+AC2 (#114)
+
 ## 0.26.2
 
 ### Fixed
