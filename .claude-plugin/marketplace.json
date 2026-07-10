@@ -8,7 +8,7 @@
     {
       "name": "otta",
       "description": "The self-learning AI software factory. Turns any Claude Code session into a TDD build \u2192 review \u2192 verify \u2192 ship pipeline run by specialist subagents, gated on acceptance criteria and schedulable as a cloud routine. Every gate verdict feeds the LEARN layer (GEPA) so the factory improves itself \u2014 plus DORA + idea\u2192version metrics via the Otta Pulse GitHub App.",
-      "version": "0.26.3",
+      "version": "0.27.0",
       "source": "./",
       "author": {
         "name": "Sam Petrenko"

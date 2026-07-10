@@ -83,3 +83,25 @@ If `$1` is empty/absent, don't require an issue number — instead enumerate ope
    echo "$JSON" | bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-status.sh"
    ```
    Report the rendered checklist verbatim to the developer as your response.
+
+## Pipeline stage checklist (in-flight runs)
+
+When an issue has an in-flight `/otta:dev` or `/otta:build` run, `/otta:status` also renders the **pipeline stage checklist** — the per-stage view from the active run, not just the merged-PR view above.
+
+Check the LEARN ledger (`~/.otta/ledger/<repo-slug>.jsonl`) for recent `deploy_audit` or `gate_verdict` records that carry a `pr` field matching this issue's linked PR. Combine with the PR's current check-run state to infer which pipeline stage the run is in:
+
+| Inferred stage | Signal |
+|---|---|
+| Build in-progress | PR not yet open (no cross-reference in issue timeline) |
+| Gate/CI in-progress | PR open, gate checks queued or in-progress |
+| Deploy in-progress | PR merged, deploy-verify not yet confirmed |
+| Done | PR merged + deploy confirmed (or human-approve policy) |
+
+Render the stage checklist as a compact list alongside the standard 5-stage view:
+
+```
+Pipeline stages (#$1):
+  ✓ Seed    ✓ Learn    ⋯ Build    ○ Review    ○ QA    ○ Ship    ○ Deploy
+```
+
+Degrade gracefully if the ledger or PR state is insufficient to infer stages — omit the pipeline stage row rather than showing speculative data.

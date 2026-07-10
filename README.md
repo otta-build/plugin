@@ -62,6 +62,26 @@ Both run the same `builder → reviewer → qa → devops` stages and open a PR 
 
 The subagents (`agents/*.md`) are reusable on their own — Claude delegates to them by name, and you can use them as agent-team teammates too.
 
+## Pipeline stage checklist UX
+
+Every `/otta:dev` and `/otta:build` run creates a **stage checklist** at run start — one item per pipeline stage — so you always know where a run is without reading the full log:
+
+```
+[ ] Seed     — seed .pr-body.md from the issue
+[✓] Learn    — consulted Pulse; no prior escapes for this idea
+[→] Build    — builder implementing test-first (in progress)
+[ ] Review   — spec-review
+[ ] QA       — gate + adversarial AC verification
+[ ] Ship     — commit + open PR
+[ ] Deploy   — deploy-verify per .otta.yml policy
+```
+
+On a task-aware harness (Claude Code), each stage updates the task tool's `activeForm` — so the **agent switcher** shows "Building #105" or "QA #105" per agent without you having to ask. On harnesses without a native task tool, the checklist renders as a markdown block in chat and is updated at each stage transition.
+
+**Failures annotate the stage:** `✗ QA — gate failed: tsc errors in src/foo.ts` so you see the blocker at a glance.
+
+**`/otta:status` shows the same checklist** for in-flight runs, inferred from the LEARN ledger + PR check state — queryable from any session, even after the build agent has finished.
+
 ## Autonomous (`/otta:schedule`)
 
 `/otta:schedule` sets up a **cloud routine** (runs on Anthropic infra, laptop-off) that nightly picks a ready issue and runs the pipeline to a PR. Add GitHub (`pull_request.opened` → review) or API (`/fire` → Sentry-alert→fix) triggers from claude.ai/code/routines.
