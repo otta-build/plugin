@@ -1,3 +1,9 @@
+## 0.25.3
+
+### Fixed
+
+- wizard writes deploy.auto — deploy policy step + allow_production (#101) (#108)
+
 ## 0.25.2
 
 ### Fixed
