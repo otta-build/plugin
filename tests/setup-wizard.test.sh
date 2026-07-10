@@ -170,4 +170,23 @@ grep -qiE "Ship your first|first.*gated PR|otta:start.*issue|first PR in" "$SETU
   || fail "AC6(#28): setup.md missing first-PR AskUserQuestion at end"
 check_step_has_aqu "## 13\.\|Ship your first|First PR in" "first-PR (step 13)"
 
-echo "✓ setup-wizard: all checks passed (AC1–AC6 + #28 AC2/AC3/AC5/AC6)"
+# ---------------------------------------------------------------------------
+# AC (issue #70a): context-file append behavior — delimiter-based, not skip
+# ---------------------------------------------------------------------------
+# B1b and B6 must instruct append + in-place update, not "only if absent".
+grep -qi "<!-- otta:begin -->\|otta:begin\|otta:end" "$SETUP" \
+  || fail "AC(#70a): setup.md B1b/B6 must mention the otta:begin/otta:end delimiter block"
+grep -qi "append\|update.*in.*place\|in.*place.*update" "$SETUP" \
+  || fail "AC(#70a): setup.md must instruct to append / update-in-place (not just skip existing files)"
+grep -qi "update.*in.place\|idempotent.*re.run\|re.run.*idempotent\|not.*duplicat" "$SETUP" \
+  || fail "AC(#70a): setup.md must describe idempotent re-run (no duplicate blocks)"
+
+# ---------------------------------------------------------------------------
+# AC (issue #70b): hosted Pulse token flow — no webhook secret for pulse.otta.build
+# ---------------------------------------------------------------------------
+grep -qi "no.*webhook.*secret\|without.*webhook.*secret\|no auth.*header\|GET /token\?repo\|/token?repo" "$SETUP" \
+  || fail "AC(#70b): setup.md B5 must describe the hosted /token?repo= no-auth path"
+grep -qi "self.hosted.*secret\|secret.*self.hosted\|self.hosted.*webhook\|webhook.*self.hosted" "$SETUP" \
+  || fail "AC(#70b): setup.md B5 must clarify that webhook secret is only for self-hosted instances"
+
+echo "✓ setup-wizard: all checks passed (AC1–AC6 + #28 AC2/AC3/AC5/AC6 + #70 AC)"
