@@ -92,6 +92,25 @@ Record both answers.
 
 ---
 
+## 4. Self-learning opt-in (LEARN layer)
+
+**Pain this solves:** The loop ships PRs, but each run starts from scratch — no memory of what worked, what was flagged, or what rules emerged from past verdicts.
+**Benefit you get:** The LEARN layer auto-proposes enforced checks from verdict history, so the factory improves itself over time (GEPA).
+
+Ask via AskUserQuestion — header "LEARN layer", question "Enable the self-learning (GEPA) layer for this repo?":
+- "Enable (recommended if Pulse is installed)" — the LEARN loop replays verdict history and auto-proposes new gate rules; requires Pulse to accumulate data
+- "Skip" — no LEARN; gate still runs, but no self-improvement; you can opt in later by editing `.otta.yml`
+
+Only if the developer chooses "Enable":
+- Ask for expiry days (optional, default 180): how many days of verdict history the LEARN run uses
+- Ask for cadence (optional, default `weekly`): `daily` or `weekly` — how often the LEARN run proposes new rules
+
+If the developer enables LEARN, pass `--learn` (and optionally `--learn-expiry-days <N>` and `--learn-cadence <daily|weekly>`) to `write-otta-contract.sh`. On "Skip", omit these flags — the contract will include a commented-out `learn:` block as a reminder.
+
+Record the choice.
+
+---
+
 ## 5. Onboard the Otta Pulse GitHub App
 
 **Pain this solves:** The loop has amnesia without a memory — runs don't learn from each other; you can't see what shipped broken.
@@ -279,6 +298,9 @@ Pass the collected answers as flags (omit flags for fields that were left as def
 #   --deploy-project <name>    (project name on the deploy platform)
 #   --deploy-auto <policy>     (human-approve [default] | merge-on-green | merge-and-deploy)
 #   --allow-production         (only if developer explicitly opted in during step 3)
+#   --learn                    (if developer enabled LEARN in step 4)
+#   --learn-expiry-days <N>    (if developer provided a custom expiry; default 180)
+#   --learn-cadence <cadence>  (daily | weekly; default weekly)
 #   --pulse                    (if developer chose Pulse telemetry in step 5)
 #   --otel <endpoint>          (if developer provided an OTEL endpoint in step 9)
 #   --seo-geo                  (if the developer opts this repo into the seo_geo loop)

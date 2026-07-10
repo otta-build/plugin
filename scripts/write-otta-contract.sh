@@ -39,17 +39,23 @@ DEPLOY_AUTO="human-approve"
 ALLOW_PRODUCTION=false
 PULSE=false
 OTEL_ENDPOINT="null"
+LEARN_ENABLED=false
+LEARN_EXPIRY_DAYS=180
+LEARN_CADENCE="weekly"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --output)             OUTPUT_FILE="$2"; shift 2 ;;
-    --seo-geo)            SEO_GEO=true; shift ;;
-    --deploy-target)      DEPLOY_TARGET="$2"; shift 2 ;;
-    --deploy-project)     DEPLOY_PROJECT="$2"; shift 2 ;;
-    --deploy-auto)        DEPLOY_AUTO="$2"; shift 2 ;;
-    --allow-production)   ALLOW_PRODUCTION=true; shift ;;
-    --pulse)              PULSE=true; shift ;;
-    --otel)               OTEL_ENDPOINT="$2"; shift 2 ;;
+    --output)              OUTPUT_FILE="$2"; shift 2 ;;
+    --seo-geo)             SEO_GEO=true; shift ;;
+    --deploy-target)       DEPLOY_TARGET="$2"; shift 2 ;;
+    --deploy-project)      DEPLOY_PROJECT="$2"; shift 2 ;;
+    --deploy-auto)         DEPLOY_AUTO="$2"; shift 2 ;;
+    --allow-production)    ALLOW_PRODUCTION=true; shift ;;
+    --pulse)               PULSE=true; shift ;;
+    --otel)                OTEL_ENDPOINT="$2"; shift 2 ;;
+    --learn)               LEARN_ENABLED=true; shift ;;
+    --learn-expiry-days)   LEARN_EXPIRY_DAYS="$2"; shift 2 ;;
+    --learn-cadence)       LEARN_CADENCE="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -208,6 +214,7 @@ fi
   printf '%s\n' "# OTT-36 / Autonomous Marketing Operating Plan §2"
   printf '%s\n' "# Review FILL IN fields, then commit."
   printf '\n'
+  printf '%s\n' 'version: "1"'
   printf 'tracker: %s\n' "$TRACKER_YAML"
   printf 'autonomy: %s\n' "$AUTONOMY"
   printf '%s\n' "deploy:"
@@ -222,6 +229,20 @@ fi
   printf '  pulse: %s\n' "$PULSE_YAML"
   printf '  otel:  %s\n' "$OTEL_YAML"
   printf 'loops: %s\n' "$LOOPS_YAML"
+  if $LEARN_ENABLED; then
+    printf '%s\n' "learn:"
+    printf '  enabled: true\n'
+    printf '  expiry_days: %s\n' "$LEARN_EXPIRY_DAYS"
+    printf '  cadence: %s\n' "$LEARN_CADENCE"
+  else
+    printf '%s\n' "# learn: (self-learning opt-in — uncomment and set enabled: true to activate)"
+    printf '%s\n' "#   enabled: false"
+    printf '%s\n' "#   expiry_days: 180"
+    printf '%s\n' "#   cadence: weekly  # or daily"
+  fi
+  printf '%s\n' "# models: (advanced — pin specific model IDs per task; omit to use defaults)"
+  printf '%s\n' "#   builder: claude-fable-5"
+  printf '%s\n' "#   reviewer: claude-fable-5"
 } | if [ -n "$OUTPUT_FILE" ]; then
   cat > "$OUTPUT_FILE"
   echo "wrote $OUTPUT_FILE" >&2
