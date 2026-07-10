@@ -15,11 +15,35 @@ COMMON_ARGS='--source gate --event gate_run --score 1 --feedback ok --project te
 
 # Helper: start a one-shot nc listener on a port; write pid to $1, log to $2.
 # Returns 0 if nc bound, 1 if unavailable (caller should skip).
+# `nc -l` relays bidirectionally (stdin -> socket, socket -> stdout); if its
+# stdin hits EOF immediately (as it does when inherited from a non-interactive
+# test run), nc can race its own shutdown and close the connection before it
+# has finished writing the inbound request to $logfile. Feed it stdin from a
+# long-lived `sleep` so it only ever shuts down because the peer (curl)
+# closed the connection, never because of its own stdin EOF.
 nc_listen() {
   local port="$1" pidfile="$2" logfile="$3"
-  nc -l "$port" >"$logfile" 2>/dev/null &
+  (sleep 30 | nc -l "$port" >"$logfile" 2>/dev/null) &
   echo $! >"$pidfile"
-  sleep 0.05   # give nc time to bind
+  # Poll until nc has actually bound the port instead of a fixed sleep,
+  # which is a race under load (curl can fire before nc binds).
+  # Prefer lsof (checks LISTEN state without opening a connection, so it
+  # can't itself consume the listener's one-shot connection); fall back to
+  # `nc -z` (a connect probe) only when lsof is unavailable.
+  local tries=0
+  while true; do
+    if command -v lsof >/dev/null 2>&1; then
+      lsof -iTCP:"$port" -sTCP:LISTEN -n -P >/dev/null 2>&1 && break
+    else
+      nc -z 127.0.0.1 "$port" >/dev/null 2>&1 && break
+    fi
+    tries=$((tries + 1))
+    if [ "$tries" -ge 20 ]; then
+      return 1
+    fi
+    sleep 0.1
+  done
+  return 0
 }
 nc_stop() {
   local pidfile="$1"
@@ -72,7 +96,13 @@ printf 'OTTA_PULSE_URL=http://127.0.0.1:%s\nOTTA_PULSE_TOKEN=from-file\n' "$NC_P
 nc_listen "$NC_PORT" "$PIDFILE" "$NC_LOG"
 (cd "$REPO_DIR" && OTTA_LEDGER_DIR="$LEDGER" bash "$SCRIPT" $COMMON_ARGS >/dev/null 2>&1) \
   || fail "test 4: env-file sourcing made script exit non-zero"
-sleep 0.5   # curl -m 3 may take a moment; nc exits after first connection
+# Poll for the POST to land instead of a fixed sleep: curl -m 3 may take a
+# moment, and nc only flushes its output once it has something to flush.
+tries=0
+while [ ! -s "$NC_LOG" ] && [ "$tries" -lt 20 ]; do
+  tries=$((tries + 1))
+  sleep 0.1
+done
 nc_stop "$PIDFILE"
 [ -f "$LEDGER/test-repo.jsonl" ] || fail "test 4: local jsonl not written"
 [ -s "$NC_LOG" ] || fail "test 4: .otta/pulse.env not sourced (no /ledger POST attempt detected)"
