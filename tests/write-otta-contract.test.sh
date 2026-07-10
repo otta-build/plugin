@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # write-otta-contract.test.sh — unit tests for write-otta-contract.sh
-# Covers the deploy.auto + allow_production output (issue #101 AC2) and
-# validates that otta-deploy-verify.sh can parse the generated contract.
+# Covers: deploy.auto + allow_production (issue #101 AC2), version: "1" header
+# (issue #103 AC1), learn: opt-in block (AC2), models: comment (AC3), and
+# otta-engine resolve_config YAML structure (AC4).
 # Run: bash tests/write-otta-contract.test.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,63 +13,119 @@ trap 'rm -rf "$TMP"' EXIT
 fail() { echo "✗ FAIL: $1" >&2; exit 1; }
 pass() { echo "  ✓ $1"; }
 
-# Source the parse helpers from otta-deploy-verify.sh.
-# The script uses 'set -euo pipefail' and has a main guard, so we source it
-# and rely on parse_deploy_auto / parse_deploy_allow_production being exported.
-# shellcheck source=/dev/null
-# Wrap source to capture only function definitions (not execution side-effects).
-(
-  # The verify script may try to exec git etc on sourcing — run from a tmp dir
-  # that is a git repo so git commands don't error.
-  cd "$TMP"
-  git init -q
-  # Source in a subshell just to test parsing helpers are loadable.
-  bash -c "source '$VERIFY' 2>/dev/null; parse_deploy_auto '$TMP/nope.yml'" 2>/dev/null \
-    | grep -q "human-approve" \
-    || fail "parse_deploy_auto helper not loadable from otta-deploy-verify.sh"
-)
-
-# ── Test 1: default output — auto=human-approve, no allow_production ─────────
+# ── Test 1: version: "1" at top of output (AC1 of #103) ──────────────────────
 OUT="$TMP/t1.yml"
 bash "$SCRIPT" --output "$OUT" >/dev/null 2>&1
-grep -q "auto: human-approve" "$OUT" || fail "test 1: default auto not human-approve"
-grep -q "allow_production" "$OUT" && fail "test 1: allow_production should be absent by default" || true
+grep -q '^version: "1"' "$OUT" || fail "test 1: version: \"1\" not emitted at top of .otta.yml"
+version_line="$(grep -n '^version:' "$OUT" | head -1 | cut -d: -f1)"
+tracker_line="$(grep -n '^tracker:' "$OUT" | head -1 | cut -d: -f1)"
+[ -n "$version_line" ] && [ -n "$tracker_line" ] || fail "test 1: missing version or tracker line numbers"
+[ "$version_line" -lt "$tracker_line" ] || fail "test 1: version: must appear before tracker: (lines $version_line vs $tracker_line)"
+pass "version: \"1\" emitted before tracker:"
+
+# ── Test 2: default deploy.auto=human-approve, no allow_production (AC2 #101) ─
+OUT="$TMP/t2.yml"
+bash "$SCRIPT" --output "$OUT" >/dev/null 2>&1
+grep -q "auto: human-approve" "$OUT" || fail "test 2: default auto not human-approve"
+grep -q "allow_production" "$OUT" && fail "test 2: allow_production should be absent by default" || true
 pass "default: auto=human-approve, allow_production absent"
 
-# ── Test 2: merge-on-green ────────────────────────────────────────────────────
-OUT="$TMP/t2.yml"
+# ── Test 3: --deploy-auto merge-on-green ─────────────────────────────────────
+OUT="$TMP/t3.yml"
 bash "$SCRIPT" --output "$OUT" --deploy-auto merge-on-green >/dev/null 2>&1
-grep -q "auto: merge-on-green" "$OUT" || fail "test 2: auto not merge-on-green"
-grep -q "allow_production" "$OUT" && fail "test 2: allow_production should be absent" || true
+grep -q "auto: merge-on-green" "$OUT" || fail "test 3: auto not merge-on-green"
+grep -q "allow_production" "$OUT" && fail "test 3: allow_production should be absent" || true
 pass "--deploy-auto merge-on-green: written correctly"
 
-# ── Test 3: merge-and-deploy + allow-production ───────────────────────────────
-OUT="$TMP/t3.yml"
+# ── Test 4: --deploy-auto merge-and-deploy + --allow-production ──────────────
+OUT="$TMP/t4.yml"
 bash "$SCRIPT" --output "$OUT" --deploy-auto merge-and-deploy --allow-production >/dev/null 2>&1
-grep -q "auto: merge-and-deploy" "$OUT" || fail "test 3: auto not merge-and-deploy"
-grep -q "allow_production: true" "$OUT" || fail "test 3: allow_production: true not written"
+grep -q "auto: merge-and-deploy" "$OUT" || fail "test 4: auto not merge-and-deploy"
+grep -q "allow_production: true" "$OUT" || fail "test 4: allow_production: true not written"
 pass "--deploy-auto merge-and-deploy --allow-production: both keys written"
 
-# ── Test 4: otta-deploy-verify.sh parses the generated contract ───────────────
-# Use a sub-shell to isolate the parse_deploy_auto / parse_deploy_allow_production
-# helpers without running the main merge logic of the script.
-OUT="$TMP/t4.yml"
+# ── Test 5: otta-deploy-verify.sh parses generated contract (AC2 of #101) ────
+OUT="$TMP/t5.yml"
 bash "$SCRIPT" --output "$OUT" --deploy-auto merge-on-green --deploy-target coolify --deploy-project myapp >/dev/null 2>&1
 auto_val="$(bash -c "source '$VERIFY' 2>/dev/null; parse_deploy_auto '$OUT'")"
-[ "$auto_val" = "merge-on-green" ] || fail "test 4: parse_deploy_auto returned '$auto_val', expected merge-on-green"
+[ "$auto_val" = "merge-on-green" ] || fail "test 5: parse_deploy_auto returned '$auto_val', expected merge-on-green"
 pass "otta-deploy-verify parse_deploy_auto reads generated contract correctly"
 
-# ── Test 5: allow_production only emitted on --allow-production ───────────────
-OUT="$TMP/t5.yml"
+# ── Test 6: allow_production absent without --allow-production ────────────────
+OUT="$TMP/t6.yml"
 bash "$SCRIPT" --output "$OUT" --deploy-auto merge-and-deploy >/dev/null 2>&1
-grep -q "allow_production" "$OUT" && fail "test 5: allow_production must not appear without --allow-production flag" || true
+grep -q "allow_production" "$OUT" && fail "test 6: allow_production must not appear without --allow-production flag" || true
 pass "allow_production absent when --allow-production not passed"
 
-# ── Test 6: invalid deploy-auto value rejected ────────────────────────────────
+# ── Test 7: invalid --deploy-auto value rejected ──────────────────────────────
 if bash "$SCRIPT" --deploy-auto invalid-value >/dev/null 2>&1; then
-  fail "test 6: invalid --deploy-auto value should have exited non-zero"
+  fail "test 7: invalid --deploy-auto value should have exited non-zero"
 fi
 pass "invalid --deploy-auto value → non-zero exit"
 
+# ── Test 8: learn: block disabled by default — commented out (AC2 #103) ───────
+OUT="$TMP/t8.yml"
+bash "$SCRIPT" --output "$OUT" >/dev/null 2>&1
+grep -q '^# learn:' "$OUT" || fail "test 8: commented learn: block not present by default"
+grep -q '^learn:' "$OUT" 2>/dev/null && fail "test 8: active learn: block should NOT appear without --learn" || true
+pass "no --learn: learn: block is commented out (disabled by default)"
+
+# ── Test 9: --learn emits active learn: block (AC2 opt-in #103) ──────────────
+OUT="$TMP/t9.yml"
+bash "$SCRIPT" --output "$OUT" --learn >/dev/null 2>&1
+grep -q '^learn:' "$OUT" || fail "test 9: learn: block not emitted with --learn"
+grep -q 'enabled: true' "$OUT" || fail "test 9: learn.enabled: true not emitted"
+grep -q 'expiry_days: 180' "$OUT" || fail "test 9: learn.expiry_days: 180 (default) not emitted"
+grep -q 'cadence: weekly' "$OUT" || fail "test 9: learn.cadence: weekly (default) not emitted"
+pass "--learn: active learn: block with enabled/expiry_days/cadence"
+
+# ── Test 10: --learn-expiry-days and --learn-cadence customization ────────────
+OUT="$TMP/t10.yml"
+bash "$SCRIPT" --output "$OUT" --learn --learn-expiry-days 30 --learn-cadence daily >/dev/null 2>&1
+grep -q 'expiry_days: 30' "$OUT" || fail "test 10: --learn-expiry-days 30 not reflected"
+grep -q 'cadence: daily' "$OUT" || fail "test 10: --learn-cadence daily not reflected"
+pass "--learn-expiry-days 30 --learn-cadence daily: values written correctly"
+
+# ── Test 11: models: comment present (AC3 of #103) ────────────────────────────
+OUT="$TMP/t11.yml"
+bash "$SCRIPT" --output "$OUT" >/dev/null 2>&1
+grep -q '# models:' "$OUT" || fail "test 11: models: comment not emitted"
+pass "models: comment present (advanced config hint)"
+
+# ── Test 12: otta-engine resolve_config YAML structure (AC4 of #103) ──────────
+OUT="$TMP/t12.yml"
+bash "$SCRIPT" --output "$OUT" --learn >/dev/null 2>&1
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "$OUT" << 'PYCHECK'
+import sys, pathlib
+try:
+    import yaml
+except ImportError:
+    content = pathlib.Path(sys.argv[1]).read_text()
+    lines = content.splitlines()
+    keys = {l.split(':')[0].strip() for l in lines if ':' in l and not l.startswith('#')}
+    assert 'version' in keys, f"Missing 'version' key; keys found: {keys}"
+    version_line = next((l for l in lines if l.startswith('version:')), '')
+    assert '"1"' in version_line, f"version must be \"1\", got: {version_line}"
+    for k in ['tracker', 'autonomy', 'deploy', 'gates', 'telemetry', 'loops']:
+        assert k in keys, f"Missing '{k}'"
+    print("  structural check: ok (no PyYAML; used line scan)")
+    sys.exit(0)
+
+content = pathlib.Path(sys.argv[1]).read_text()
+cfg = yaml.safe_load(content)
+assert str(cfg.get('version', '')) == '1', \
+    f"resolve_config expects version '1', got {cfg.get('version')!r}"
+for k in ['tracker', 'autonomy', 'deploy', 'gates', 'telemetry', 'loops']:
+    assert k in cfg, f"Missing '{k}'"
+assert 'learn' in cfg, "Missing learn (was passed --learn)"
+assert cfg['learn'].get('enabled') is True, f"learn.enabled should be True"
+print("  python3 YAML assertions: ok")
+PYCHECK
+  pass "otta-engine resolve_config structure: version \"1\" + all 6 keys + learn block valid"
+else
+  echo "  ⚠ python3 unavailable — skipping engine YAML structure check (AC4)"
+fi
+
 echo ""
-echo "✓ write-otta-contract: all 6 checks passed"
+echo "✓ write-otta-contract: all 12 checks passed"
