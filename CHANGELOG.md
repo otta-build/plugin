@@ -1,3 +1,9 @@
+## 0.26.0
+
+### Added
+
+- write-otta-contract emits version "1" + learn opt-in + models comment (#103) (#109)
+
 ## 0.25.3
 
 ### Fixed
