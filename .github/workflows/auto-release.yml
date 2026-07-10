@@ -132,6 +132,11 @@ jobs:
           jq --arg v "$NEW_VERSION" '.version = $v' .claude-plugin/plugin.json > "$tmp"
           mv "$tmp" .claude-plugin/plugin.json
 
+          # Keep marketplace.json in sync (drift breaks plugin cache validation)
+          tmp2=$(mktemp)
+          jq --arg v "$NEW_VERSION" '(.plugins[]? | select(.name=="otta") | .version) = $v | if has("version") then .version=$v else . end' .claude-plugin/marketplace.json > "$tmp2"
+          mv "$tmp2" .claude-plugin/marketplace.json
+
           # Bucket commit subjects by conventional-commit prefix
           if git rev-parse "$LAST_TAG" >/dev/null 2>&1; then
             RANGE="${LAST_TAG}..HEAD"
@@ -184,7 +189,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .claude-plugin/plugin.json CHANGELOG.md
+          git add .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md
           git commit -m "chore: release ${TAG}"
 
           git tag -a "$TAG" -m "Auto-released after merge to main.
