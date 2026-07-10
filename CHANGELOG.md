@@ -1,3 +1,9 @@
+## 1.0.2
+
+### Fixed
+
+- pre-push guard scans nested git repos' .pr-body.md (#121)
+
 ## 1.0.1
 
 ### Changed
