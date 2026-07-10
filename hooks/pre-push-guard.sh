@@ -18,10 +18,11 @@ fi
 printf '%s' "$cmd" | grep -qE '(^|[^a-zA-Z])git[[:space:]]+push' || exit 0
 [ -n "${OTTA_SKIP_GATE:-}" ] && exit 0
 # Only gate inside a repo that uses the loop (has a seeded body).
-[ -f ".pr-body.md" ] || exit 0
+TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -f "$TOPLEVEL/.pr-body.md" ] || exit 0
 
 echo "[otta-gate] re-running gate (pre-push check)" >&2
-if ! out="$(bash "$HERE/../scripts/otta-gate.sh" 2>&1)"; then
+if ! out="$(bash "$HERE/../scripts/otta-gate.sh" "$TOPLEVEL/.pr-body.md" 2>&1)"; then
   echo "otta gate blocked this push:" >&2
   echo "$out" >&2
   exit 2
