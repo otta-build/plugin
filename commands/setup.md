@@ -70,6 +70,28 @@ Record the answers.
 
 ---
 
+## 3. Deploy policy (merge behaviour)
+
+**Pain this solves:** Without a declared policy every merge is manual — agents can't auto-merge when the gate is green.
+**Benefit you get:** `deploy.auto` tells the loop and `otta-deploy-verify.sh` exactly when to merge and deploy automatically vs wait for human approval.
+
+Ask via AskUserQuestion — header "Merge policy", question "When the gate is green, should PRs merge automatically?":
+- `human-approve` (default) — a human must always approve and merge; safest, choose this when unsure
+- `merge-on-green` — merge automatically when gate + CI are green; no deploy step triggered
+- `merge-and-deploy` — merge and trigger the deploy pipeline automatically (requires deploy target set in step 2)
+
+This maps to the `--deploy-auto <value>` flag of `write-otta-contract.sh` → `deploy.auto` in `.otta.yml`.
+
+If the developer chose `merge-and-deploy` AND the deploy target is a production environment, ask one follow-up:
+
+Ask via AskUserQuestion — header "Production auto-deploy opt-in", question "This repo deploys to production. Allow fully automatic production deploys (merge-and-deploy without human gate)?":
+- `Yes, opt in` — adds `deploy.allow_production: true`; without this, `otta-deploy-verify.sh` will block production auto-deploys even with merge-and-deploy policy
+- `No, keep human gate on production` (default) — `allow_production` is omitted (false); a human must approve before production auto-deploys run
+
+Record both answers.
+
+---
+
 ## 5. Onboard the Otta Pulse GitHub App
 
 **Pain this solves:** The loop has amnesia without a memory — runs don't learn from each other; you can't see what shipped broken.
@@ -255,10 +277,13 @@ Pass the collected answers as flags (omit flags for fields that were left as def
 # Build the flag list from answers collected in Part A:
 #   --deploy-target <target>   (e.g. cloudflare-pages, vercel, coolify, none)
 #   --deploy-project <name>    (project name on the deploy platform)
+#   --deploy-auto <policy>     (human-approve [default] | merge-on-green | merge-and-deploy)
+#   --allow-production         (only if developer explicitly opted in during step 3)
 #   --pulse                    (if developer chose Pulse telemetry in step 5)
 #   --otel <endpoint>          (if developer provided an OTEL endpoint in step 9)
 #   --seo-geo                  (if the developer opts this repo into the seo_geo loop)
 #   LINEAR_TEAM=<team>         (set as env var if a Linear team was identified)
+# Omit --deploy-auto when the answer was human-approve (that is the default).
 
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/write-otta-contract.sh" --output .otta.yml
 ```
