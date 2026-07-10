@@ -1,3 +1,9 @@
+## 0.27.0
+
+### Added
+
+- pre-deploy self-audit — skipped-green, SHA match, stale aggregate, connectors (#112)
+
 ## 0.26.3
 
 ### Fixed
