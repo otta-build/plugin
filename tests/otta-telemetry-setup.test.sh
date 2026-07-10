@@ -240,7 +240,57 @@ pass "AC1/AC7: idempotent re-run (stable, valid JSON, no dupes)"
 # ---------------------------------------------------------------------------
 R="$(newrepo usage)"; cd "$R"
 if bash "$SCRIPT" >/dev/null 2>&1; then fail "missing args should exit non-zero"; fi
-if bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing webhook-secret should exit non-zero"; fi
-pass "usage guard: missing repo/webhook-secret rejected"
+# Self-hosted without a webhook secret must be rejected (secret is required for self-hosted).
+if OTTA_PULSE_URL="https://self-hosted.example.com" bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then
+  fail "self-hosted without webhook-secret should exit non-zero"
+fi
+pass "usage guard: missing repo rejected; self-hosted missing webhook-secret rejected"
+
+# ---------------------------------------------------------------------------
+# 9. AC (issue #70): hosted pulse.otta.build derives token without webhook secret
+#    GET /token?repo= with NO auth header — GitHub App installation is the proof.
+#    Stub curl as a shell function (inherits to sub-scripts via bash -c invocation
+#    is not reliable across bash versions; instead we write a stub script on PATH).
+# ---------------------------------------------------------------------------
+R="$(newrepo hosted-no-secret)"; cd "$R"
+# Write a curl stub that records args to a file and returns a token.
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "${CURL_ARGS_FILE:-/dev/null}"
+printf '{"token":"hosted-no-auth-token"}'
+CURL_STUB
+chmod +x "$TMP/bin/curl"
+CURL_ARGS_FILE="$TMP/hosted-curl-args.txt"
+export CURL_ARGS_FILE
+HOSTED_OUT="$(PATH="$TMP/bin:$PATH" bash "$SCRIPT" "$REPO_SLUG" 2>&1)"; HOSTED_RC=$?
+[ "$HOSTED_RC" -eq 0 ] || fail "AC(#70) hosted path (no secret, no OTTA_PULSE_URL) should exit 0, got: $HOSTED_OUT"
+valid_json "$SETTINGS" || fail "AC(#70) hosted no-secret: settings.local.json is not valid JSON"
+[ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_HEADERS)" = "x-pulse-token=hosted-no-auth-token" ] \
+  || fail "AC(#70) hosted no-secret: token in headers wrong: $(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_HEADERS)"
+# The curl call must NOT have passed an x-pulse-token header (no auth for hosted).
+grep -q "x-pulse-token" "$TMP/hosted-curl-args.txt" && fail "AC(#70) hosted: curl was called WITH auth header (should not be for hosted Pulse)"
+pass "AC(#70): hosted pulse.otta.build derives token with no webhook secret; no auth header sent"
+
+# ---------------------------------------------------------------------------
+# 10. AC (issue #70): self-hosted path still requires and uses the webhook secret
+# ---------------------------------------------------------------------------
+R="$(newrepo selfhost-secret)"; cd "$R"
+cat > "$TMP/bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "${CURL_ARGS_FILE:-/dev/null}"
+printf '{"token":"selfhost-derived-tok"}'
+CURL_STUB
+chmod +x "$TMP/bin/curl"
+CURL_ARGS_FILE="$TMP/selfhost-curl-args.txt"
+export CURL_ARGS_FILE
+PATH="$TMP/bin:$PATH" OTTA_PULSE_URL="https://pulse.example.com" bash "$SCRIPT" "$REPO_SLUG" "my-webhook-secret" 2>&1 \
+  || fail "AC(#70) self-hosted with secret should exit 0"
+[ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_HEADERS)" = "x-pulse-token=selfhost-derived-tok" ] \
+  || fail "AC(#70) self-hosted: token wrong: $(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_HEADERS)"
+# The curl call MUST have passed the webhook secret as auth header.
+grep -q "x-pulse-token" "$TMP/selfhost-curl-args.txt" \
+  || fail "AC(#70) self-hosted: curl was NOT called with auth header (required for self-hosted Pulse)"
+pass "AC(#70): self-hosted path with webhook secret passes auth header to /token"
 
 echo "All otta-telemetry-setup tests passed."

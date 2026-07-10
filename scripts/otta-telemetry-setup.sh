@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# otta-telemetry-setup.sh <owner/repo> <webhook-secret> [--traces]
+# otta-telemetry-setup.sh <owner/repo> [webhook-secret] [--traces]
 #
-# Derives a per-repo HMAC token by calling the Pulse /token endpoint with the
-# webhook secret, then merges an OTEL `env` block into .claude/settings.local.json
-# (gitignored, token-bearing — NEVER the committed settings.json) so Claude Code
-# emits telemetry to Otta Pulse. Logs are the default; --traces additionally opts
+# Derives a per-repo HMAC token by calling the Pulse /token endpoint, then
+# merges an OTEL `env` block into .claude/settings.local.json (gitignored,
+# token-bearing — NEVER the committed settings.json) so Claude Code emits
+# telemetry to Otta Pulse. Logs are the default; --traces additionally opts
 # into the BETA traces/spans exporters. Merge-into-existing, never clobber;
 # idempotent on re-run.
 #
-# The webhook secret is used ONLY to derive the per-repo token from Pulse; it is
-# NEVER written to any file. Only the derived token is stored.
+# Hosted pulse.otta.build (no OTTA_PULSE_URL override): the /token endpoint is
+# public — no auth header required. GitHub App installation is the proof of
+# authorization. The webhook secret is NOT needed and NOT prompted for.
+#
+# Self-hosted (OTTA_PULSE_URL set to a non-hosted URL): the webhook secret must
+# be provided as the second positional argument. It is passed as the
+# x-pulse-token header only for the /token call; it is NEVER written to any file.
 #
 # Endpoint base: OTTA_PULSE_URL if set, else the hosted default. Repo slug comes
 # from the caller (e.g. `gh repo view --json nameWithOwner -q .nameWithOwner`);
@@ -18,27 +23,54 @@
 set -euo pipefail
 
 REPO="${1:-}"
-WEBHOOK_SECRET="${2:-}"
+WEBHOOK_SECRET=""
 TRACES=0
-[ "${3:-}" = "--traces" ] && TRACES=1
+# Parse remaining args: optional positional webhook-secret (not starting with --)
+# followed by optional --traces flag.
+shift || true
+for _arg in "$@"; do
+  case "$_arg" in
+    --traces) TRACES=1 ;;
+    --*)      echo "unknown flag: $_arg" >&2; exit 2 ;;
+    *)        WEBHOOK_SECRET="$_arg" ;;
+  esac
+done
 
-if [ -z "$REPO" ] || [ -z "$WEBHOOK_SECRET" ]; then
-  echo "usage: otta-telemetry-setup.sh <owner/repo> <webhook-secret> [--traces]" >&2
+if [ -z "$REPO" ]; then
+  echo "usage: otta-telemetry-setup.sh <owner/repo> [webhook-secret] [--traces]" >&2
   exit 2
 fi
 
+HOSTED_DEFAULT="https://pulse.otta.build"
+
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required for the JSON merge." >&2; exit 1; }
 
-PULSE="${OTTA_PULSE_URL:-https://pulse.otta.build}"
+PULSE="${OTTA_PULSE_URL:-$HOSTED_DEFAULT}"
 PULSE="${PULSE%/}"            # normalize trailing slash so /v1/logs isn't doubled
 
-# Derive the per-repo token via Pulse /token (auth: webhook secret).
-# The webhook secret is NEVER written to any file — only TOKEN is stored.
-if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" \
-    -H "x-pulse-token: ${WEBHOOK_SECRET}" 2>&1); then
-  echo "Error: could not reach Pulse at ${PULSE}/token" >&2
-  echo "Response: ${RESPONSE}" >&2
-  exit 1
+# Hosted pulse.otta.build: /token is public — no auth header. GitHub App = proof.
+# Self-hosted: webhook secret required; passed as x-pulse-token header.
+if [ "$PULSE" = "$HOSTED_DEFAULT" ]; then
+  # Hosted path: no secret needed or expected.
+  if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" 2>&1); then
+    echo "Error: could not reach Pulse at ${PULSE}/token" >&2
+    echo "Response: ${RESPONSE}" >&2
+    exit 1
+  fi
+else
+  # Self-hosted path: webhook secret is required.
+  if [ -z "$WEBHOOK_SECRET" ]; then
+    echo "Error: OTTA_PULSE_URL is set to a self-hosted instance (${PULSE}). A webhook secret is required as the second argument." >&2
+    echo "usage: otta-telemetry-setup.sh <owner/repo> <webhook-secret> [--traces]" >&2
+    exit 2
+  fi
+  # The webhook secret is NEVER written to any file — only the derived TOKEN is stored.
+  if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" \
+      -H "x-pulse-token: ${WEBHOOK_SECRET}" 2>&1); then
+    echo "Error: could not reach Pulse at ${PULSE}/token" >&2
+    echo "Response: ${RESPONSE}" >&2
+    exit 1
+  fi
 fi
 TOKEN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])" 2>/dev/null) || true
 if [ -z "$TOKEN" ]; then
