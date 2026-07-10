@@ -1,3 +1,9 @@
+## 0.26.1
+
+### Changed
+
+- chore(docs): parity polish — AC-layer docs, review-thread note, scope-user, wizard reorder, unit tests (#104) (#110)
+
 ## 0.26.0
 
 ### Added
