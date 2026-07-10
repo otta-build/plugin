@@ -12,3 +12,8 @@ ci:
 
 pulse:
   installed: true
+
+learn:
+  enabled: true
+  expiry_days: 180
+  cadence: weekly
