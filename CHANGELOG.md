@@ -1,3 +1,9 @@
+## 1.0.1
+
+### Changed
+
+- chore(otta): opt in to self-learning loop (#118) (#119)
+
 ## 1.0.0
 
 ### Changed
