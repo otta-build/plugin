@@ -7,6 +7,19 @@ description: Reference for builders and reviewers using the Otta shipping loop â
 
 ## AC Layer Tags
 
+### Verification labels
+
+Acceptance criteria may contain exactly one verification label:
+`[test]`, `[review]`, or `[human]`. Put it before or after an existing layer
+tag such as `[data-layer]`, `[ui-layer]`, or `[e2e]`; layer tags are independent
+and do not affect verification classification. Unlabelled criteria remain compatible and
+are explicitly classified as `[test]`. Use
+`scripts/otta-repair-loop.sh classify '<criterion>'` when routing evidence.
+
+- `[test]`: deterministic automated evidence.
+- `[review]`: reviewer judgment with concrete references.
+- `[human]`: explicit human approval; automation must stop rather than infer it.
+
 Layer tags on acceptance criteria make the required evidence type explicit at the point the AC is written. The gate (`otta-gate.sh`) enforces evidence type at the point the AC is checked off.
 
 ### Layer key

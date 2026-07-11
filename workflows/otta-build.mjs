@@ -1,3 +1,5 @@
+import { decideRepair, normalizeMaxRevisions } from './repair-policy.mjs'
+
 export const meta = {
   name: 'otta-build',
   description: 'TDD shipping pipeline for one issue: build → spec-review → adversarial verify → ship. Uses the builder/reviewer/qa/devops subagents.',
@@ -19,6 +21,7 @@ const WT = `bash "${root}/scripts/otta-worktree.sh"`
 // Each stage runs fresh in the session cwd, so it re-derives the SAME isolated
 // worktree via the deterministic helper and cd's in before doing anything.
 const ENTER = `Enter the run's isolated worktree first: cd "$(${WT} ${issue})". `
+const MAX_REVISIONS = normalizeMaxRevisions(args && args.maxRevisions)
 
 const REVIEW_SCHEMA = {
   type: 'object',
@@ -37,6 +40,14 @@ const VERIFY_SCHEMA = {
     detail: { type: 'string', description: 'gate result + per-AC verdicts with evidence or failure reason' },
   },
   required: ['gatePassed', 'allAcsPass', 'detail'],
+}
+const EVIDENCE_SCHEMA = {
+  type: 'object',
+  properties: {
+    emitted: { type: 'boolean', description: 'true only when the emit command exited zero and local ledger record was verified' },
+    detail: { type: 'string' },
+  },
+  required: ['emitted', 'detail'],
 }
 
 // Note: unlike commands/dev.md's direct Task calls (plugin#75), the Workflow
@@ -61,7 +72,7 @@ const built = await agent(
   { agentType: 'otta:builder', label: `build:#${issue}`, phase: 'Build' },
 )
 
-// 2. SPEC REVIEW — compliance, with one fix loop
+// 2. SPEC REVIEW — bounded repairs; identical blockers twice stop early.
 phase('Spec Review')
 let review = await agent(
   ENTER +
@@ -69,17 +80,31 @@ let review = await agent(
     `For each AC cite the file:line that satisfies it. Flag missing or extra behavior.`,
   { agentType: 'otta:reviewer', label: 'spec-review', phase: 'Spec Review', schema: REVIEW_SCHEMA },
 )
-if (review && !review.compliant) {
-  log(`spec review found gaps — sending back to builder`)
+let revision = 0
+let previousSignature = ''
+while (review && !review.compliant) {
+  const decision = decideRepair({ completedRepairs: revision, maxRevisions: MAX_REVISIONS, failure: review.gaps, previousSignature })
+  const signature = decision.signature
+  if (decision.action === 'stop') {
+    log(decision.message)
+    const evidence = await agent(ENTER + `Execute bash "${root}/scripts/otta-repair-loop.sh" emit --attempt ${Math.max(revision, 1)} --stage reviewer --failure ${JSON.stringify(signature)} --outcome stalled. Verify the command exits zero and the repair_attempt record exists in the local ledger; return emitted=false on either failure.`,
+      { agentType: 'otta:builder', label: 'pulse:stalled', phase: 'Spec Review', schema: EVIDENCE_SCHEMA })
+    if (!evidence || !evidence.emitted) return { issue, status: 'blocked', reason: 'evidence-emission-failed', detail: evidence && evidence.detail, spec: review }
+    return { issue, status: 'blocked', reason: decision.reason, attempt: revision, failureSignature: signature, spec: review }
+  }
+  revision = decision.nextAttempt
+  previousSignature = signature
+  log(`spec review found gaps — repair attempt ${revision} of ${MAX_REVISIONS}: ${signature}`)
   await agent(
     ENTER +
-    `Spec review found gaps for issue #${issue}:\n${review.gaps}\nFix exactly these. Keep changes surgical.`,
-    { agentType: 'otta:builder', label: 'build:fix-spec', phase: 'Build' },
+    `Spec review found gaps for issue #${issue}:\n${review.gaps}\nFix exactly these. Keep changes surgical. ` +
+    `Record compact Pulse evidence with: bash "${root}/scripts/otta-repair-loop.sh" decide --attempt ${revision} --stage reviewer --failure ${JSON.stringify(signature)} --state .otta/repair-${issue}.state (best-effort when Pulse is configured).`,
+    { agentType: 'otta:builder', label: `build:fix-spec:${revision}`, phase: 'Build' },
   )
   review = await agent(
     ENTER +
     `Re-review issue #${issue} against .pr-body.md after the fix. Confirm COMPLIANT or list remaining gaps.`,
-    { agentType: 'otta:reviewer', label: 'spec-review:2', phase: 'Spec Review', schema: REVIEW_SCHEMA },
+    { agentType: 'otta:reviewer', label: `spec-review:${revision + 1}`, phase: 'Spec Review', schema: REVIEW_SCHEMA },
   )
 }
 

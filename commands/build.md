@@ -22,7 +22,9 @@ Workflow({
 
 `pluginRoot` lets each stage call the real otta engine scripts (`seed-pr-body.sh`, `otta-gate.sh` — which also captures the verdict to the LEARN ledger) instead of generic instructions.
 
-The workflow runs four stages, each a focused subagent:
+The workflow runs four stages, each a focused subagent. Spec repair is bounded
+to three attempts by default (`args.maxRevisions` may override it), and stops
+early when the same normalized blockers repeat twice:
 1. **Build** — `builder` implements test-first (TDD)
 2. **Spec Review** — `reviewer` checks every AC is met, nothing extra (one fix loop)
 3. **Verify** — `qa` runs the gate and adversarially verifies each AC has real evidence
@@ -33,3 +35,7 @@ When it finishes, report the result: shipped (PR URL) or blocked (which AC/gate 
 **Deploy+verify (per policy).** After the PR is open, the deploy stage runs per `.otta.yml` `deploy.auto`: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-deploy-verify.sh" <pr-number>`. The default `human-approve` (and an absent `deploy` block) stops at the green PR — unchanged behavior. `merge-on-green` / `merge-and-deploy` poll the Otta Gate to green (surfacing the blocking sub-check on stall rather than hanging), then merge; `merge-and-deploy` also verifies the deploy by provider SHA-match. Production hands-off requires an explicit `deploy.allow_production: true` opt-in. See `/otta:ship` for the policy table.
 
 > **Tier rule:** for tiny (≤2-file, no new public behavior) changes use `/otta:fix` (gated, light review) instead of this full pipeline.
+
+> **Routing rule:** read-only investigations do not require an Otta issue/PR.
+> Any task that changes code, configuration, infrastructure, durable docs, or
+> external state uses this pipeline (or `/otta:fix` for the tiny tier).
