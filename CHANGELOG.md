@@ -1,3 +1,9 @@
+## 1.1.0
+
+### Added
+
+- stop stalled Otta repair loops safely (#123)
+
 ## 1.0.2
 
 ### Fixed
