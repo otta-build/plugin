@@ -1,3 +1,9 @@
+## 1.1.1
+
+### Changed
+
+- chore: license plugin under Apache-2.0 (OTT-126) (#127)
+
 ## 1.1.0
 
 ### Added
