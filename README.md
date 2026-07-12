@@ -197,3 +197,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" <owner/repo> <pulse
 ## Scope
 
 This plugin is the discipline layer. The autonomous loop engine (scheduled `sense→score→govern→act→learn` runs) and direct lifecycle emission are separate components — see the Otta roadmap.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
