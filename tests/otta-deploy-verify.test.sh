@@ -55,6 +55,24 @@ check "parse target=production"     "production"       "$(parse_deploy_target "$
 check "parse verify=health"         "health"           "$(parse_deploy_verify "$Y")"
 check "parse allow_production=true" "true"             "$(parse_deploy_allow_production "$Y")"
 
+Y="$(mk_yml workflow 'deploy:
+  auto: human-approve
+  target: production
+  executor: github-workflow
+  workflow: deploy-production.yml
+  ref: release
+  sha_input: expected_sha
+  provider: coolify
+  verify: health-sha
+  health_url: https://example.test/health
+  health_commit_field: revision')"
+check "parse executor=github-workflow" "github-workflow" "$(parse_deploy_executor "$Y")"
+check "parse workflow" "deploy-production.yml" "$(parse_deploy_workflow "$Y")"
+check "parse workflow ref" "release" "$(parse_deploy_ref "$Y")"
+check "parse SHA input" "expected_sha" "$(parse_deploy_sha_input "$Y")"
+check "parse health URL" "https://example.test/health" "$(parse_deploy_health_url "$Y")"
+check "parse health commit field" "revision" "$(parse_deploy_health_commit_field "$Y")"
+
 # ---------------------------------------------------------------------------
 # 2. Absent deploy block → human-approve (back-compat — the load-bearing default)
 # ---------------------------------------------------------------------------
@@ -65,6 +83,10 @@ ci:
 check "absent deploy block → human-approve" "human-approve" "$(parse_deploy_auto "$Y")"
 check "absent → target defaults production" "production"     "$(parse_deploy_target "$Y")"
 check "absent → provider defaults none"     "none"           "$(parse_deploy_provider "$Y")"
+check "absent → executor defaults none"     "none"           "$(parse_deploy_executor "$Y")"
+check "absent → workflow ref defaults main" "main"           "$(parse_deploy_ref "$Y")"
+check "absent → SHA input defaults commit_sha" "commit_sha"   "$(parse_deploy_sha_input "$Y")"
+check "absent → health field defaults commit" "commit"       "$(parse_deploy_health_commit_field "$Y")"
 check "absent → allow_production false"      "false"          "$(parse_deploy_allow_production "$Y")"
 
 # Missing file entirely → still human-approve.

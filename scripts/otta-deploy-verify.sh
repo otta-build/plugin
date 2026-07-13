@@ -61,6 +61,14 @@ parse_deploy_auto() {
 parse_deploy_target()   { local v; v="$(_deploy_raw "${1:-.otta.yml}" target)";   echo "${v:-production}"; }
 parse_deploy_provider() { local v; v="$(_deploy_raw "${1:-.otta.yml}" provider)"; echo "${v:-none}"; }
 parse_deploy_verify()   { local v; v="$(_deploy_raw "${1:-.otta.yml}" verify)";   echo "${v:-sha-match}"; }
+parse_deploy_executor() { local v; v="$(_deploy_raw "${1:-.otta.yml}" executor)"; echo "${v:-none}"; }
+parse_deploy_workflow() { _deploy_raw "${1:-.otta.yml}" workflow; }
+parse_deploy_ref() { local v; v="$(_deploy_raw "${1:-.otta.yml}" ref)"; echo "${v:-main}"; }
+parse_deploy_sha_input() { local v; v="$(_deploy_raw "${1:-.otta.yml}" sha_input)"; echo "${v:-commit_sha}"; }
+parse_deploy_health_url() { _deploy_raw "${1:-.otta.yml}" health_url; }
+parse_deploy_health_commit_field() {
+  local v; v="$(_deploy_raw "${1:-.otta.yml}" health_commit_field)"; echo "${v:-commit}"
+}
 
 # AC5: production + merge-and-deploy requires explicit per-repo opt-in. The
 # opt-in key is `deploy.allow_production: true`. Without it, the policy is
