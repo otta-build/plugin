@@ -22,7 +22,7 @@ If `$1` is empty/absent, don't require an issue number — instead enumerate ope
    }
    ```
    (`detail` per stage is optional in dashboard mode — omit it to keep rows compact; the renderer falls back to `pending` for missing statuses. Always include `createdAt` from step 2 — it drives the sort in step 5.)
-5. Pipe it into the same renderer: `echo "$JSON" | bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-status.sh"`. It detects the `"issues"` array and renders one compact row per issue (issue #, title, one glyph per stage — Idea/Build/Gate/CI/Release in that order) instead of the full 5-line checklist.
+5. Pipe it into the same renderer: `echo "$JSON" | bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-status.sh"`. It detects the `"issues"` array and renders one compact row per issue (issue #, title, one glyph per stage — Idea/Build/Gate/CI/Release in that order) instead of the full 5-line checklist.
 
    **Sort rule (most-blocked/stalest first):** the renderer sorts rows itself — you don't need to pre-sort. Each issue is bucketed by rank: **rank 0** if any stage is `fail`, **rank 1** if any stage is `pending` and none `fail`, **rank 2** if every stage is `pass`. Rows are ordered by rank ascending (0 before 1 before 2), then within the same rank by `createdAt` ascending — older issues first — falling back to numeric issue number ascending when `createdAt` is missing.
 6. Report the rendered table verbatim to the developer as your response.
@@ -54,14 +54,14 @@ If `$1` is empty/absent, don't require an issue number — instead enumerate ope
    Pipe the response into the renderer's `format-gate-detail` subcommand with the PR's head branch (the same branch used for `gh pr checks` in step 4):
    ```bash
    GATE_DETAIL="$(curl -fsS -m 5 "${OTTA_PULSE_URL%/}/grade?repo=$REPO&limit=50" -H "x-pulse-token: ${OTTA_PULSE_TOKEN}" \
-     | bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-status.sh" format-gate-detail "<head-branch>")"
+     | bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-status.sh" format-gate-detail "<head-branch>")"
    ```
    If `$GATE_DETAIL` is non-empty (e.g. `"gate failed: tsc failed: 2 errors"` or `"gate passed"`), use it as the Gate stage `detail` instead of the gh-only text. If empty (no matching verdict, or the call failed), keep the gh-only detail from step 4 unchanged.
 
    **Release stage — `/lifecycle` ship info:**
    ```bash
    RELEASE_DETAIL="$(curl -fsS -m 5 "${OTTA_PULSE_URL%/}/lifecycle?repo=$REPO&limit=100" -H "x-pulse-token: ${OTTA_PULSE_TOKEN}" \
-     | bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-status.sh" format-release-detail "<issue>")"
+     | bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-status.sh" format-release-detail "<issue>")"
    ```
    If `$RELEASE_DETAIL` is non-empty (e.g. `"merged + shipped v0.23.0 (2026-07-01T09:00:00Z)"`), use it as the Release stage `detail` instead of the gh-only text. If empty, keep the gh-only detail from step 5 unchanged.
 
@@ -80,7 +80,7 @@ If `$1` is empty/absent, don't require an issue number — instead enumerate ope
    ```
    and pipe it in:
    ```bash
-   echo "$JSON" | bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-status.sh"
+   echo "$JSON" | bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-status.sh"
    ```
    Report the rendered checklist verbatim to the developer as your response.
 

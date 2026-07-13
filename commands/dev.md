@@ -26,7 +26,7 @@ Update each item to `in_progress` when starting it and `completed` when done. Al
 **Stage failures:** when a stage fails or is blocked, annotate the checklist item with the failure reason (e.g. `✗ QA — gate failed: tsc errors in src/foo.ts`) so the developer sees at a glance which stage blocked and why without reading the full log.
 
 1. **Seed.** If `.pr-body.md` is missing, run:
-   `bash "${CLAUDE_PLUGIN_ROOT}/scripts/seed-pr-body.sh" $1`
+   `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/seed-pr-body.sh" $1`
    Read it. If the issue has no acceptance criteria, ask the developer to add them before continuing.
 
 2. **Learn.** Run the `learn-from-pulse` skill now — after `.pr-body.md` is seeded (so the `idea_ref` exists) and **before** the builder writes code. It consults Pulse for this idea's prior shipped work, escaped defects, and loop verdicts, so the build doesn't repeat a failure the factory already caught. If Pulse isn't configured it no-ops and the loop continues.
@@ -37,11 +37,11 @@ Update each item to `in_progress` when starting it and `completed` when done. Al
 
 4. **Spec Review.** Dispatch `otta:reviewer` (`name: "otta-reviewer-#$1"`). If it reports gaps, send them to the builder (ask the developer first if a gap is ambiguous), then re-review.
 
-5. **Verify.** Dispatch `otta:qa` (`name: "otta-qa-#$1"`) to run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-gate.sh"` (this also captures the verdict to the LEARN ledger) and adversarially verify each AC. If a gate or AC fails, surface it — fix with the builder, or ask the developer how to proceed.
+5. **Verify.** Dispatch `otta:qa` (`name: "otta-qa-#$1"`) to run `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-gate.sh"` (this also captures the verdict to the LEARN ledger) and adversarially verify each AC. If a gate or AC fails, surface it — fix with the builder, or ask the developer how to proceed.
 
 6. **Ship.** Only when the gate passed and every AC passed: dispatch `otta:devops` (`name: "otta-devops-#$1"`) to commit and `gh pr create --body-file .pr-body.md`. Confirm the PR target (staging vs main) with the developer if unsure.
 
-7. **Deploy+verify (per policy).** After the PR is open, run the deploy stage per `.otta.yml` `deploy.auto`: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-deploy-verify.sh" <pr-number>`. With the default `human-approve` (or an absent `deploy` block) this stops at the green PR — today's behavior. `merge-on-green` / `merge-and-deploy` poll the gate to green, then merge (and, for `merge-and-deploy`, verify the deploy by provider SHA-match). Production hands-off requires `deploy.allow_production: true`. See `/otta:ship` for the full policy.
+7. **Deploy+verify (per policy).** After the PR is open, run the deploy stage per `.otta.yml` `deploy.auto`: `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-deploy-verify.sh" <pr-number>`. With the default `human-approve` (or an absent `deploy` block) this stops at the green PR — today's behavior. `merge-on-green` / `merge-and-deploy` poll the gate to green, then merge (and, for `merge-and-deploy`, verify the deploy by provider SHA-match). Production hands-off requires `deploy.allow_production: true`. See `/otta:ship` for the full policy.
 
 Throughout: **when in doubt, ask — don't assume.** Report the result at the end (PR URL, or where you stopped and why).
 

@@ -15,8 +15,8 @@ Then invoke the **Workflow** tool with the bundled pipeline script (this is an e
 
 ```
 Workflow({
-  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/otta-build.mjs",
-  args: { issue: "$1", pluginRoot: "${CLAUDE_PLUGIN_ROOT}" }
+  scriptPath: "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/workflows/otta-build.mjs",
+  args: { issue: "$1", pluginRoot: "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}" }
 })
 ```
 
@@ -32,7 +32,7 @@ early when the same normalized blockers repeat twice:
 
 When it finishes, report the result: shipped (PR URL) or blocked (which AC/gate failed). The pipeline never opens a PR for work that didn't pass verify.
 
-**Deploy+verify (per policy).** After the PR is open, the deploy stage runs per `.otta.yml` `deploy.auto`: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-deploy-verify.sh" <pr-number>`. The default `human-approve` (and an absent `deploy` block) stops at the green PR — unchanged behavior. `merge-on-green` / `merge-and-deploy` poll the Otta Gate to green (surfacing the blocking sub-check on stall rather than hanging), then merge; `merge-and-deploy` also verifies the deploy by provider SHA-match. Production hands-off requires an explicit `deploy.allow_production: true` opt-in. See `/otta:ship` for the policy table.
+**Deploy+verify (per policy).** After the PR is open, the deploy stage runs per `.otta.yml` `deploy.auto`: `bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-deploy-verify.sh" <pr-number>`. The default `human-approve` (and an absent `deploy` block) stops at the green PR — unchanged behavior. `merge-on-green` / `merge-and-deploy` poll the Otta Gate to green (surfacing the blocking sub-check on stall rather than hanging), then merge; `merge-and-deploy` also verifies the deploy by provider SHA-match. Production hands-off requires an explicit `deploy.allow_production: true` opt-in. See `/otta:ship` for the policy table.
 
 > **Tier rule:** for tiny (≤2-file, no new public behavior) changes use `/otta:fix` (gated, light review) instead of this full pipeline.
 

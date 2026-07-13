@@ -29,7 +29,7 @@ Run the Otta **fast path** for issue **#$1** — a tiny, surgical change that sk
    - A short summary of what changed
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/seed-pr-body.sh" $1
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/seed-pr-body.sh" $1
    ```
 
    Then edit the seeded file: set `idea_ref` to the real origin, confirm `Fixes #$1` is present, add your verification line.
@@ -37,7 +37,7 @@ Run the Otta **fast path** for issue **#$1** — a tiny, surgical change that sk
 3. **Run the gate** (mandatory — never skip):
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-gate.sh"
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-gate.sh"
    ```
 
    If it fails, fix what it reports and re-run. A direct-to-main commit is forbidden — the gate and PR are what make the change traceable and safe.

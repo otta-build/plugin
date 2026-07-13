@@ -17,7 +17,7 @@ Skip transient notes, one-offs, or anything re-derivable from code or git histor
 3. Run the bundled script:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-remember.sh" <category> "<learning text>"
+   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-remember.sh" <category> "<learning text>"
    ```
 
 The script appends a dated, deduplicated entry to `./LEARNINGS.md` (creating the file with a header if it does not exist).

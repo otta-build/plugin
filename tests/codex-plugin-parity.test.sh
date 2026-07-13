@@ -14,6 +14,10 @@ fail() {
   failures=$((failures + 1))
 }
 
+canonical_commands=(
+  setup start dev build fix ship status schedule remember pulse-doctor
+)
+
 pass() {
   echo "  ✓ $1"
 }
@@ -33,6 +37,62 @@ else
     fail 'Codex manifest must declare "hooks": "./hooks/hooks.json"'
   fi
 fi
+
+expected_otta_skill_dirs="$(printf 'otta-%s\n' "${canonical_commands[@]}" | sort)"
+actual_otta_skill_dirs="$(
+  find "$REPO/skills" -mindepth 1 -maxdepth 1 -type d -name 'otta-*' -exec basename {} \; | sort
+)"
+if [ "$actual_otta_skill_dirs" = "$expected_otta_skill_dirs" ]; then
+  pass "Codex exposes exactly the ten canonical otta-* skill directories"
+else
+  fail "Codex otta-* skill directories must match the ten canonical commands (found: $(printf '%s' "$actual_otta_skill_dirs" | tr '\n' ' '))"
+fi
+
+for command_name in "${canonical_commands[@]}"; do
+  skill="$REPO/skills/otta-$command_name/SKILL.md"
+  command_doc="$REPO/commands/$command_name.md"
+
+  if [ ! -f "$skill" ]; then
+    fail "missing Codex skill skills/otta-$command_name/SKILL.md"
+  else
+    frontmatter="$(awk '
+      NR == 1 && $0 == "---" { in_frontmatter=1; next }
+      in_frontmatter && $0 == "---" { exit }
+      in_frontmatter { print }
+    ' "$skill")"
+
+    if [ "$(sed -n '1p' "$skill")" = "---" ] &&
+       [ "$(sed -n '4p' "$skill")" = "---" ] &&
+       printf '%s\n' "$frontmatter" | grep -qx "name: otta-$command_name" &&
+       printf '%s\n' "$frontmatter" | grep -Eq '^description: .+' &&
+       [ "$(printf '%s\n' "$frontmatter" | grep -Ec '^[a-zA-Z0-9_-]+: .+$')" -eq 2 ]; then
+      pass "otta-$command_name has valid, uniquely named YAML frontmatter"
+    else
+      fail "otta-$command_name must have valid YAML frontmatter with name: otta-$command_name and a description"
+    fi
+
+    canonical_reference="../../commands/$command_name.md"
+    markdown_targets="$(
+      grep -Eo '\(\.\./\.\./commands/[^()[:space:]]+\)' "$skill" |
+        sed 's/^(\(.*\))$/\1/' || true
+    )"
+    if [ "$markdown_targets" = "$canonical_reference" ] &&
+       [ -f "$(dirname "$skill")/$markdown_targets" ] &&
+       grep -Eiq 'read.{0,40}(and )?follow|follow.{0,40}canonical' "$skill"; then
+      pass "otta-$command_name delegates to its exact, resolvable canonical command workflow"
+    else
+      fail "otta-$command_name must have exactly one resolvable Markdown target: $canonical_reference"
+    fi
+  fi
+
+  if grep -Fn '${CLAUDE_PLUGIN_ROOT}' "$command_doc" >/dev/null; then
+    while IFS= read -r occurrence; do
+      fail "commands/$command_name.md has nonportable executable path: $occurrence"
+    done < <(grep -Fn '${CLAUDE_PLUGIN_ROOT}' "$command_doc")
+  else
+    pass "commands/$command_name.md has no bare CLAUDE_PLUGIN_ROOT executable paths"
+  fi
+done
 
 expected_command() {
   case "$1" in
