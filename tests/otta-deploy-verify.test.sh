@@ -245,6 +245,63 @@ else
 fi
 unset -f git gh
 
+# End-to-end orchestration routes only the configured workflow executor through
+# the adapter, and an already-merged PR is never merged again.
+ORCH_CALLS="$TMP/orch-calls"
+export OTTA_DEPLOY_POLL_TIMEOUT=0 OTTA_DEPLOY_POLL_INTERVAL=1
+git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
+run_github_workflow_deploy() { printf 'adapter %s\n' "$*" >> "$ORCH_CALLS"; return "${ADAPTER_RC:-0}"; }
+gh() {
+  printf 'gh %s\n' "$*" >> "$ORCH_CALLS"
+  case "$1 $2" in
+    "pr view")
+      case "$*" in
+        *"--json mergeCommit -q"*) printf 'merge123\n' ;;
+        *) printf '{"state":"OPEN","headRefOid":"abc123","mergeCommit":null}\n' ;;
+      esac
+      ;;
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr merge") return 0 ;;
+  esac
+}
+: > "$ORCH_CALLS"
+_orch_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _orch_rc=$?
+check "approved open PR workflow path succeeds" 0 "$_orch_rc"
+check "approved open PR merges once" 1 "$(grep -c '^gh pr merge ' "$ORCH_CALLS")"
+case "$(grep '^adapter ' "$ORCH_CALLS")" in *"merge123"*"https://example.test/health"*"commit"*) check "open PR dispatches adapter with merge SHA and health contract" yes yes ;; *) check "open PR dispatches adapter with merge SHA and health contract" yes no ;; esac
+
+gh() {
+  printf 'gh %s\n' "$*" >> "$ORCH_CALLS"
+  [ "$1 $2" = "pr view" ] && {
+    printf '{"state":"MERGED","headRefOid":"abc123","mergeCommit":{"oid":"merged999"}}\n'; return 0
+  }
+  return 1
+}
+: > "$ORCH_CALLS"
+_merged_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _merged_rc=$?
+check "approved merged PR dispatch path succeeds" 0 "$_merged_rc"
+check "approved merged PR is not merged again" 0 "$(grep -c '^gh pr merge ' "$ORCH_CALLS" || true)"
+case "$(grep '^adapter ' "$ORCH_CALLS")" in *"merged999"*) check "merged PR dispatches its recorded merge SHA" yes yes ;; *) check "merged PR dispatches its recorded merge SHA" yes no ;; esac
+
+ADAPTER_RC=1
+: > "$ORCH_CALLS"
+_failed_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _failed_rc=$?
+check "adapter workflow or health failure propagates" 1 "$_failed_rc"
+unset ADAPTER_RC
+
+MISSING="$(mk_yml missingworkflow 'deploy:
+  auto: human-approve
+  target: production
+  executor: github-workflow
+  health_url: https://example.test/health')"
+: > "$ORCH_CALLS"
+_missing_out="$(_run 42 --otta-yml "$MISSING" --approved-head abc123 2>&1)"; _missing_rc=$?
+check "missing configured workflow fails before mutation" 1 "$_missing_rc"
+check "missing workflow performs no merge or dispatch" 0 "$(grep -Ec '^gh pr merge |^adapter ' "$ORCH_CALLS" || true)"
+
+unset -f git gh run_github_workflow_deploy
+unset OTTA_DEPLOY_POLL_TIMEOUT OTTA_DEPLOY_POLL_INTERVAL
+
 # ---------------------------------------------------------------------------
 # 8. AC3: verify_deploy coolify — polling loop retries before timing out
 # ---------------------------------------------------------------------------
@@ -348,6 +405,29 @@ if command -v python3 >/dev/null 2>&1; then
   check "AC(#100) self_audit logs at least 4 status lines (one per question)" "yes" \
     "$([ "$_audit_lines" -ge 4 ] && echo yes || echo "no ($_audit_lines lines)")"
 fi
+
+# Legacy merge-and-deploy keeps its provider verification route when no new
+# executor is configured (#137 AC6).
+LEGACY_ORCH="$(mk_yml legacyorch 'deploy:
+  auto: merge-and-deploy
+  target: staging
+  provider: none
+  verify: sha-match')"
+LEGACY_CALLS="$TMP/legacy-orch-calls"; : > "$LEGACY_CALLS"
+git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
+gh() {
+  printf '%s\n' "$*" >> "$LEGACY_CALLS"
+  case "$1 $2" in
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr merge") return 0 ;;
+    "pr view") printf 'legacy123\n' ;;
+  esac
+}
+legacy_out="$(OTTA_PULSE_URL= OTTA_PULSE_TOKEN= _run 77 --otta-yml "$LEGACY_ORCH" 2>&1)"; legacy_rc=$?
+check "legacy merge-and-deploy still succeeds" 0 "$legacy_rc"
+check "legacy merge-and-deploy still merges" 1 "$(grep -c '^pr merge ' "$LEGACY_CALLS")"
+case "$legacy_out" in *"provider 'none'"*) check "legacy route still invokes provider verification" yes yes ;; *) check "legacy route still invokes provider verification" yes no ;; esac
+unset -f git gh
 
 echo "  → $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

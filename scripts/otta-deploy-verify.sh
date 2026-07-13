@@ -26,6 +26,10 @@
 # the bottom) so that sourcing this file for its functions does not leak `set
 # -e` into the caller's shell.
 
+_deploy_verify_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/github-workflow-deploy.sh
+[ -f "$_deploy_verify_dir/github-workflow-deploy.sh" ] && . "$_deploy_verify_dir/github-workflow-deploy.sh"
+
 # ===========================================================================
 # Policy parsing (pure — reads a .otta.yml path, echoes the resolved value)
 # ===========================================================================
@@ -386,6 +390,7 @@ _run() {
   local pr_json pr_state pr_head merge_sha
   if [ "$executor" = "github-workflow" ]; then
     [ -n "$workflow" ] || { echo "deploy: github-workflow executor requires deploy.workflow" >&2; return 1; }
+    [ -n "$health_url" ] || { echo "deploy: github-workflow executor requires deploy.health_url" >&2; return 1; }
     pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json state,headRefOid,mergeCommit 2>/dev/null)" || {
       echo "deploy: cannot read PR #$pr state" >&2; return 1;
     }
@@ -402,6 +407,25 @@ _run() {
       echo "deploy: invalid approval — approved head $approved_head does not match current head $pr_head" >&2
       return 1
     fi
+
+    # A previously merged PR can resume dispatch/verification without polling
+    # an open-PR gate or attempting a second merge.
+    if [ "$pr_state" = "MERGED" ]; then
+      local merged_action
+      merged_action="$(decide_delivery_action "$auto" "$pr_state" "$executor" "$approved_head" "$pr_head" true)" || true
+      if [ "$merged_action" = "merge-only" ]; then
+        echo "deploy: PR #$pr is already merged; auto=merge-on-green performs no deployment."
+        return 0
+      fi
+      [ "$merged_action" = "dispatch" ] || [ "$merged_action" = "merge-dispatch" ] || {
+        echo "deploy: policy does not authorize post-merge dispatch ($merged_action)" >&2; return 1;
+      }
+      [ -n "$merge_sha" ] || { echo "deploy: merged PR #$pr has no merge commit SHA" >&2; return 1; }
+      run_github_workflow_deploy "$gh_repo" "$gh_repo" "$target" "$workflow" \
+        "$workflow_ref" "$sha_input" "$merge_sha" "$health_url" "$health_field"
+      return $?
+    fi
+    [ "$pr_state" = "OPEN" ] || { echo "deploy: unsupported PR state '$pr_state'" >&2; return 1; }
   fi
 
   # human-approve preserves today's behavior: stop at the green PR.
@@ -444,13 +468,50 @@ _run() {
   self_audit "$status_json" "$gh_repo" "$pr" || \
     echo "deploy: self-audit found issues (logged to ledger); merge proceeding per gate verdict."
 
+  if [ "$executor" = "github-workflow" ]; then
+    # Re-read the head immediately before mutation. Approval is invalidated by
+    # any push that happened while checks were being polled.
+    pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json state,headRefOid,mergeCommit 2>/dev/null)" || {
+      echo "deploy: cannot refresh PR #$pr before merge" >&2; return 1;
+    }
+    pr_state="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))')"
+    pr_head="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefOid", ""))')"
+    if [ "$auto" = "human-approve" ] && ! sha_match "$approved_head" "$pr_head"; then
+      echo "deploy: invalid approval after gate — approved head $approved_head does not match current head $pr_head" >&2
+      return 1
+    fi
+
+    local workflow_action
+    workflow_action="$(decide_delivery_action "$auto" "$pr_state" "$executor" "$approved_head" "$pr_head" true)" || true
+    case "$workflow_action" in
+      merge-only|merge-dispatch)
+        gh pr merge "$pr" --repo "$gh_repo" --squash --delete-branch >&2 || {
+          echo "deploy: merge failed" >&2; return 1;
+        }
+        merge_sha="$(gh pr view "$pr" --repo "$gh_repo" --json mergeCommit -q '.mergeCommit.oid' 2>/dev/null || true)"
+        [ -n "$merge_sha" ] || { echo "deploy: merge succeeded but merge SHA is unavailable" >&2; return 1; }
+        echo "deploy: merged PR #$pr at $merge_sha."
+        ;;
+      dispatch)
+        merge_sha="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("mergeCommit") or {}).get("oid", ""))')"
+        ;;
+      *) echo "deploy: policy does not authorize workflow delivery ($workflow_action)" >&2; return 1 ;;
+    esac
+    if [ "$workflow_action" = "merge-only" ]; then
+      echo "deploy: auto=merge-on-green → merged without workflow dispatch."
+      return 0
+    fi
+    run_github_workflow_deploy "$gh_repo" "$gh_repo" "$target" "$workflow" \
+      "$workflow_ref" "$sha_input" "$merge_sha" "$health_url" "$health_field"
+    return $?
+  fi
+
   # Decide + merge.
   local decision; decision="$(decide_merge "$auto" "true" "$target" "$allow_prod")" || true
   if [ "$decision" != "merge" ]; then
     echo "deploy: policy does not authorize merge ($decision)." >&2
     return 1
   fi
-  local merge_sha
   gh pr merge "$pr" --repo "$gh_repo" --squash --delete-branch >&2 || { echo "deploy: merge failed" >&2; return 1; }
   merge_sha="$(gh pr view "$pr" --repo "$gh_repo" --json mergeCommit -q '.mergeCommit.oid' 2>/dev/null || true)"
   echo "deploy: merged PR #$pr at ${merge_sha:-<unknown sha>}."
