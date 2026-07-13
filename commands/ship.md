@@ -14,7 +14,7 @@ Ship the current work through the Otta gate, then open the PR.
 2. Run the full local gate (mirrors the Otta Pulse merge gates — catches failures before CI):
 
    ```bash
-   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-gate.sh"
+   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-gate.sh"
    ```
 
    If it fails, fix what it reports and re-run. Do not push past a failing gate.
@@ -32,7 +32,7 @@ After merge + release tag, Pulse ingests the PR/tag webhooks automatically. The 
 4. **Deploy+verify (per `.otta.yml` `deploy.auto` policy).** Once the PR is open, drive it through to deployment according to the repo's policy:
 
    ```bash
-   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-deploy-verify.sh" <pr-number>
+   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-deploy-verify.sh" <pr-number>
    ```
 
    The stage reads the `deploy` block from `.otta.yml`:

@@ -8,7 +8,7 @@ Start the Otta shipping loop for issue **#$1**.
 1. Run the bundled seeder to create `.pr-body.md` from the issue's acceptance criteria:
 
    ```bash
-   bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/seed-pr-body.sh" $1 --force
+   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/seed-pr-body.sh" $1 --force
    ```
 
 2. Read the seeded `.pr-body.md`. If the issue had no `- [ ]` acceptance checkboxes, the AC block is a placeholder — **stop and ask the user to add testable acceptance criteria to the issue first**, then re-run. ACs that can't become a check aren't ACs.

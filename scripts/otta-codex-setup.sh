@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# otta-codex-setup.sh <owner/repo> <pulse-token>
+# otta-codex-setup.sh <owner/repo> [legacy-positional-pulse-token]
+# otta-codex-setup.sh --derive <owner/repo> [self-hosted-webhook-secret]
 #
 # Wires Codex CLI telemetry to Otta Pulse by merging an [otel] block into
 # ~/.codex/config.toml (or $CODEX_HOME/config.toml).
@@ -14,18 +15,65 @@
 # Endpoint base: OTTA_PULSE_URL if set, else the hosted default.
 set -euo pipefail
 
-REPO="${1:-}"
-TOKEN="${2:-}"
-
-if [ -z "$REPO" ] || [ -z "$TOKEN" ]; then
-  echo "usage: otta-codex-setup.sh <owner/repo> <pulse-token>" >&2
-  exit 2
-fi
-
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required." >&2; exit 1; }
 
+HOSTED_DEFAULT="https://pulse.otta.build"
 PULSE="${OTTA_PULSE_URL:-https://pulse.otta.build}"
 PULSE="${PULSE%/}"  # normalize trailing slash
+
+usage() {
+  echo "usage: OTTA_PULSE_TOKEN=<repo-token> otta-codex-setup.sh <owner/repo>" >&2
+  echo "       OTTA_PULSE_WEBHOOK_SECRET=<secret> otta-codex-setup.sh --derive <owner/repo>" >&2
+  echo "       legacy positional compatibility: <owner/repo> <pulse-token>; --derive <owner/repo> <webhook-secret>" >&2
+  exit 2
+}
+
+DERIVE=0
+REPO=""
+TOKEN=""
+WEBHOOK_SECRET=""
+
+if [ "${1:-}" = "--derive" ]; then
+  DERIVE=1
+  REPO="${2:-}"
+  WEBHOOK_SECRET="${3:-${OTTA_PULSE_WEBHOOK_SECRET:-}}"
+  [ "$#" -le 3 ] || usage
+  [ -n "$REPO" ] || usage
+else
+  REPO="${1:-}"
+  TOKEN="${2:-${OTTA_PULSE_TOKEN:-}}"
+  if [ "$#" -eq 1 ] && [ -n "${OTTA_PULSE_TOKEN:-}" ]; then
+    : # Preferred direct mode: secret comes from the environment, not argv.
+  elif [ "$#" -ne 2 ]; then
+    usage
+  fi
+  [ -n "$REPO" ] && [ -n "$TOKEN" ] || usage
+fi
+
+if [ "$DERIVE" -eq 1 ]; then
+  command -v curl >/dev/null 2>&1 || { echo "ERROR: curl required for --derive." >&2; exit 1; }
+  if [ "$PULSE" = "$HOSTED_DEFAULT" ]; then
+    if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" 2>&1); then
+      echo "Error: could not derive a repo token from ${PULSE}/token (response body redacted)." >&2
+      exit 1
+    fi
+  else
+    if [ -z "$WEBHOOK_SECRET" ]; then
+      echo "Error: self-hosted Pulse requires a webhook secret for --derive." >&2
+      usage
+    fi
+    if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" \
+        -H "x-pulse-token: ${WEBHOOK_SECRET}" 2>&1); then
+      echo "Error: could not derive a repo token from ${PULSE}/token (response body redacted)." >&2
+      exit 1
+    fi
+  fi
+  TOKEN=$(printf '%s' "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])" 2>/dev/null) || true
+  if [ -z "$TOKEN" ]; then
+    echo "Error: /token response did not contain a token field (response body redacted)." >&2
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # 1. Merge [otel] block into $CODEX_HOME/config.toml (or ~/.codex/config.toml)
@@ -34,12 +82,13 @@ CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
 mkdir -p "$CODEX_DIR"
 CONFIG_TOML="$CODEX_DIR/config.toml"
 
-OTTA_PULSE="$PULSE" OTTA_TOKEN="$TOKEN" python3 - "$CONFIG_TOML" <<'PY'
-import sys, os
+OTTA_PULSE="$PULSE" OTTA_TOKEN="$TOKEN" OTTA_REPO="$REPO" python3 - "$CONFIG_TOML" <<'PY'
+import json, os, re, sys
 
 path = sys.argv[1]
 pulse = os.environ["OTTA_PULSE"]
 token = os.environ["OTTA_TOKEN"]
+repo = os.environ["OTTA_REPO"]
 
 # Read existing content (or start empty)
 try:
@@ -48,21 +97,87 @@ try:
 except FileNotFoundError:
     lines = []
 
-# Strip only [otel.exporter.otlp-http*] and [otel.metrics_exporter.otlp-http*]
-# sections. The [otel] direct-key section is preserved (AC2).
+# Strip only Otta-managed exporter sub-tables and the two Otta-managed selector
+# keys. Table names may use bare or quoted TOML segments. All unrelated content,
+# including other direct [otel] keys, is preserved verbatim.
 kept = []
 has_otel = False
-in_otlp = False
+in_managed_table = False
+
+def table_path(line):
+    match = re.match(r'^\s*\[\s*(.*?)\s*\]\s*(?:#.*)?$', line)
+    if not match:
+        return None
+    inner = match.group(1)
+    segments = []
+    index = 0
+    while index < len(inner):
+        while index < len(inner) and inner[index].isspace():
+            index += 1
+        if index >= len(inner):
+            break
+        if inner[index] in ('"', "'"):
+            quote = inner[index]
+            index += 1
+            value = []
+            while index < len(inner):
+                char = inner[index]
+                if char == quote:
+                    index += 1
+                    break
+                if quote == '"' and char == '\\' and index + 1 < len(inner):
+                    value.extend((char, inner[index + 1]))
+                    index += 2
+                    continue
+                value.append(char)
+                index += 1
+            else:
+                return None
+            segments.append(''.join(value))
+        else:
+            start = index
+            while index < len(inner) and inner[index] != '.':
+                index += 1
+            segment = inner[start:index].strip()
+            if not segment:
+                return None
+            segments.append(segment)
+        while index < len(inner) and inner[index].isspace():
+            index += 1
+        if index < len(inner):
+            if inner[index] != '.':
+                return None
+            index += 1
+    return tuple(segments)
+
+managed_prefixes = (
+    ('otel', 'exporter', 'otlp-http'),
+    ('otel', 'metrics_exporter', 'otlp-http'),
+)
+
+current_table = None
 for line in lines:
-    stripped = line.strip()
-    if stripped.startswith('['):
-        if stripped == '[otel]':
+    section = table_path(line)
+    if section is not None:
+        current_table = section
+        in_managed_table = any(
+            section[:len(prefix)] == prefix
+            for prefix in managed_prefixes
+        )
+        if section == ('otel',):
             has_otel = True
-        # Only skip the otlp-http exporter sub-sections (log + metrics)
-        in_otlp = (stripped.startswith('[otel.exporter.otlp-http')
-                   or stripped.startswith('[otel.metrics_exporter.otlp-http'))
-    if not in_otlp:
-        kept.append(line)
+            kept.append(line)
+            kept.append('exporter = "otlp-http"\n')
+            kept.append('metrics_exporter = "otlp-http"\n')
+            continue
+    if in_managed_table:
+        continue
+    if current_table == ('otel',) and re.match(
+        r'^\s*(?:exporter|metrics_exporter|"exporter"|"metrics_exporter")\s*=',
+        line,
+    ):
+        continue
+    kept.append(line)
 
 # Remove trailing blank lines from preserved content
 content = ''.join(kept).rstrip('\n')
@@ -70,23 +185,27 @@ content = ''.join(kept).rstrip('\n')
 # Exporter sub-sections only (token-bearing; always overwritten)
 exporter_block = (
     '[otel.exporter.otlp-http]\n'
-    'endpoint = "' + pulse + '/v1/logs"\n'
+    'endpoint = ' + json.dumps(pulse + '/v1/logs') + '\n'
     'protocol = "json"\n'
     '\n'
     '[otel.exporter.otlp-http.headers]\n'
-    'x-pulse-token = "' + token + '"\n'
+    'x-pulse-token = ' + json.dumps(token) + '\n'
+    'x-pulse-repo = ' + json.dumps(repo) + '\n'
     '\n'
     '[otel.metrics_exporter.otlp-http]\n'
-    'endpoint = "' + pulse + '/v1/metrics"\n'
+    'endpoint = ' + json.dumps(pulse + '/v1/metrics') + '\n'
     'protocol = "json"\n'
     '\n'
     '[otel.metrics_exporter.otlp-http.headers]\n'
-    'x-pulse-token = "' + token + '"\n'
+    'x-pulse-token = ' + json.dumps(token) + '\n'
+    'x-pulse-repo = ' + json.dumps(repo) + '\n'
 )
 
 # Default [otel] header written only when absent from existing config
 otel_header = (
     '[otel]\n'
+    'exporter = "otlp-http"\n'
+    'metrics_exporter = "otlp-http"\n'
     'log_user_prompt = false\n'
     'environment = "production"\n'
 )
@@ -118,22 +237,30 @@ chmod 600 "$CONFIG_TOML"
 ENV_FILE=".otta/codex.env"
 mkdir -p ".otta"
 
-cat > "$ENV_FILE" <<ENV
-# LEGACY — Codex does not read these env vars. Use ~/.codex/config.toml instead.
-# This file is kept for backward compatibility only. See config.toml for the
-# active telemetry configuration written by otta-codex-setup.
-#
-# Generated by otta-codex-setup — do NOT commit (token-bearing)
-export OTEL_LOGS_EXPORTER=otlp
-export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${PULSE}/v1/logs
-export OTEL_EXPORTER_OTLP_LOGS_HEADERS=x-pulse-token=${TOKEN}
-export OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/json
-export OTEL_METRICS_EXPORTER=otlp
-export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=${PULSE}/v1/metrics
-export OTEL_EXPORTER_OTLP_METRICS_HEADERS=x-pulse-token=${TOKEN}
-export OTEL_EXPORTER_OTLP_METRICS_PROTOCOL=http/json
-export OTEL_RESOURCE_ATTRIBUTES=repo=${REPO},harness=codex
-ENV
+shell_export() {
+  # Bash %q emits one sourceable shell word, including for embedded newlines,
+  # quotes, substitutions, and metacharacters. Never interpolate values into
+  # executable shell text directly.
+  printf 'export %s=%q\n' "$1" "$2"
+}
+
+{
+  printf '%s\n' \
+    '# LEGACY — Codex does not read these env vars. Use ~/.codex/config.toml instead.' \
+    '# This file is kept for backward compatibility only. See config.toml for the' \
+    '# active telemetry configuration written by otta-codex-setup.' \
+    '#' \
+    '# Generated by otta-codex-setup — do NOT commit (token-bearing)'
+  shell_export OTEL_LOGS_EXPORTER "otlp"
+  shell_export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT "${PULSE}/v1/logs"
+  shell_export OTEL_EXPORTER_OTLP_LOGS_HEADERS "x-pulse-token=${TOKEN}"
+  shell_export OTEL_EXPORTER_OTLP_LOGS_PROTOCOL "http/json"
+  shell_export OTEL_METRICS_EXPORTER "otlp"
+  shell_export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT "${PULSE}/v1/metrics"
+  shell_export OTEL_EXPORTER_OTLP_METRICS_HEADERS "x-pulse-token=${TOKEN}"
+  shell_export OTEL_EXPORTER_OTLP_METRICS_PROTOCOL "http/json"
+  shell_export OTEL_RESOURCE_ATTRIBUTES "repo=${REPO},harness=codex"
+} > "$ENV_FILE"
 
 chmod 600 "$ENV_FILE"
 
@@ -145,7 +272,7 @@ else
 fi
 
 echo "Telemetry wired (Codex → Pulse) — written to ${CONFIG_TOML}."
-echo "Data will be sent to pulse.otta.build (hosted by Otta). Set OTTA_PULSE_URL to override."
+echo "Data will be sent to ${PULSE}. Set OTTA_PULSE_URL to override."
 echo ""
-echo "Codex reads OTEL config from config.toml — no further setup needed."
+echo "Start a new Codex process (or fully restart Codex) to load the updated config.toml."
 echo "Legacy env file also written to ${ENV_FILE} (gitignored, Codex does not read it)."

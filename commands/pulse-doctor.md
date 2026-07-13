@@ -9,7 +9,7 @@ This command uses GitHub App JWT auth, not the normal `gh` user token.
 Run:
 
 ```bash
-bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/scripts/otta-pulse-doctor.sh" "$1"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-pulse-doctor.sh" "$1"
 ```
 
 If `$1` is empty, omit the argument so the script detects the repo with

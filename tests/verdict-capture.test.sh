@@ -18,8 +18,9 @@ grep -q 'ledger-append.sh' "$AGENTS/qa.md" || fail "qa.md missing ledger-append 
 grep -q -- '--source qa' "$AGENTS/qa.md" || fail "qa.md capture missing --source qa"
 grep -q -- '--event verify' "$AGENTS/qa.md" || fail "qa.md capture missing --event verify"
 
-# 3. both reference the plugin-root-relative script path (works in session + workflow)
-grep -q 'CLAUDE_PLUGIN_ROOT}/scripts/ledger-append.sh' "$AGENTS/reviewer.md" || fail "reviewer.md not using CLAUDE_PLUGIN_ROOT path"
-grep -q 'CLAUDE_PLUGIN_ROOT}/scripts/ledger-append.sh' "$AGENTS/qa.md" || fail "qa.md not using CLAUDE_PLUGIN_ROOT path"
+# 3. both use the portable root precedence (Codex skill state → hook root → Claude root)
+PORTABLE_LEDGER='${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/ledger-append.sh'
+grep -Fq "$PORTABLE_LEDGER" "$AGENTS/reviewer.md" || fail "reviewer.md not using portable plugin root path"
+grep -Fq "$PORTABLE_LEDGER" "$AGENTS/qa.md" || fail "qa.md not using portable plugin root path"
 
 echo "✓ verdict-capture: all checks passed"

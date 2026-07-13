@@ -112,7 +112,7 @@ valid_json "$SETTINGS" || fail "settings.local.json is not valid JSON"
 [ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)" = "${STUB_URL}/v1/metrics" ] || \
   fail "metrics endpoint wrong: $(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)"
 [ "$(getenv "$SETTINGS" OTEL_EXPORTER_OTLP_HEADERS)" = "x-pulse-token=$DERIVED_TOKEN" ] || fail "headers token wrong"
-[ "$(getenv "$SETTINGS" OTEL_RESOURCE_ATTRIBUTES)" = "repo=$REPO_SLUG" ] || fail "resource attrs wrong"
+[ "$(getenv "$SETTINGS" OTEL_RESOURCE_ATTRIBUTES)" = "repo=$REPO_SLUG,harness=claude_code" ] || fail "resource attrs must include repo and harness=claude_code"
 # AC1: OTTA_PULSE_URL written so otta-worktree.sh can POST /session-link
 [ "$(getenv "$SETTINGS" OTTA_PULSE_URL)" = "$STUB_URL" ] || \
   fail "AC1: OTTA_PULSE_URL missing or wrong: $(getenv "$SETTINGS" OTTA_PULSE_URL)"
@@ -292,5 +292,60 @@ PATH="$TMP/bin:$PATH" OTTA_PULSE_URL="https://pulse.example.com" bash "$SCRIPT" 
 grep -q "x-pulse-token" "$TMP/selfhost-curl-args.txt" \
   || fail "AC(#70) self-hosted: curl was NOT called with auth header (required for self-hosted Pulse)"
 pass "AC(#70): self-hosted path with webhook secret passes auth header to /token"
+
+# ---------------------------------------------------------------------------
+# 11. AC5: error output never echoes a token-bearing Pulse response body
+# ---------------------------------------------------------------------------
+R="$(newrepo response-redaction)"; cd "$R"
+cat > "$TMP/bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+printf '{"error":"denied","token_hint":"response-secret-fixture"}'
+CURL_STUB
+chmod +x "$TMP/bin/curl"
+set +e
+ERROR_OUT="$(PATH="$TMP/bin:$PATH" bash "$SCRIPT" "$REPO_SLUG" 2>&1)"
+ERROR_RC=$?
+set -e
+[ "$ERROR_RC" -ne 0 ] || fail "AC5: tokenless response should fail"
+! printf '%s' "$ERROR_OUT" | grep -q 'response-secret-fixture' || \
+  fail "AC5: token-bearing response body leaked to stderr"
+printf '%s' "$ERROR_OUT" | grep -q 'did not contain a token field' || \
+  fail "AC5: redacted token-response error is not actionable"
+pass "AC5: token-bearing Pulse response bodies are not printed"
+
+# ---------------------------------------------------------------------------
+# 12-14. AC5: invalid existing settings fail closed without rewriting bytes.
+# ---------------------------------------------------------------------------
+cat > "$TMP/bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+printf '{"token":"validation-derived-fixture"}'
+CURL_STUB
+chmod +x "$TMP/bin/curl"
+
+assert_invalid_settings_unchanged() { # <repo-name> <fixture>
+  local name="$1"
+  local fixture="$2"
+  local repo
+  repo="$(newrepo "$name")"
+  cd "$repo"
+  mkdir -p .claude
+  printf '%s' "$fixture" > "$SETTINGS"
+  local before out rc
+  before="$(cat "$SETTINGS")"
+  set +e
+  out="$(PATH="$TMP/bin:$PATH" OTTA_PULSE_URL="$STUB_URL" bash "$SCRIPT" "$REPO_SLUG" "$WEBHOOK_SECRET" 2>&1)"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "AC5: $name should fail closed"
+  [ "$(cat "$SETTINGS")" = "$before" ] || fail "AC5: $name altered settings.local.json"
+  ! printf '%s' "$out" | grep -q 'validation-derived-fixture\|webhook_sec_RAWSECRET999' || fail "AC5: $name printed a token/secret"
+}
+
+assert_invalid_settings_unchanged malformed-json '{"env":'
+pass "AC5: malformed settings JSON fails closed without alteration"
+assert_invalid_settings_unchanged nonobject-root '["preserve", "this"]'
+pass "AC5: non-object settings root fails closed without alteration"
+assert_invalid_settings_unchanged nonobject-env '{"model":"keep","env":"do-not-replace"}'
+pass "AC5: non-object settings env fails closed without alteration"
 
 echo "All otta-telemetry-setup tests passed."
