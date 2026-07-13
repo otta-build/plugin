@@ -123,6 +123,24 @@ check "prod + merge-and-deploy + opt-in + NOT green → no-merge" "no-merge" "$(
 decide_merge human-approve true staging false >/dev/null; check "decide_merge no-merge → exit 1" 1 "$?"
 decide_merge merge-on-green true staging false >/dev/null; check "decide_merge merge → exit 0" 0 "$?"
 
+# GitHub-workflow delivery separates immutable approval from execution (#137 AC2).
+check "workflow human approval absent → wait-human" "wait-human" \
+  "$(decide_delivery_action human-approve OPEN github-workflow '' abc123 true)"
+check "workflow approved open PR → merge-dispatch" "merge-dispatch" \
+  "$(decide_delivery_action human-approve OPEN github-workflow abc123 abc123 true)"
+check "workflow changed head invalidates approval" "invalid-approval" \
+  "$(decide_delivery_action human-approve OPEN github-workflow abc123 def456 true)"
+check "workflow approved merged PR → dispatch only" "dispatch" \
+  "$(decide_delivery_action human-approve MERGED github-workflow abc123 abc123 true)"
+check "workflow merged PR without approval → wait-human" "wait-human" \
+  "$(decide_delivery_action human-approve MERGED github-workflow '' abc123 true)"
+check "workflow merge-on-green remains merge-only" "merge-only" \
+  "$(decide_delivery_action merge-on-green OPEN github-workflow '' abc123 true)"
+check "workflow merge-and-deploy merges and dispatches" "merge-dispatch" \
+  "$(decide_delivery_action merge-and-deploy OPEN github-workflow '' abc123 true)"
+check "executor none uses legacy policy" "legacy" \
+  "$(decide_delivery_action human-approve OPEN none '' abc123 true)"
+
 # ---------------------------------------------------------------------------
 # 4. sha_match — pass / fail
 # ---------------------------------------------------------------------------
@@ -186,6 +204,46 @@ case "$_ac2_out" in
   *"cannot determine repo"*) check "AC2 _run no-origin → error message" "yes" "yes" ;;
   *) check "AC2 _run no-origin → error message" "yes" "no ($_ac2_out)" ;;
 esac
+
+# Workflow executor refuses mutation without a matching immutable approval.
+Y="$(mk_yml approval 'deploy:
+  auto: human-approve
+  target: production
+  executor: github-workflow
+  workflow: deploy-production.yml
+  ref: main
+  sha_input: commit_sha
+  provider: coolify
+  verify: health-sha
+  health_url: https://example.test/health
+  health_commit_field: commit')"
+CALLS="$TMP/approval-calls"
+git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
+gh() {
+  printf '%s\n' "$*" >> "$CALLS"
+  if [ "$1 $2" = "pr view" ]; then
+    printf '{"state":"OPEN","headRefOid":"abc123","mergeCommit":null}\n'
+  fi
+}
+_approval_out="$(_run 42 --otta-yml "$Y" 2>&1)"; _approval_rc=$?
+check "workflow no approval stops safely" 1 "$_approval_rc"
+case "$_approval_out" in *"approval"*"abc123"*) check "workflow no approval shows exact head" yes yes ;; *) check "workflow no approval shows exact head" yes "no ($_approval_out)" ;; esac
+if grep -Eq 'pr merge|workflow run' "$CALLS"; then
+  check "workflow no approval performs no mutation" yes no
+else
+  check "workflow no approval performs no mutation" yes yes
+fi
+
+: > "$CALLS"
+_changed_out="$(_run 42 --otta-yml "$Y" --approved-head deadbeef 2>&1)"; _changed_rc=$?
+check "changed PR head invalidates approval" 1 "$_changed_rc"
+case "$_changed_out" in *"invalid"*"deadbeef"*"abc123"*) check "invalid approval reports both SHAs" yes yes ;; *) check "invalid approval reports both SHAs" yes "no ($_changed_out)" ;; esac
+if grep -Eq 'pr merge|workflow run' "$CALLS"; then
+  check "changed approval performs no mutation" yes no
+else
+  check "changed approval performs no mutation" yes yes
+fi
+unset -f git gh
 
 # ---------------------------------------------------------------------------
 # 8. AC3: verify_deploy coolify — polling loop retries before timing out

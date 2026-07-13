@@ -106,6 +106,27 @@ decide_merge() {
   esac
 }
 
+# decide_delivery_action <auto> <pr-state> <executor> <approved-head> <head> <green>
+# Pure transition table for the workflow executor. Approval is commit-bound and
+# authorizes merge/dispatch; it is not inferred from a green gate.
+decide_delivery_action() {
+  local auto="$1" state="$2" executor="$3" approved="${4:-}" head="${5:-}" green="${6:-false}"
+  [ "$executor" = "github-workflow" ] || { echo "legacy"; return 0; }
+
+  if [ "$auto" = "human-approve" ]; then
+    [ -n "$approved" ] || { echo "wait-human"; return 1; }
+    sha_match "$approved" "$head" || { echo "invalid-approval"; return 2; }
+    [ "$state" = "MERGED" ] && { echo "dispatch"; return 0; }
+    [ "$state" = "OPEN" ] && [ "$green" = "true" ] && { echo "merge-dispatch"; return 0; }
+    echo "wait-gate"; return 1
+  fi
+
+  [ "$green" = "true" ] || { echo "wait-gate"; return 1; }
+  [ "$auto" = "merge-on-green" ] && { echo "merge-only"; return 0; }
+  [ "$auto" = "merge-and-deploy" ] && { echo "merge-dispatch"; return 0; }
+  echo "legacy"
+}
+
 # ===========================================================================
 # SHA-match verification (pure)
 # ===========================================================================
@@ -332,31 +353,59 @@ verify_deploy() {
 # ===========================================================================
 
 _run() {
-  local pr="${1:-}" yml=".otta.yml"
+  local pr="${1:-}" yml=".otta.yml" approved_head=""
   shift || true
   while [ $# -gt 0 ]; do
     case "$1" in
       --otta-yml) yml="$2"; shift 2 ;;
+      --approved-head) approved_head="$2"; shift 2 ;;
       *) echo "unknown arg: $1" >&2; return 1 ;;
     esac
   done
-  [ -n "$pr" ] || { echo "usage: otta-deploy-verify.sh <pr-number> [--otta-yml <path>]" >&2; return 1; }
+  [ -n "$pr" ] || { echo "usage: otta-deploy-verify.sh <pr-number> [--otta-yml <path>] [--approved-head <sha>]" >&2; return 1; }
 
   local gh_repo
   gh_repo="$(git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]\(.*\)\.git$|\1|;s|.*github\.com[:/]\(.*\)$|\1|')"
   [ -n "$gh_repo" ] || { echo "deploy: cannot determine repo from git remote origin" >&2; return 1; }
 
-  local auto target provider verify allow_prod
+  local auto target provider verify allow_prod executor workflow workflow_ref sha_input health_url health_field
   auto="$(parse_deploy_auto "$yml")"
   target="$(parse_deploy_target "$yml")"
   provider="$(parse_deploy_provider "$yml")"
   verify="$(parse_deploy_verify "$yml")"
   allow_prod="$(parse_deploy_allow_production "$yml")"
+  executor="$(parse_deploy_executor "$yml")"
+  workflow="$(parse_deploy_workflow "$yml")"
+  workflow_ref="$(parse_deploy_ref "$yml")"
+  sha_input="$(parse_deploy_sha_input "$yml")"
+  health_url="$(parse_deploy_health_url "$yml")"
+  health_field="$(parse_deploy_health_commit_field "$yml")"
 
-  echo "deploy policy: auto=$auto target=$target provider=$provider verify=$verify"
+  echo "deploy policy: auto=$auto target=$target executor=$executor provider=$provider verify=$verify"
+
+  local pr_json pr_state pr_head merge_sha
+  if [ "$executor" = "github-workflow" ]; then
+    [ -n "$workflow" ] || { echo "deploy: github-workflow executor requires deploy.workflow" >&2; return 1; }
+    pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json state,headRefOid,mergeCommit 2>/dev/null)" || {
+      echo "deploy: cannot read PR #$pr state" >&2; return 1;
+    }
+    pr_state="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))')"
+    pr_head="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefOid", ""))')"
+    merge_sha="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("mergeCommit") or {}).get("oid", ""))')"
+
+    if [ "$auto" = "human-approve" ] && [ -z "$approved_head" ]; then
+      echo "deploy: production approval required — repo=$gh_repo PR=#$pr head=$pr_head target=$target workflow=$workflow ref=$workflow_ref health=${health_url:-<none>}" >&2
+      echo "deploy: rerun with --approved-head $pr_head after explicit human approval" >&2
+      return 1
+    fi
+    if [ "$auto" = "human-approve" ] && ! sha_match "$approved_head" "$pr_head"; then
+      echo "deploy: invalid approval — approved head $approved_head does not match current head $pr_head" >&2
+      return 1
+    fi
+  fi
 
   # human-approve preserves today's behavior: stop at the green PR.
-  if [ "$auto" = "human-approve" ]; then
+  if [ "$auto" = "human-approve" ] && [ "$executor" != "github-workflow" ]; then
     echo "deploy: auto=human-approve → stopping at the open PR (human merges). No merge, no deploy."
     return 0
   fi
