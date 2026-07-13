@@ -12,6 +12,7 @@ fail() { echo "✗ FAIL: $1" >&2; exit 1; }
 pass() { echo "  ✓ $1"; }
 
 COMMON_ARGS='--source gate --event gate_run --score 1 --feedback ok --project test/repo'
+ATTRIBUTED_ARGS='--executor codex --harness codex --session-id thread-1 --issue 131 --pr 132 --branch feat/issue-131'
 
 # Allocate per-run unique base port using this script's PID.
 # Ports are spread by 100 to avoid overlap even if adjacent PIDs are used.
@@ -84,7 +85,7 @@ nc_listen "$NC_PORT" "$PIDFILE" "$NC_LOG"
 # without this, an OTTA_PULSE_URL already exported in the developer's shell
 # would override the file and bypass the local nc listener.
 (cd "$REPO_DIR" && unset OTTA_PULSE_URL OTTA_PULSE_TOKEN OTTA_NO_CAPTURE && \
-  OTTA_LEDGER_DIR="$LEDGER" bash "$SCRIPT" $COMMON_ARGS >/dev/null 2>&1) \
+  OTTA_LEDGER_DIR="$LEDGER" bash "$SCRIPT" $COMMON_ARGS $ATTRIBUTED_ARGS >/dev/null 2>&1) \
   || fail "test 4: env-file sourcing made script exit non-zero"
 # Poll for the POST to land; nc flushes immediately on receipt so the first
 # 100 ms check should succeed when the POST fired.
@@ -96,6 +97,18 @@ done
 nc_stop "$PIDFILE"
 [ -f "$LEDGER/test-repo.jsonl" ] || fail "test 4: local jsonl not written"
 [ -s "$NC_LOG" ] || fail "test 4: .otta/pulse.env not sourced (no /ledger POST attempt detected)"
+LOCAL_RECORD="$(tail -1 "$LEDGER/test-repo.jsonl")"
+POST_RECORD="$(python3 - "$NC_LOG" <<'PY'
+import pathlib, sys
+request = pathlib.Path(sys.argv[1]).read_bytes()
+parts = request.split(b"\r\n\r\n", 1)
+print(parts[1].decode().strip() if len(parts) == 2 else "")
+PY
+)"
+[ "$POST_RECORD" = "$LOCAL_RECORD" ] || fail "test 4: streamed record differs from local enriched record"
+jq -e '.executor=="codex" and .harness=="codex" and .session_id=="thread-1" and
+  .issue==131 and .pr==132 and .branch=="feat/issue-131"' "$LEDGER/test-repo.jsonl" >/dev/null \
+  || fail "test 4: streamed/local record lacks executor attribution"
 pass ".otta/pulse.env sourced → /ledger POST attempted, exit 0, local jsonl written"
 
 # ── Test 5 ────────────────────────────────────────────────────────────────────
@@ -117,5 +130,17 @@ if [ -s "$NC_LOG" ]; then
 fi
 pass "explicit empty env token beats .otta/pulse.env → no POST, exit 0"
 
+# ── Test 6 ───────────────────────────────────────────────────────────────────────────────
+# A configured token is never printed by ledger-append, including on POST failure.
+LEDGER="$TMP/t6"; mkdir -p "$LEDGER"
+SECRET_TOKEN='must-not-appear-in-output'
+CAPTURED="$(OTTA_LEDGER_DIR="$LEDGER" OTTA_PULSE_URL="http://127.0.0.1:1" \
+  OTTA_PULSE_TOKEN="$SECRET_TOKEN" bash "$SCRIPT" $COMMON_ARGS $ATTRIBUTED_ARGS 2>&1)" \
+  || fail "test 6: unreachable Pulse URL made script exit non-zero"
+case "$CAPTURED" in
+  *"$SECRET_TOKEN"*) fail "test 6: Pulse token printed";;
+esac
+pass "Pulse token is not printed"
+
 echo ""
-echo "✓ ledger-stream: all 5 checks passed"
+echo "✓ ledger-stream: all 6 checks passed"
