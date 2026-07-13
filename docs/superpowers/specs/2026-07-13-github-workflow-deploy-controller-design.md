@@ -63,9 +63,9 @@ deploy:
   ref: main
   sha_input: commit_sha
   provider: coolify
-  verify:
-    url: https://app.leadcognition.io/health
-    commit_field: commit
+  verify: health-sha
+  health_url: https://app.leadcognition.io/health
+  health_commit_field: commit
 ```
 
 The final field names must be kept minimal during implementation, but the contract must express:
@@ -75,7 +75,8 @@ The final field names must be kept minimal during implementation, but the contra
 - the dispatch ref;
 - the input that carries the expected merged SHA, if the workflow accepts one;
 - the provider used for evidence attribution; and
-- the health URL and JSON field used for commit verification.
+- the existing verification mode plus the health URL and JSON field used for
+  commit verification.
 
 Existing repositories without `executor: github-workflow` retain their current behavior. Existing `human-approve`, `merge-on-green`, and legacy verification-only configurations must not begin dispatching workflows implicitly.
 
