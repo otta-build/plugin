@@ -1,8 +1,9 @@
 name: Auto-release on main
 
 # After every push to main, automatically compute the next semver version from
-# conventional-commit messages since the last tag, bump .claude-plugin/plugin.json,
-# append a CHANGELOG.md entry, commit, tag, and create the GitHub Release.
+# conventional-commit messages since the last tag, bump both Claude and Codex
+# plugin manifests, append a CHANGELOG.md entry, commit, tag, and create the
+# GitHub Release.
 #
 # Net effect: merging a fix/feat PR to main is enough — no separate manual
 # "chore: release vX.Y.Z" step required.
@@ -118,7 +119,7 @@ jobs:
           echo "Last tag: $LAST_TAG"
           echo "New version: $NEW_VERSION"
 
-      - name: Bump plugin.json + CHANGELOG.md
+      - name: Bump plugin manifests + CHANGELOG.md
         id: changelog
         if: steps.idempotency.outputs.skip != 'true' && steps.version.outputs.skip != 'true'
         shell: bash
@@ -131,6 +132,11 @@ jobs:
           tmp=$(mktemp)
           jq --arg v "$NEW_VERSION" '.version = $v' .claude-plugin/plugin.json > "$tmp"
           mv "$tmp" .claude-plugin/plugin.json
+
+          # Keep the native Codex package version synchronized with Claude.
+          tmp_codex=$(mktemp)
+          jq --arg v "$NEW_VERSION" '.version = $v' .codex-plugin/plugin.json > "$tmp_codex"
+          mv "$tmp_codex" .codex-plugin/plugin.json
 
           # Keep marketplace.json in sync (drift breaks plugin cache validation)
           tmp2=$(mktemp)
@@ -189,7 +195,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md
+          git add .claude-plugin/plugin.json .codex-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md
           git commit -m "chore: release ${TAG}"
 
           git tag -a "$TAG" -m "Auto-released after merge to main.
