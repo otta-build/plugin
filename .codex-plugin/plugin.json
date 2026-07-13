@@ -1,0 +1,41 @@
+{
+  "name": "otta",
+  "version": "1.1.1",
+  "description": "The self-learning AI software factory. Turn agent coding sessions into acceptance-gated build, review, verification, and shipping workflows with lifecycle evidence for Otta Pulse.",
+  "author": {
+    "name": "Sam Petrenko",
+    "url": "https://otta.build"
+  },
+  "homepage": "https://otta.build",
+  "repository": "https://github.com/otta-build/plugin",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agent-workflows",
+    "dora",
+    "shipping",
+    "tdd",
+    "acceptance-criteria",
+    "ci-gates"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Otta",
+    "shortDescription": "Build, verify, and ship software with evidence",
+    "longDescription": "Otta turns agent coding sessions into a traceable software delivery loop. Start from an issue and falsifiable acceptance criteria, build test-first, run specialist review and verification gates, and ship with lifecycle evidence that Otta Pulse can use to measure outcomes and improve future runs.",
+    "developerName": "Sam Petrenko",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://otta.build",
+    "defaultPrompt": [
+      "Set up Otta for this repository",
+      "Start the next issue with acceptance criteria and build it test-first",
+      "Verify this change and prepare it to ship"
+    ],
+    "brandColor": "#7C3AED",
+    "screenshots": []
+  }
+}

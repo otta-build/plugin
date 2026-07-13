@@ -14,6 +14,8 @@ AI agents code fast but quality is inconsistent — defects ship, runs forget co
 
 > **Proof by self-application:** This very wizard shipped through the Otta loop you're installing — built → reviewed → **QA caught a real gap (#26 AC3, the Pulse step had no opt-out)** → fixed → gated → merged.
 
+**Interaction compatibility.** Wherever this workflow says AskUserQuestion, use the harness's native interactive input: `request_user_input` when available. If no interactive-input tool exists, ask one concise direct question in chat and wait for the answer before continuing. Do not call an unavailable Claude-only `AskUserQuestion` tool. Preserve the stated choices and defaults whichever interaction mechanism is used.
+
 ---
 
 ## 0. Before we start: see where you stand
@@ -21,13 +23,13 @@ AI agents code fast but quality is inconsistent — defects ship, runs forget co
 Run the readiness score to show the current state (0/8):
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-readiness.sh"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-readiness.sh"
 ```
 
 Show the developer the per-dimension ✓/✗ list and the `N/8 production-ready` score. This is the **before** snapshot — setup will close these gaps.
 
 Then offer the live gate demo via AskUserQuestion — header "Gate demo", question "Watch the gate catch a bad change? (10s demo, runs in a throwaway temp dir — never touches your repo)":
-- "Show me (recommended)" — run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-gate-demo.sh"` and print the red→green narration; takes ~10 seconds
+- "Show me (recommended)" — run `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-gate-demo.sh"` and print the red→green narration; takes ~10 seconds
 - "Skip" — proceed directly to Part A
 
 ---
@@ -44,7 +46,7 @@ Run the detection script to inspect the repo and surface branch/deploy signals.
 **Do NOT write to `.otta.yml` here** — Part B step B1 is the sole author of the v2 contract.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-delivery-context.sh"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/detect-delivery-context.sh"
 ```
 
 Show the developer the detection output. It will contain detected CI workflow names and `paths:` filters, any `deploy` signal found in the workflow files, and Linear/tracker signals. This includes `deploy.mode` — one of `"auto-on-merge"`, `"tag"`, `"manual"`, `"none"` — an informational delivery signal detected from CI; it is display-only here and is **not** one of the fields written to `.otta.yml` (the v2 contract's `deploy` block only has `target` and `project` — see step 2). Use this information to pre-fill the deploy and tracker answers for the steps below before anything is committed.
@@ -125,13 +127,13 @@ Ask via AskUserQuestion — header "Otta Pulse", question "Install the Otta Puls
 Only if the developer chooses "Install":
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/pulse-install.sh"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh"
 ```
 
 **Self-hosting Pulse?** By default this wires to the hosted Otta Pulse at `https://pulse.otta.build`. A team running its own Pulse instance sets `OTTA_PULSE_URL` first:
 
 ```bash
-OTTA_PULSE_URL="https://pulse.your-team.example" bash "${CLAUDE_PLUGIN_ROOT}/scripts/pulse-install.sh"
+OTTA_PULSE_URL="https://pulse.your-team.example" bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh"
 ```
 
 Print the installation URL from the script and ask the user to open it, pick their account/org, and click Install. Offer to open it with `--open` if they are on this machine.
@@ -222,7 +224,7 @@ Record the choice — telemetry setup is wired after confirmation in step 10.
 Run the harness detection script to find non-CC harnesses in this repo:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-harnesses.sh"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/detect-harnesses.sh"
 ```
 
 For each harness found (other than `claude_code`, which was configured above), offer an adapter via AskUserQuestion:
@@ -230,7 +232,7 @@ For each harness found (other than `claude_code`, which was configured above), o
 **If `codex` is detected:**
 
 Ask via AskUserQuestion — header "Codex adapter", question "Codex CLI detected. Wire Otta telemetry for Codex? (runs otta-codex-setup.sh)":
-- "Yes (recommended)" — will run `otta-codex-setup.sh` in Part B to write `.otta/codex.env`
+- "Yes (recommended)" — will run `otta-codex-setup.sh --derive` in Part B to write the active mode-0600 `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`) plus the gitignored legacy `.otta/codex.env`
 - "Skip" — no Codex telemetry
 
 **If `gemini` is detected:**
@@ -273,6 +275,7 @@ Show a complete summary of what will be written based on all choices above:
 > - `.github/workflows/ci-test.yml` (CI scaffold): `{yes/no}`
 > - `.github/workflows/otta-release.yml` (release tagging): `{yes/no}`
 > - `.claude/settings.local.json` (telemetry, gitignored): `{yes/no — logs / logs+traces}`
+> - `$CODEX_HOME/config.toml` (active Codex telemetry, mode 0600): `{yes/no — normally ~/.codex/config.toml}`
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
 > - `.gitattributes` — `.pr-body.md merge=ours` entry (always written, idempotent)
 > - `CLAUDE.md` (if absent): always written — CC is the primary harness being configured
@@ -309,7 +312,7 @@ Pass the collected answers as flags (omit flags for fields that were left as def
 #   LINEAR_TEAM=<team>         (set as env var if a Linear team was identified)
 # Omit --deploy-auto when the answer was human-approve (that is the default).
 
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/write-otta-contract.sh" --output .otta.yml
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/write-otta-contract.sh" --output .otta.yml
 ```
 
 Then commit:
@@ -386,7 +389,7 @@ If the developer chose Yes in step 7, generate `.github/workflows/ci-test.yml`. 
 If the developer chose Yes in step 8:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-git-hooks.sh"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/install-git-hooks.sh"
 ```
 
 ### B4b. Install PR-body merge driver (unconditional)
@@ -394,12 +397,12 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-git-hooks.sh"
 Always run after writing `.pr-body.md`. Installs the `merge=ours` git driver so `.pr-body.md` is never overwritten during a merge or rebase from main — each branch keeps its own PR body:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/install-merge-ours.sh"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/install-merge-ours.sh"
 ```
 
 ### B5. Wire telemetry (if chosen)
 
-If the developer chose Logs or Logs+traces in step 9, derive a per-repo token from Pulse and wire Claude Code telemetry. The flow depends on whether this repo uses hosted or self-hosted Pulse:
+If the developer enabled Claude telemetry in step 9 and/or the Codex adapter in step 9b, derive a separate per-repo token for each selected writer and wire its active telemetry config. The flow depends on whether this repo uses hosted or self-hosted Pulse:
 
 **Determine the Pulse URL** first:
 ```bash
@@ -409,21 +412,38 @@ REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 
 **For hosted `pulse.otta.build`** (no `OTTA_PULSE_URL` override, or `OTTA_PULSE_URL=https://pulse.otta.build`):
 
-No webhook secret is needed. The `/token?repo=` endpoint is public — GitHub App installation is the proof of authorization. Do NOT ask for a webhook secret; call the script without one:
+No webhook secret is needed. The `/token?repo=` endpoint is public — GitHub App installation is the proof of authorization. Do NOT ask for a webhook secret.
+
+If the developer chose Claude Logs or Logs+traces, call its writer without a secret:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-telemetry-setup.sh" "$REPO"
+```
+
+If the developer chose the Codex adapter, run:
+
+```bash
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-codex-setup.sh" --derive "$REPO"
 ```
 
 **For self-hosted Pulse** (`OTTA_PULSE_URL` set to any URL other than `https://pulse.otta.build`):
 
-The webhook secret is required. Ask via AskUserQuestion — header "Self-hosted Pulse secret", question "Paste your self-hosted Pulse webhook secret (from your Pulse instance env → `WEBHOOK_SECRET`):". Then call:
+The webhook secret is required for either selected writer. Ask once via AskUserQuestion — header "Self-hosted Pulse secret", question "Paste your self-hosted Pulse webhook secret (from your Pulse instance env → `WEBHOOK_SECRET`):".
+
+If the developer chose Claude Logs or Logs+traces, call:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" "$REPO" "$WEBHOOK_SECRET"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-telemetry-setup.sh" "$REPO" "$WEBHOOK_SECRET"
 ```
 
-The script calls `GET /token?repo=<repo>` (with the webhook secret as `x-pulse-token` header for self-hosted) to derive a per-repo token, and writes only the derived token to `.claude/settings.local.json` — the webhook secret is **never written to any file**.
+If the developer chose the Codex adapter, use the same webhook secret only to derive its repo token:
+
+```bash
+OTTA_PULSE_WEBHOOK_SECRET="$WEBHOOK_SECRET" \
+  bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-codex-setup.sh" --derive "$REPO"
+```
+
+Each script calls `GET /token?repo=<repo>` (with the webhook secret as `x-pulse-token` only for self-hosted derivation). The Claude writer stores only its derived token in `.claude/settings.local.json`; the Codex writer stores only its derived token in `$CODEX_HOME/config.toml` and the ignored compatibility `.otta/codex.env`. The webhook secret is **never written to any file**, and neither writer prints tokens or token-bearing response bodies.
 
 **Traces are a SEPARATE opt-in (beta, default NO).** Only if the developer chose Logs+traces, add `--traces` to the above call. For non-setup users, the manual env block is documented in the README.
 
@@ -449,7 +469,7 @@ Log whether the file was created, appended to, or updated in place.
 If the developer chose "Yes — auto-tag on version bump" in step 9c:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-release-setup.sh"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-release-setup.sh"
 ```
 
 ### B7b. Generate self-hosted runner setup (if chosen)
@@ -458,7 +478,7 @@ If the developer chose "Yes — generate runner setup" in step 7b:
 
 ```bash
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-runner-setup.sh" "$REPO"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-runner-setup.sh" "$REPO"
 ```
 
 This outputs the docker run command to stdout and writes `docs/runner-setup.md` with full registration instructions. Print the stdout output so the developer can copy the docker run command. Tell them to follow `docs/runner-setup.md` to register the runner with GitHub.
@@ -491,7 +511,7 @@ To opt out of local verdict streaming, set `OTTA_NO_CAPTURE=1` in your environme
 Run the score again to show what was unlocked:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-readiness.sh"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-readiness.sh"
 ```
 
 Show the developer the updated ✓/✗ list and the new `N/8 production-ready` score. Compare to the **before** snapshot from step 0.

@@ -189,4 +189,17 @@ grep -qi "no.*webhook.*secret\|without.*webhook.*secret\|no auth.*header\|GET /t
 grep -qi "self.hosted.*secret\|secret.*self.hosted\|self.hosted.*webhook\|webhook.*self.hosted" "$SETUP" \
   || fail "AC(#70b): setup.md B5 must clarify that webhook secret is only for self-hosted instances"
 
+# AC5 (#131): the recorded Codex adapter choice must be executed in B5, and
+# the active mode-0600 config.toml must be disclosed in the write summary.
+WRITE_SUMMARY_SECTION="$(sed -n '/## 10\./,/## Part B:/p' "$SETUP")"
+B5_SECTION="$(sed -n '/### B5\./,/### B6\./p' "$SETUP")"
+printf '%s' "$WRITE_SUMMARY_SECTION" | grep -q '\$CODEX_HOME/config.toml\|~/.codex/config.toml' \
+  || fail "AC5(#131): setup write summary must include active Codex config.toml"
+printf '%s' "$B5_SECTION" | grep -Fq 'otta-codex-setup.sh" --derive "$REPO"' \
+  || fail "AC5(#131): B5 must run Codex --derive setup for hosted Pulse"
+printf '%s' "$B5_SECTION" | grep -Fq 'OTTA_PULSE_WEBHOOK_SECRET="$WEBHOOK_SECRET"' \
+  || fail "AC5(#131): B5 must pass the Codex self-hosted secret through the environment"
+! printf '%s' "$B5_SECTION" | grep -Fq 'otta-codex-setup.sh" --derive "$REPO" "$WEBHOOK_SECRET"' \
+  || fail "AC5(#131): B5 must not place the Codex webhook secret in argv"
+
 echo "✓ setup-wizard: all checks passed (AC1–AC6 + #28 AC2/AC3/AC5/AC6 + #70 AC)"

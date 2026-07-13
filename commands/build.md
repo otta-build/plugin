@@ -7,20 +7,35 @@ Run the Otta shipping pipeline for issue **#$1** as a dynamic workflow.
 
 First make sure the workspace is seeded — if `.pr-body.md` doesn't exist yet, run `/otta:start $1` to seed the acceptance criteria.
 
-**Stage checklist (create before launching the Workflow).** Before dispatching the Workflow tool, create a task/todo checklist using the harness's native task tool (TaskCreate / TodoCreate if available). One item per pipeline stage: `Seed`, `Learn`, `Build`, `Review`, `QA`, `Ship`, `Deploy`. Mark `Seed` and `Learn` completed (they run before the Workflow), then update the remaining items as the Workflow reports stage transitions. If no native task tool is available, render the checklist as a markdown block in chat. Stage failures annotate the item with the failure reason (e.g. `✗ QA — gate failed: ...`).
+**Stage checklist (create before orchestration).** Before dispatching any workflow or subagent, create a task/todo checklist using the harness's native task tool (TaskCreate / TodoCreate if available). One item per pipeline stage: `Seed`, `Learn`, `Build`, `Review`, `QA`, `Ship`, `Deploy`. Mark `Seed` and `Learn` completed before build, then update the remaining items as the selected orchestrator reports stage transitions. If no native task tool is available, render the checklist as a markdown block in chat. Stage failures annotate the item with the failure reason (e.g. `✗ QA — gate failed: ...`).
 
 Then **learn before building**: run the `learn-from-pulse` skill (the `idea_ref` now exists in `.pr-body.md`). It consults Pulse for this idea's prior shipped work, escaped defects, and loop verdicts so the pipeline doesn't repeat a failure the factory already caught. If Pulse isn't configured it no-ops. Fold anything it surfaces into `.pr-body.md` as a guarding AC before the workflow runs.
 
-Then invoke the **Workflow** tool with the bundled pipeline script (this is an explicit, user-invoked opt-in to orchestration):
+## Orchestration compatibility
+
+When the `Workflow` tool is available, invoke it with the bundled pipeline script (this is an explicit, user-invoked opt-in to orchestration):
 
 ```
 Workflow({
-  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/otta-build.mjs",
-  args: { issue: "$1", pluginRoot: "${CLAUDE_PLUGIN_ROOT}" }
+  scriptPath: "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/workflows/otta-build.mjs",
+  args: { issue: "$1", pluginRoot: "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}" }
 })
 ```
 
 `pluginRoot` lets each stage call the real otta engine scripts (`seed-pr-body.sh`, `otta-gate.sh` — which also captures the verdict to the LEARN ledger) instead of generic instructions.
+
+When `Workflow` is unavailable (including Codex), do not call it. Run the same `builder → reviewer → qa → devops` dependency chain sequentially with the harness's native collaboration/subagent primitives:
+
+Before each Codex dispatch, include the resolved absolute plugin root in every subagent prompt. Tell the role to retain that path as execution state and inline-inject `OTTA_PLUGIN_ROOT` for every plugin command it invokes; do not rely on environment inheritance between the parent and subagent.
+
+1. Use `spawn_agent` for the builder, instructing it to read the resolved plugin's `agents/builder.md`, implement test-first, and return evidence. Use `wait_agent` before starting review.
+2. Spawn the reviewer with `agents/reviewer.md`, then wait. If it finds gaps, relay them to the existing builder with `send_message` or `followup_task`, wait for the repair, and re-run review. Preserve the same three-attempt/repeated-blocker bounds as the bundled workflow.
+3. Spawn qa with `agents/qa.md`, then wait for its gate and acceptance evidence. Relay failures to the builder and repeat bounded review/qa as needed.
+4. Spawn devops with `agents/devops.md` only after reviewer and qa pass every acceptance criterion. Wait for the PR result before deploy verification.
+
+On a harness with differently named primitives, use its equivalent spawn, feedback, and wait operations while preserving the same sequential dependencies. Never open the PR when review, qa, or the gate is failing.
+
+If neither Workflow nor collaboration/subagent primitives are available, run the four role contracts sequentially in the current agent: read `agents/builder.md`, complete and record its stage; then separately read and apply reviewer, qa, and devops in order. Preserve the same stage gates, bounded repair loop, and role separation. Do not pretend subagents ran, and do not advance while a prior role is failing.
 
 The workflow runs four stages, each a focused subagent. Spec repair is bounded
 to three attempts by default (`args.maxRevisions` may override it), and stops
@@ -32,7 +47,7 @@ early when the same normalized blockers repeat twice:
 
 When it finishes, report the result: shipped (PR URL) or blocked (which AC/gate failed). The pipeline never opens a PR for work that didn't pass verify.
 
-**Deploy+verify (per policy).** After the PR is open, the deploy stage runs per `.otta.yml` `deploy.auto`: `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-deploy-verify.sh" <pr-number>`. The default `human-approve` (and an absent `deploy` block) stops at the green PR — unchanged behavior. `merge-on-green` / `merge-and-deploy` poll the Otta Gate to green (surfacing the blocking sub-check on stall rather than hanging), then merge; `merge-and-deploy` also verifies the deploy by provider SHA-match. Production hands-off requires an explicit `deploy.allow_production: true` opt-in. See `/otta:ship` for the policy table.
+**Deploy+verify (per policy).** After the PR is open, the deploy stage runs per `.otta.yml` `deploy.auto`: `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-deploy-verify.sh" <pr-number>`. The default `human-approve` (and an absent `deploy` block) stops at the green PR — unchanged behavior. `merge-on-green` / `merge-and-deploy` poll the Otta Gate to green (surfacing the blocking sub-check on stall rather than hanging), then merge; `merge-and-deploy` also verifies the deploy by provider SHA-match. Production hands-off requires an explicit `deploy.allow_production: true` opt-in. See `/otta:ship` for the policy table.
 
 > **Tier rule:** for tiny (≤2-file, no new public behavior) changes use `/otta:fix` (gated, light review) instead of this full pipeline.
 

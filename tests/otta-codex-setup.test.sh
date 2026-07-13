@@ -42,8 +42,8 @@ RDIR="$TMP/repo2"
 mkdir -p "$RDIR"
 cd "$RDIR"
 bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "resource attrs run exited non-zero"
-grep -q "OTEL_RESOURCE_ATTRIBUTES=repo=$REPO_SLUG,harness=codex" ".otta/codex.env" || \
-  fail "OTEL_RESOURCE_ATTRIBUTES with repo+harness=codex not found: $(cat .otta/codex.env)"
+[ "$(bash -c 'source "$1"; printf "%s" "$OTEL_RESOURCE_ATTRIBUTES"' _ .otta/codex.env)" = "repo=$REPO_SLUG,harness=codex" ] || \
+  fail "OTEL_RESOURCE_ATTRIBUTES does not round-trip with repo+harness=codex"
 pass "AC1: OTEL_RESOURCE_ATTRIBUTES=repo=...,harness=codex present"
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ RDIR="$TMP/repo10"
 mkdir -p "$RDIR"
 cd "$RDIR"
 if bash "$SCRIPT" >/dev/null 2>&1; then fail "missing args should exit non-zero"; fi
-if bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing token should exit non-zero"; fi
+if OTTA_PULSE_TOKEN= bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing token should exit non-zero"; fi
 pass "usage guard: missing repo/token rejected"
 
 # ---------------------------------------------------------------------------
@@ -221,6 +221,14 @@ grep -q 'endpoint = "https://pulse.otta.build/v1/logs"' "$CODEX_HOME/config.toml
 grep -q 'protocol = "json"' "$CODEX_HOME/config.toml" || \
   fail "config.toml missing protocol = \"json\""
 pass "AC1: config.toml [otel.exporter.otlp-http] with /v1/logs endpoint + protocol=json"
+
+# Codex has no custom OTEL resource-attribute setting. Send the repo alongside
+# the scoped token so Pulse can attribute and authenticate the stream.
+grep -q "x-pulse-repo = \"$REPO_SLUG\"" "$CODEX_HOME/config.toml" || \
+  fail "config.toml log/metrics headers must include x-pulse-repo"
+[ "$(grep -c "x-pulse-repo = \"$REPO_SLUG\"" "$CODEX_HOME/config.toml")" = "2" ] || \
+  fail "config.toml must write x-pulse-repo once for logs and once for metrics"
+pass "AC1: config.toml attributes Codex logs and metrics with x-pulse-repo"
 
 # ---------------------------------------------------------------------------
 # 16. AC1: config.toml has [otel.exporter.otlp-http.headers] with x-pulse-token
@@ -366,5 +374,248 @@ grep -q '^\[otel.metrics_exporter.otlp-http.headers\]' "$CODEX_HOME/config.toml"
 grep -q "x-pulse-token = \"$TOKEN\"" "$CODEX_HOME/config.toml" || \
   fail "Bug2: metrics exporter headers missing x-pulse-token"
 pass "Bug fix: config.toml [otel.metrics_exporter.otlp-http] with /v1/metrics endpoint + token"
+
+# ---------------------------------------------------------------------------
+# 24. AC5: Codex exporter selectors are enabled directly under [otel]
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo24"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex24"
+mkdir -p "$CODEX_HOME"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "selector run exited non-zero"
+[ "$(grep -c '^exporter = "otlp-http"$' "$CODEX_HOME/config.toml")" = "1" ] || \
+  fail "AC5: config.toml must contain one exporter = \"otlp-http\" selector under [otel]"
+[ "$(grep -c '^metrics_exporter = "otlp-http"$' "$CODEX_HOME/config.toml")" = "1" ] || \
+  fail "AC5: config.toml must contain one metrics_exporter = \"otlp-http\" selector under [otel]"
+pass "AC5: config.toml enables log and metrics exporters with direct [otel] selectors"
+
+# ---------------------------------------------------------------------------
+# 25. AC5: merge replaces disabled selectors, preserves other [otel] keys,
+#     accepts quoted managed subtable syntax, and remains byte-stable.
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo25"
+mkdir -p "$RDIR"
+cd "$RDIR"
+CODEX_HOME="$TMP/codex25"
+mkdir -p "$CODEX_HOME"
+cat > "$CODEX_HOME/config.toml" <<'TOML'
+[model]
+name = "gpt-5"
+
+[otel]
+exporter = "none"
+metrics_exporter = "none"
+log_user_prompt = true
+environment = "staging"
+custom_direct_key = "keep-me"
+
+[otel.exporter."otlp-http"]
+endpoint = "https://old.invalid/v1/logs"
+protocol = "protobuf"
+
+[otel.exporter."otlp-http".headers]
+x-pulse-token = "fixture-old-token"
+
+[otel.metrics_exporter."otlp-http"]
+endpoint = "https://old.invalid/v1/metrics"
+protocol = "protobuf"
+
+[otel.metrics_exporter."otlp-http".headers]
+x-pulse-token = "fixture-old-token"
+
+[history]
+persistence = "save-all"
+TOML
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "quoted merge run exited non-zero"
+CONFIG="$CODEX_HOME/config.toml"
+[ "$(grep -c '^exporter = ' "$CONFIG")" = "1" ] || fail "AC5: exporter selector duplicated during merge"
+[ "$(grep -c '^metrics_exporter = ' "$CONFIG")" = "1" ] || fail "AC5: metrics selector duplicated during merge"
+grep -q '^exporter = "otlp-http"$' "$CONFIG" || fail "AC5: disabled exporter selector was not replaced"
+grep -q '^metrics_exporter = "otlp-http"$' "$CONFIG" || fail "AC5: disabled metrics selector was not replaced"
+grep -q '^log_user_prompt = true$' "$CONFIG" || fail "AC5: explicit log_user_prompt value was not preserved"
+grep -q '^environment = "staging"$' "$CONFIG" || fail "AC5: unrelated environment key was not preserved"
+grep -q '^custom_direct_key = "keep-me"$' "$CONFIG" || fail "AC5: unrelated direct [otel] key was not preserved"
+grep -q '^\[history\]$' "$CONFIG" || fail "AC5: unrelated table was not preserved"
+! grep -q 'old.invalid\|fixture-old-token\|protocol = "protobuf"' "$CONFIG" || \
+  fail "AC5: quoted Otta-managed exporter subtables were not replaced"
+grep -q '^\[otel.exporter.otlp-http\]$' "$CONFIG" || fail "AC5: supported logs subtable missing"
+grep -q '^endpoint = "https://pulse.otta.build/v1/logs"$' "$CONFIG" || fail "AC5: supported logs endpoint missing"
+grep -q '^\[otel.metrics_exporter.otlp-http\]$' "$CONFIG" || fail "AC5: supported metrics subtable missing"
+grep -q '^endpoint = "https://pulse.otta.build/v1/metrics"$' "$CONFIG" || fail "AC5: supported metrics endpoint missing"
+[ "$(grep -c '^protocol = "json"$' "$CONFIG")" = "2" ] || fail "AC5: logs and metrics must keep protocol=json"
+[ "$(grep -c '^x-pulse-token = ' "$CONFIG")" = "2" ] || fail "AC5: expected one token header per exporter"
+FIRST="$(cat "$CONFIG")"
+CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "quoted merge rerun exited non-zero"
+SECOND="$(cat "$CONFIG")"
+[ "$FIRST" = "$SECOND" ] || fail "AC5: quoted merge rerun changed config.toml bytes"
+[ "$(stat -c '%a' "$CONFIG" 2>/dev/null || stat -f '%Lp' "$CONFIG")" = "600" ] || fail "AC5: config.toml mode is not 600"
+pass "AC5: selector merge handles disabled selectors and quoted subtables without clobbering user config"
+
+# ---------------------------------------------------------------------------
+# 26. AC5: --derive hosted mode calls /token without auth and writes the
+#     derived repo token without printing it.
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo26"
+mkdir -p "$RDIR" "$TMP/codex26" "$TMP/codex-derive-bin"
+cd "$RDIR"
+cat > "$TMP/codex-derive-bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$CURL_ARGS_FILE"
+printf '{"token":"hosted-derived-fixture"}'
+CURL_STUB
+chmod +x "$TMP/codex-derive-bin/curl"
+OUT="$(CURL_ARGS_FILE="$TMP/codex26-curl.txt" PATH="$TMP/codex-derive-bin:$PATH" CODEX_HOME="$TMP/codex26" bash "$SCRIPT" --derive "$REPO_SLUG" 2>&1)" || \
+  fail "AC5: hosted --derive run exited non-zero"
+grep -q '/token?repo=acme/widget' "$TMP/codex26-curl.txt" || fail "AC5: hosted --derive did not call the repo token endpoint"
+! grep -q 'x-pulse-token' "$TMP/codex26-curl.txt" || fail "AC5: hosted --derive must not send a webhook secret"
+grep -q 'x-pulse-token = "hosted-derived-fixture"' "$TMP/codex26/config.toml" || fail "AC5: derived token not written to config.toml"
+[ "$(grep -c 'x-pulse-repo = "acme/widget"' "$TMP/codex26/config.toml")" = "2" ] || fail "AC5: repo header must be written for logs and metrics"
+! printf '%s' "$OUT" | grep -q 'hosted-derived-fixture' || fail "AC5: derived token printed to output"
+pass "AC5: hosted --derive obtains a repo token without auth and keeps it private"
+
+# ---------------------------------------------------------------------------
+# 27. AC5: --derive self-hosted mode requires and sends the webhook secret,
+#     but stores only the derived token.
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo27"
+mkdir -p "$RDIR" "$TMP/codex27"
+cd "$RDIR"
+SELFHOST_SECRET="selfhost-webhook-fixture"
+OUT="$(CURL_ARGS_FILE="$TMP/codex27-curl.txt" PATH="$TMP/codex-derive-bin:$PATH" CODEX_HOME="$TMP/codex27" OTTA_PULSE_URL="https://pulse.example.test/" bash "$SCRIPT" --derive "$REPO_SLUG" "$SELFHOST_SECRET" 2>&1)" || \
+  fail "AC5: self-hosted --derive run exited non-zero"
+grep -q 'https://pulse.example.test/token?repo=acme/widget' "$TMP/codex27-curl.txt" || fail "AC5: self-hosted --derive endpoint wrong"
+grep -q "x-pulse-token: $SELFHOST_SECRET" "$TMP/codex27-curl.txt" || fail "AC5: self-hosted --derive did not authenticate token derivation"
+grep -q 'hosted-derived-fixture' "$TMP/codex27/config.toml" || fail "AC5: self-hosted derived token not stored"
+! grep -q "$SELFHOST_SECRET" "$TMP/codex27/config.toml" .otta/codex.env || fail "AC5: webhook secret was stored"
+! printf '%s' "$OUT" | grep -q "$SELFHOST_SECRET\|hosted-derived-fixture" || fail "AC5: token or webhook secret printed"
+pass "AC5: self-hosted --derive uses the webhook secret only for derivation"
+
+# ---------------------------------------------------------------------------
+# 28. AC5: --derive usage guards and token-response redaction.
+# ---------------------------------------------------------------------------
+if PATH="$TMP/codex-derive-bin:$PATH" bash "$SCRIPT" --derive >/dev/null 2>&1; then
+  fail "AC5: --derive without repo must fail"
+fi
+if OTTA_PULSE_URL="https://pulse.example.test" PATH="$TMP/codex-derive-bin:$PATH" bash "$SCRIPT" --derive "$REPO_SLUG" >/dev/null 2>&1; then
+  fail "AC5: self-hosted --derive without webhook secret must fail"
+fi
+cat > "$TMP/codex-derive-bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+printf '{"error":"denied","token_hint":"response-secret-fixture"}'
+CURL_STUB
+chmod +x "$TMP/codex-derive-bin/curl"
+set +e
+ERROR_OUT="$(PATH="$TMP/codex-derive-bin:$PATH" CODEX_HOME="$TMP/codex28" bash "$SCRIPT" --derive "$REPO_SLUG" 2>&1)"
+ERROR_RC=$?
+set -e
+[ "$ERROR_RC" -ne 0 ] || fail "AC5: tokenless derivation response must fail"
+! printf '%s' "$ERROR_OUT" | grep -q 'response-secret-fixture' || fail "AC5: token-bearing derivation response leaked"
+printf '%s' "$ERROR_OUT" | grep -q 'did not contain a token field' || fail "AC5: redacted derivation error is not actionable"
+pass "AC5: --derive validates usage and redacts token-bearing response bodies"
+
+# ---------------------------------------------------------------------------
+# 29. AC5: legacy sourceable env shell-quotes hostile values. Newlines,
+#     substitutions, quotes, and metacharacters must round-trip without running.
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo29"
+mkdir -p "$RDIR" "$TMP/codex29"
+cd "$RDIR"
+MARKER="$TMP/codex-env-injection.marker"
+REPO_HOSTILE=$'acme/widget\n; touch "$MARKER" #'
+TOKEN_HOSTILE=$'token-line-1\n$(touch "$MARKER") ; `touch "$MARKER"` '\'' " $PATH'
+PULSE_HOSTILE=$'https://pulse.example.test/base\n$(touch "$MARKER")'
+OUT="$(CODEX_HOME="$TMP/codex29" OTTA_PULSE_URL="$PULSE_HOSTILE" bash "$SCRIPT" "$REPO_HOSTILE" "$TOKEN_HOSTILE" 2>&1)" || \
+  fail "AC5: hostile direct-token run exited non-zero"
+EXPECTED_REPO="$REPO_HOSTILE" EXPECTED_TOKEN="$TOKEN_HOSTILE" EXPECTED_PULSE="$PULSE_HOSTILE" MARKER="$MARKER" \
+  bash -c '
+    set -eu
+    source "$1"
+    [ "$OTEL_RESOURCE_ATTRIBUTES" = "repo=${EXPECTED_REPO},harness=codex" ]
+    [ "$OTEL_EXPORTER_OTLP_LOGS_ENDPOINT" = "${EXPECTED_PULSE}/v1/logs" ]
+    [ "$OTEL_EXPORTER_OTLP_METRICS_ENDPOINT" = "${EXPECTED_PULSE}/v1/metrics" ]
+    [ "$OTEL_EXPORTER_OTLP_LOGS_HEADERS" = "x-pulse-token=${EXPECTED_TOKEN}" ]
+    [ "$OTEL_EXPORTER_OTLP_METRICS_HEADERS" = "x-pulse-token=${EXPECTED_TOKEN}" ]
+  ' _ .otta/codex.env || fail "AC5: safely quoted legacy values did not round-trip when sourced"
+[ ! -e "$MARKER" ] || fail "AC5: sourcing legacy env executed hostile repo/Pulse/token content"
+printf '%s' "$OUT" | grep -Eqi 'restart Codex|new Codex process' || fail "AC5: setup output must require a new Codex process"
+pass "AC5: legacy env safely round-trips hostile values and setup requires a Codex restart"
+
+# ---------------------------------------------------------------------------
+# 30. AC6: README prefers $otta-setup and uses an explicit absolute installed
+#     root for normal-shell automation examples.
+# ---------------------------------------------------------------------------
+README="$HERE/../README.md"
+grep -Fq '$otta-setup' "$README" || fail "AC6: README must recommend \$otta-setup"
+grep -Fq 'OTTA_PLUGIN_ROOT=/absolute/path/to/installed/otta' "$README" || \
+  fail "AC6: README automation must show a user-supplied absolute installed plugin root"
+! grep -Fq 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/' "$README" || \
+  fail "AC6: README normal-shell examples must not depend on CLAUDE_PLUGIN_ROOT"
+! grep -q 'Pulse validates the claimed repo' "$README" || \
+  fail "AC6: README must not claim Pulse repo-header validation before it ships"
+grep -Eqi 'x-pulse-repo.*required.*contract|required.*contract.*x-pulse-repo' "$README" || \
+  fail "AC6: README must describe x-pulse-repo as a required ingestion contract"
+pass "AC6: README uses runtime-safe automation paths and accurate repo-header wording"
+
+# ---------------------------------------------------------------------------
+# 31. AC5: a quoted literal TOML table name is not the dotted Otta table.
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo31"
+mkdir -p "$RDIR" "$TMP/codex31"
+cd "$RDIR"
+cat > "$TMP/codex31/config.toml" <<'TOML'
+["otel.exporter.otlp-http"]
+literal_table_value = "preserve-me"
+
+["otel.metrics_exporter.otlp-http".headers]
+literal_metrics_value = "also-preserve"
+TOML
+CODEX_HOME="$TMP/codex31" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "AC5: literal quoted table run failed"
+grep -q '^\["otel.exporter.otlp-http"\]$' "$TMP/codex31/config.toml" || fail "AC5: literal quoted table header was removed"
+grep -q '^literal_table_value = "preserve-me"$' "$TMP/codex31/config.toml" || fail "AC5: literal quoted table content was removed"
+grep -q '^\["otel.metrics_exporter.otlp-http".headers\]$' "$TMP/codex31/config.toml" || fail "AC5: literal quoted metrics table was removed"
+grep -q '^literal_metrics_value = "also-preserve"$' "$TMP/codex31/config.toml" || fail "AC5: literal quoted metrics content was removed"
+grep -q '^\[otel.exporter.otlp-http\]$' "$TMP/codex31/config.toml" || fail "AC5: managed dotted exporter table missing"
+pass "AC5: literal quoted TOML tables remain distinct from managed dotted tables"
+
+# ---------------------------------------------------------------------------
+# 32. AC5: direct mode prefers OTTA_PULSE_TOKEN so secrets avoid argv/history.
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo32"
+mkdir -p "$RDIR" "$TMP/codex32"
+cd "$RDIR"
+ENV_TOKEN="env-direct-token-fixture"
+OUT="$(OTTA_PULSE_TOKEN="$ENV_TOKEN" CODEX_HOME="$TMP/codex32" bash "$SCRIPT" "$REPO_SLUG" 2>&1)" || fail "AC5: env-token direct mode failed"
+grep -q 'x-pulse-token = "env-direct-token-fixture"' "$TMP/codex32/config.toml" || fail "AC5: OTTA_PULSE_TOKEN was not used"
+! printf '%s' "$OUT" | grep -q "$ENV_TOKEN" || fail "AC5: OTTA_PULSE_TOKEN printed to output"
+pass "AC5: direct mode accepts OTTA_PULSE_TOKEN without a token argv"
+
+# ---------------------------------------------------------------------------
+# 33. AC5: self-hosted derive prefers OTTA_PULSE_WEBHOOK_SECRET.
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo33"
+mkdir -p "$RDIR" "$TMP/codex33" "$TMP/codex33-bin"
+cd "$RDIR"
+cat > "$TMP/codex33-bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$CURL_ARGS_FILE"
+printf '{"token":"env-derived-token-fixture"}'
+CURL_STUB
+chmod +x "$TMP/codex33-bin/curl"
+ENV_WEBHOOK="env-webhook-secret-fixture"
+OUT="$(CURL_ARGS_FILE="$TMP/codex33-curl.txt" PATH="$TMP/codex33-bin:$PATH" CODEX_HOME="$TMP/codex33" OTTA_PULSE_URL="https://pulse.example.test" OTTA_PULSE_WEBHOOK_SECRET="$ENV_WEBHOOK" bash "$SCRIPT" --derive "$REPO_SLUG" 2>&1)" || fail "AC5: env-secret self-hosted derive failed"
+grep -q "x-pulse-token: $ENV_WEBHOOK" "$TMP/codex33-curl.txt" || fail "AC5: OTTA_PULSE_WEBHOOK_SECRET was not used for derivation"
+! grep -q "$ENV_WEBHOOK" "$TMP/codex33/config.toml" .otta/codex.env || fail "AC5: webhook secret was stored"
+! printf '%s' "$OUT" | grep -q "$ENV_WEBHOOK\|env-derived-token-fixture" || fail "AC5: derivation secret/token printed"
+pass "AC5: self-hosted derive accepts OTTA_PULSE_WEBHOOK_SECRET without secret argv"
+
+# ---------------------------------------------------------------------------
+# 34. AC6: docs prefer secret environment variables and disclose local tokens.
+# ---------------------------------------------------------------------------
+grep -q 'OTTA_PULSE_TOKEN' "$README" || fail "AC6: README must document OTTA_PULSE_TOKEN"
+grep -q 'OTTA_PULSE_WEBHOOK_SECRET' "$README" || fail "AC6: README must document OTTA_PULSE_WEBHOOK_SECRET"
+grep -Eqi 'legacy positional|positional.*legacy' "$README" || fail "AC6: positional secret compatibility must be labeled legacy"
+grep -Eqi 'opt.in.*local.*repo token|local.*repo token.*opt.in' "$README" || fail "AC6: README must disclose opt-in local repo tokens"
+pass "AC6: README prefers environment secrets and scopes Pulse communication accurately"
 
 echo "All otta-codex-setup tests passed."

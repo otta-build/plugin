@@ -54,7 +54,6 @@ if [ "$PULSE" = "$HOSTED_DEFAULT" ]; then
   # Hosted path: no secret needed or expected.
   if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" 2>&1); then
     echo "Error: could not reach Pulse at ${PULSE}/token" >&2
-    echo "Response: ${RESPONSE}" >&2
     exit 1
   fi
 else
@@ -68,13 +67,12 @@ else
   if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" \
       -H "x-pulse-token: ${WEBHOOK_SECRET}" 2>&1); then
     echo "Error: could not reach Pulse at ${PULSE}/token" >&2
-    echo "Response: ${RESPONSE}" >&2
     exit 1
   fi
 fi
 TOKEN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])" 2>/dev/null) || true
 if [ -z "$TOKEN" ]; then
-  echo "Error: /token response did not contain a token field. Got: ${RESPONSE}" >&2
+  echo "Error: /token response did not contain a token field (response body redacted)." >&2
   exit 1
 fi
 
@@ -98,14 +96,19 @@ traces = os.environ["TRACES"] == "1"
 try:
     with open(path) as f:
         data = json.load(f)
-    if not isinstance(data, dict):
-        data = {}
-except (FileNotFoundError, json.JSONDecodeError):
+except FileNotFoundError:
     data = {}
+except json.JSONDecodeError:
+    raise SystemExit("Error: existing .claude/settings.local.json is malformed JSON; refusing to overwrite it.")
+
+if not isinstance(data, dict):
+    raise SystemExit("Error: existing .claude/settings.local.json root must be an object; refusing to overwrite it.")
 
 env = data.get("env")
-if not isinstance(env, dict):
+if env is None and "env" not in data:
     env = {}
+elif not isinstance(env, dict):
+    raise SystemExit("Error: existing .claude/settings.local.json env must be an object; refusing to overwrite it.")
 
 env.update({
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
@@ -116,7 +119,7 @@ env.update({
     "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/json",
     "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": pulse + "/v1/metrics",
     "OTEL_EXPORTER_OTLP_HEADERS": "x-pulse-token=" + token,
-    "OTEL_RESOURCE_ATTRIBUTES": "repo=" + repo,
+    "OTEL_RESOURCE_ATTRIBUTES": "repo=" + repo + ",harness=claude_code",
     "OTTA_PULSE_URL": pulse,
     "OTTA_PULSE_TOKEN": token,
 })

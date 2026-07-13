@@ -1,6 +1,6 @@
 # Otta — the self-learning AI software factory
 
-A Claude Code plugin that turns any agent session into a self-improving software factory. The **Otta loop**:
+A runtime-neutral agent plugin that turns coding sessions into a self-improving software factory. The **Otta loop**:
 
 ```
 issue → acceptance criteria → local gate → PR → ship → Otta Pulse (DORA + lifecycle)
@@ -8,7 +8,9 @@ issue → acceptance criteria → local gate → PR → ship → Otta Pulse (DOR
 
 It's the *discipline layer* of Otta. It needs no private engine and no secrets — just `gh` + `jq` and (optionally) the Otta Pulse GitHub App for metrics.
 
-## Install
+## Install and invoke
+
+### Claude Code
 
 ```
 /plugin marketplace add otta-build/plugin
@@ -27,7 +29,13 @@ Then, once per repo:
 
 This runs a **guided wizard** that teaches why each step exists (pain → benefit), asks each question via structured chips (recommended default first), and writes `.otta.yml` + installs the pre-push gate hook and the **Otta Pulse** GitHub App. See [docs/why-otta-setup.md](docs/why-otta-setup.md) for the full pain→benefit table.
 
-## Commands
+Claude Code invokes Otta through `/otta:*` commands, such as `/otta:start 131` and `/otta:ship`.
+
+### Codex
+
+Install Otta from Codex's Plugins surface. Codex reads `.codex-plugin/plugin.json` and exposes the workflows as native skills. Invoke them as `$otta-setup`, `$otta-start`, `$otta-dev`, `$otta-build`, `$otta-fix`, `$otta-ship`, `$otta-status`, `$otta-schedule`, `$otta-remember`, and `$otta-pulse-doctor`. A natural-language request matching a skill can also auto-trigger it; Codex does not use the Claude `/otta:*` command syntax.
+
+## Claude Code commands
 
 | Command | Does |
 |---|---|
@@ -62,7 +70,7 @@ Both run the same `builder → reviewer → qa → devops` stages and open a PR 
 
 The subagents (`agents/*.md`) are reusable on their own — Claude delegates to them by name, and you can use them as agent-team teammates too.
 
-## Pipeline stage checklist UX
+## Pipeline stage state
 
 Every `/otta:dev` and `/otta:build` run creates a **stage checklist** at run start — one item per pipeline stage — so you always know where a run is without reading the full log:
 
@@ -76,7 +84,7 @@ Every `/otta:dev` and `/otta:build` run creates a **stage checklist** at run sta
 [ ] Deploy   — deploy-verify per .otta.yml policy
 ```
 
-On a task-aware harness (Claude Code), each stage updates the task tool's `activeForm` — so the **agent switcher** shows "Building #105" or "QA #105" per agent without you having to ask. On harnesses without a native task tool, the checklist renders as a markdown block in chat and is updated at each stage transition.
+On a harness with a native task tool, each stage updates task state. Otherwise the checklist renders in chat and is updated at each stage transition. Otta does not require or provide a separate live runtime panel.
 
 **Failures annotate the stage:** `✗ QA — gate failed: tsc errors in src/foo.ts` so you see the blocker at a glance.
 
@@ -133,7 +141,7 @@ The three modes:
 
 ## How it connects to Otta Pulse
 
-Pulse is the GitHub App that ingests your PR/CI/tag webhooks into an append-only event store and computes DORA metrics. This plugin doesn't talk to Pulse directly — it makes sure every PR body carries the `Fixes #N` + `idea_ref` linkage, which **Pulse already reads from the `pull_request` webhook**. No extra auth, no secret on your machine.
+Pulse is the GitHub App that ingests your PR/CI/tag webhooks into an append-only event store and computes DORA metrics. The default delivery integration is webhook-only: PR bodies carry the `Fixes #N` + `idea_ref` linkage that Pulse reads from the `pull_request` webhook, with no local secret. If you opt into agent telemetry or authenticated status lookups, local scripts also talk to Pulse and store an opt-in local repo token in a gitignored, mode-0600 harness config.
 
 **Hosted or self-hosted.** By default Otta uses the hosted Pulse at `https://pulse.otta.build`. To run your own, set `OTTA_PULSE_URL` (e.g. `export OTTA_PULSE_URL=https://pulse.your-team.example`) before `/otta:setup` — every Otta script reads it, so a team can point the whole loop at a private Pulse with no code changes.
 
@@ -147,30 +155,36 @@ token, and confirm `checks: write`:
 ```bash
 export OTTA_PULSE_APP_ID=<app-id>
 export OTTA_PULSE_PRIVATE_KEY_PATH=/path/to/github-app-private-key.pem
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-pulse-doctor.sh" <owner/repo>
+OTTA_PLUGIN_ROOT=/absolute/path/to/installed/otta
+bash "$OTTA_PLUGIN_ROOT/scripts/otta-pulse-doctor.sh" <owner/repo>
 ```
 
 The doctor prints installation metadata and permission status only; it never
 prints the minted installation token.
 
-## Claude Code telemetry → Pulse (opt-in)
+## Agent telemetry → Pulse (opt-in)
 
-Pulse's GitHub App captures PR/CI/tag webhooks with no machine setup. To also feed **Claude Code's own OTEL telemetry** — per-tool/per-stage timing (logs) and spans (traces) — into Pulse, `/otta:setup` offers an opt-in step that wires Claude Code's `env` block.
+Pulse's GitHub App captures PR/CI/tag webhooks without agent telemetry. Opting in adds runtime evidence: logs describe agent/tool events, metrics provide aggregate counters and timing, and Claude can additionally emit beta traces. Each repo uses its own `x-pulse-token`; token-bearing config remains local and ignored.
+
+### Claude Code
+
+`/otta:setup` can wire Claude Code's OTEL environment into `.claude/settings.local.json`. Claude events are attributed with `OTEL_RESOURCE_ATTRIBUTES=repo=<owner/repo>,harness=claude_code`.
 
 This is **CC-process-level**: once enabled, **every** Claude Code session in the repo emits to Pulse (not just `/otta:dev`). Token-bearing values go **only** into `.claude/settings.local.json` (gitignored) — never the committed `settings.json`.
 
 > **Where your telemetry lands.** The endpoint base is `OTTA_PULSE_URL`, which **defaults to Otta's hosted Pulse (`https://pulse.otta.build`) — Otta receives that telemetry** (cost, tokens, tool timing, repo name). To keep it entirely in your own infrastructure, set `OTTA_PULSE_URL` to your self-hosted Pulse **before** enabling.
 
-- **Logs** (default) — timing/event records.
+- **Logs and metrics** (default) — event records, counters, and timing.
 - **Traces** (separate opt-in, **beta**) — spans; adds `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1`.
 
-Run it directly (or via the `/otta:setup` step, which sources the repo + token from `.otta/pulse.env`):
+Prefer `/otta:setup`. For non-interactive automation, supply the absolute root of the installed plugin yourself; hosted Pulse derives the repo token without a local webhook secret, while self-hosted Pulse requires its webhook secret only for token derivation:
 
 ```bash
-# logs only:
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" <owner/repo> <pulse-token>
-# logs + traces (beta):
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" <owner/repo> <pulse-token> --traces
+OTTA_PLUGIN_ROOT=/absolute/path/to/installed/otta
+# hosted, logs + metrics:
+bash "$OTTA_PLUGIN_ROOT/scripts/otta-telemetry-setup.sh" <owner/repo>
+# self-hosted, logs + metrics + traces (beta):
+OTTA_PULSE_URL=https://pulse.example.com bash "$OTTA_PLUGIN_ROOT/scripts/otta-telemetry-setup.sh" <owner/repo> <webhook-secret> --traces
 ```
 
 **Manual block** (for non-`/otta:setup` users) — put in `.claude/settings.local.json` (gitignored), substituting your `${PULSE}` base, `<repo-token>`, and `<owner/repo>`:
@@ -183,8 +197,11 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" <owner/repo> <pulse
     "OTEL_LOGS_EXPORTER": "otlp",
     "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/json",
     "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "${PULSE}/v1/logs",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL": "http/json",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "${PULSE}/v1/metrics",
     "OTEL_EXPORTER_OTLP_HEADERS": "x-pulse-token=<repo-token>",
-    "OTEL_RESOURCE_ATTRIBUTES": "repo=<owner/repo>",
+    "OTEL_RESOURCE_ATTRIBUTES": "repo=<owner/repo>,harness=claude_code",
     // traces (beta — add only if you want spans)
     "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
     "OTEL_TRACES_EXPORTER": "otlp",
@@ -193,6 +210,27 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-telemetry-setup.sh" <owner/repo> <pulse
   }
 }
 ```
+
+### Codex
+
+Codex reads OTEL settings from `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`), not Claude's environment block. Run `$otta-setup` and choose Codex telemetry; the skill resolves its installed plugin directory and invokes the setup writer with the repo's Pulse token.
+
+For non-interactive automation, use the same user-supplied absolute installed root. `--derive` obtains the token from hosted Pulse; self-hosted derivation reads `OTTA_PULSE_WEBHOOK_SECRET`. Direct mode reads an already-derived token from `OTTA_PULSE_TOKEN`, keeping both secrets out of argv and shell history:
+
+```bash
+OTTA_PLUGIN_ROOT=/absolute/path/to/installed/otta
+bash "$OTTA_PLUGIN_ROOT/scripts/otta-codex-setup.sh" --derive <owner/repo>
+# self-hosted derivation, with OTTA_PULSE_WEBHOOK_SECRET already supplied by
+# your secure runtime environment:
+OTTA_PULSE_URL=https://pulse.example.com \
+  bash "$OTTA_PLUGIN_ROOT/scripts/otta-codex-setup.sh" --derive <owner/repo>
+# direct mode, with OTTA_PULSE_TOKEN already supplied by the environment:
+bash "$OTTA_PLUGIN_ROOT/scripts/otta-codex-setup.sh" <owner/repo>
+```
+
+Legacy positional compatibility remains available for existing automation (`<owner/repo> <repo-token>` and `--derive <owner/repo> <webhook-secret>`), but new automation should use the environment variables above so secrets do not appear in process arguments or history.
+
+The writer enables both `exporter = "otlp-http"` and `metrics_exporter = "otlp-http"`, keeps JSON protocol endpoints for `/v1/logs` and `/v1/metrics`, and stores `x-pulse-token` plus `x-pulse-repo` headers only in mode-0600 local files. `x-pulse-repo` is part of the required ingestion contract for attributing Codex conversation and model metadata; this plugin does not claim server-side validation until the corresponding Pulse change ships. `.otta/codex.env` remains a safely quoted, gitignored compatibility artifact and is not how Codex enables telemetry. Start a new Codex process after setup so it loads the updated `config.toml`.
 
 ## Scope
 
