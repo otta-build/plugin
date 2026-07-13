@@ -1,3 +1,9 @@
+## 1.1.3
+
+### Fixed
+
+- emit valid inline OTEL exporters (#133)
+
 ## 1.1.2
 
 ### Fixed
