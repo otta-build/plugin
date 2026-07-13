@@ -102,6 +102,49 @@ append_deploy_record acme/failed deploy_workflow_failed "$failed_key" \
 ensure_workflow_dispatched acme/failed acme/failed production deploy.yml main sha bad123 >/dev/null 2>&1; rc=$?
 check "failed run refuses implicit retry" 5 "$rc"
 
+RECOVERY_CALLS="$TMP/recovery-calls"; : > "$RECOVERY_CALLS"
+gh() {
+  printf '%s\n' "$*" >> "$RECOVERY_CALLS"
+  [ "$1 $2" = "run rerun" ] && return 0
+  return 1
+}
+OTTA_DEPLOY_RETRY_FAILED_RUN=true \
+  ensure_workflow_dispatched acme/failed acme/failed production deploy.yml main sha bad123 >/dev/null 2>&1; rc=$?
+check "explicit failed-run recovery is accepted" 0 "$rc"
+check "explicit recovery reruns the recorded run only" 1 "$(grep -c '^run rerun 31 ' "$RECOVERY_CALLS")"
+check "explicit rerun returns to dispatched state" deploy_dispatched \
+  "$(deployment_last_record acme/failed "$failed_key" | jq -r .event)"
+
+# An operator can resolve dispatch_unknown to an exact existing run, but the
+# adapter validates its event and immutable head before attaching it.
+export OTTA_LEDGER_DIR="$UNKNOWN_LEDGER"
+gh() {
+  [ "$1 $2" = "run view" ] && {
+    printf '{"databaseId":55,"event":"workflow_dispatch","headSha":"def456","url":"https://example.test/runs/55"}\n'; return 0
+  }
+  return 1
+}
+OTTA_DEPLOY_RESOLVE_RUN_ID=55 \
+  ensure_workflow_dispatched acme/unknown acme/unknown production deploy.yml main sha def456 >/dev/null 2>&1; rc=$?
+check "explicit unknown-run resolution succeeds" 0 "$rc"
+check "resolved run id is recorded" 55 \
+  "$(deployment_last_record acme/unknown "$unknown_key" | jq -r .output.run_id)"
+
+BAD_RESOLVE_LEDGER="$TMP/bad-resolve-ledger"; mkdir -p "$BAD_RESOLVE_LEDGER"
+export OTTA_LEDGER_DIR="$BAD_RESOLVE_LEDGER"
+bad_resolve_key="$(workflow_deploy_key acme/bad-resolve deploy.yml production exact1)"
+append_deploy_record acme/bad-resolve deploy_dispatch_unknown "$bad_resolve_key" \
+  '{"workflow":"deploy.yml","ref":"main","sha":"exact1","pre_run_ids":[]}' '{}' >/dev/null
+gh() {
+  [ "$1 $2" = "run view" ] && {
+    printf '{"databaseId":56,"event":"workflow_dispatch","headSha":"wrong2","url":"https://example.test/runs/56"}\n'; return 0
+  }
+  return 1
+}
+OTTA_DEPLOY_RESOLVE_RUN_ID=56 \
+  ensure_workflow_dispatched acme/bad-resolve acme/bad-resolve production deploy.yml main sha exact1 >/dev/null 2>&1; rc=$?
+check "manual resolution rejects wrong run head" 6 "$rc"
+
 # Workflow completion is necessary but not sufficient for a shipped verdict.
 POLL_LEDGER="$TMP/poll-ledger"; mkdir -p "$POLL_LEDGER"
 export OTTA_LEDGER_DIR="$POLL_LEDGER" OTTA_WORKFLOW_POLL_TIMEOUT=5 OTTA_WORKFLOW_POLL_INTERVAL=1

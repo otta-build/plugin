@@ -250,7 +250,11 @@ unset -f git gh
 ORCH_CALLS="$TMP/orch-calls"
 export OTTA_DEPLOY_POLL_TIMEOUT=0 OTTA_DEPLOY_POLL_INTERVAL=1
 git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
-run_github_workflow_deploy() { printf 'adapter %s\n' "$*" >> "$ORCH_CALLS"; return "${ADAPTER_RC:-0}"; }
+run_github_workflow_deploy() {
+  printf 'adapter retry=%s resolve=%s args=%s\n' \
+    "${OTTA_DEPLOY_RETRY_FAILED_RUN:-}" "${OTTA_DEPLOY_RESOLVE_RUN_ID:-}" "$*" >> "$ORCH_CALLS"
+  return "${ADAPTER_RC:-0}"
+}
 gh() {
   printf 'gh %s\n' "$*" >> "$ORCH_CALLS"
   case "$1 $2" in
@@ -282,6 +286,11 @@ _merged_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _merged_rc
 check "approved merged PR dispatch path succeeds" 0 "$_merged_rc"
 check "approved merged PR is not merged again" 0 "$(grep -c '^gh pr merge ' "$ORCH_CALLS" || true)"
 case "$(grep '^adapter ' "$ORCH_CALLS")" in *"merged999"*) check "merged PR dispatches its recorded merge SHA" yes yes ;; *) check "merged PR dispatches its recorded merge SHA" yes no ;; esac
+
+: > "$ORCH_CALLS"
+_recovery_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 --retry-failed-run --resolve-run-id 55 2>&1)"; _recovery_rc=$?
+check "explicit recovery flags reach the adapter" 0 "$_recovery_rc"
+case "$(grep '^adapter ' "$ORCH_CALLS")" in *"retry=true"*"resolve=55"*) check "recovery flags are scoped to workflow execution" yes yes ;; *) check "recovery flags are scoped to workflow execution" yes no ;; esac
 
 ADAPTER_RC=1
 : > "$ORCH_CALLS"

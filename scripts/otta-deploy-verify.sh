@@ -357,16 +357,18 @@ verify_deploy() {
 # ===========================================================================
 
 _run() {
-  local pr="${1:-}" yml=".otta.yml" approved_head=""
+  local pr="${1:-}" yml=".otta.yml" approved_head="" retry_failed="false" resolve_run_id=""
   shift || true
   while [ $# -gt 0 ]; do
     case "$1" in
       --otta-yml) yml="$2"; shift 2 ;;
       --approved-head) approved_head="$2"; shift 2 ;;
+      --retry-failed-run) retry_failed="true"; shift ;;
+      --resolve-run-id) resolve_run_id="$2"; shift 2 ;;
       *) echo "unknown arg: $1" >&2; return 1 ;;
     esac
   done
-  [ -n "$pr" ] || { echo "usage: otta-deploy-verify.sh <pr-number> [--otta-yml <path>] [--approved-head <sha>]" >&2; return 1; }
+  [ -n "$pr" ] || { echo "usage: otta-deploy-verify.sh <pr-number> [--otta-yml <path>] [--approved-head <sha>] [--retry-failed-run] [--resolve-run-id <id>]" >&2; return 1; }
 
   local gh_repo
   gh_repo="$(git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]\(.*\)\.git$|\1|;s|.*github\.com[:/]\(.*\)$|\1|')"
@@ -421,7 +423,8 @@ _run() {
         echo "deploy: policy does not authorize post-merge dispatch ($merged_action)" >&2; return 1;
       }
       [ -n "$merge_sha" ] || { echo "deploy: merged PR #$pr has no merge commit SHA" >&2; return 1; }
-      run_github_workflow_deploy "$gh_repo" "$gh_repo" "$target" "$workflow" \
+      OTTA_DEPLOY_RETRY_FAILED_RUN="$retry_failed" OTTA_DEPLOY_RESOLVE_RUN_ID="$resolve_run_id" \
+        run_github_workflow_deploy "$gh_repo" "$gh_repo" "$target" "$workflow" \
         "$workflow_ref" "$sha_input" "$merge_sha" "$health_url" "$health_field"
       return $?
     fi
@@ -501,7 +504,8 @@ _run() {
       echo "deploy: auto=merge-on-green → merged without workflow dispatch."
       return 0
     fi
-    run_github_workflow_deploy "$gh_repo" "$gh_repo" "$target" "$workflow" \
+    OTTA_DEPLOY_RETRY_FAILED_RUN="$retry_failed" OTTA_DEPLOY_RESOLVE_RUN_ID="$resolve_run_id" \
+      run_github_workflow_deploy "$gh_repo" "$gh_repo" "$target" "$workflow" \
       "$workflow_ref" "$sha_input" "$merge_sha" "$health_url" "$health_field"
     return $?
   fi

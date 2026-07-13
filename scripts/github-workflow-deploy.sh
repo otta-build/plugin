@@ -205,12 +205,38 @@ ensure_workflow_dispatched() {
         return 0
         ;;
       deploy_workflow_failed)
+        if [ "${OTTA_DEPLOY_RETRY_FAILED_RUN:-false}" = "true" ]; then
+          run_id="$(jq -r '.output.run_id // empty' <<<"$latest")"
+          [ -n "$run_id" ] || { echo "deploy: failed record has no run id to retry" >&2; return 6; }
+          gh run rerun "$run_id" --repo "$repo" --failed || {
+            echo "deploy: explicit rerun request failed for workflow run $run_id" >&2; return 6;
+          }
+          input="$(jq -c '.input' <<<"$latest")"
+          _record_correlated_run "$project" "$key" "$input" "$run_id"
+          return $?
+        fi
         echo "deploy: workflow previously failed for idempotency key $key; explicit recovery is required" >&2
         return 5
         ;;
       deploy_dispatching|deploy_dispatch_unknown)
         input="$(jq -c '.input' <<<"$latest")"
         pre_ids="$(jq -c '.input.pre_run_ids // []' <<<"$latest")"
+        if [ -n "${OTTA_DEPLOY_RESOLVE_RUN_ID:-}" ]; then
+          local resolved_json resolved_event resolved_head resolved_id
+          resolved_json="$(gh run view "$OTTA_DEPLOY_RESOLVE_RUN_ID" --repo "$repo" \
+            --json databaseId,event,headSha,url 2>/dev/null)" || {
+            echo "deploy: cannot inspect manually selected run $OTTA_DEPLOY_RESOLVE_RUN_ID" >&2; return 6;
+          }
+          resolved_event="$(jq -r '.event // ""' <<<"$resolved_json")"
+          resolved_head="$(jq -r '.headSha // ""' <<<"$resolved_json")"
+          resolved_id="$(jq -r '.databaseId // empty' <<<"$resolved_json")"
+          if [ "$resolved_event" != "workflow_dispatch" ] || ! _workflow_sha_match "$merge_sha" "$resolved_head"; then
+            echo "deploy: selected run $OTTA_DEPLOY_RESOLVE_RUN_ID does not match event=workflow_dispatch and sha=$merge_sha" >&2
+            return 6
+          fi
+          _record_correlated_run "$project" "$key" "$input" "$resolved_id"
+          return $?
+        fi
         run_id="$(reconcile_workflow_dispatch "$repo" "$workflow" "$ref" "$merge_sha" "$pre_ids")"
         case $? in
           0) _record_correlated_run "$project" "$key" "$input" "$run_id" ; return $? ;;
