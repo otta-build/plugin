@@ -449,7 +449,7 @@ FIRST="$(cat "$CONFIG")"
 CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "quoted merge rerun exited non-zero"
 SECOND="$(cat "$CONFIG")"
 [ "$FIRST" = "$SECOND" ] || fail "AC5: quoted merge rerun changed config.toml bytes"
-[ "$(stat -f '%Lp' "$CONFIG" 2>/dev/null || stat -c '%a' "$CONFIG")" = "600" ] || fail "AC5: config.toml mode is not 600"
+[ "$(stat -c '%a' "$CONFIG" 2>/dev/null || stat -f '%Lp' "$CONFIG")" = "600" ] || fail "AC5: config.toml mode is not 600"
 pass "AC5: selector merge handles disabled selectors and quoted subtables without clobbering user config"
 
 # ---------------------------------------------------------------------------

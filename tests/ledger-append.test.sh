@@ -58,8 +58,14 @@ jq -e '.executor=="claude_code" and .harness=="claude_code" and .session_id=="cl
 # 1e. branch defaults to the current attached git branch.
 OTTA_LEDGER_DIR="$TMP" bash "$SCRIPT" --source gate --event gate_run --score 1 \
   --feedback ok --project "defaults/branch" >/dev/null 2>&1
-jq -e --arg branch "$(git branch --show-current)" '.branch==$branch' \
-  "$TMP/defaults-branch.jsonl" >/dev/null || fail "git branch default wrong"
+CURRENT_BRANCH="$(git branch --show-current)"
+if [ -n "$CURRENT_BRANCH" ]; then
+  jq -e --arg branch "$CURRENT_BRANCH" '.branch==$branch' \
+    "$TMP/defaults-branch.jsonl" >/dev/null || fail "git branch default wrong"
+else
+  jq -e '.branch==null' "$TMP/defaults-branch.jsonl" >/dev/null \
+    || fail "detached HEAD branch default must remain null"
+fi
 
 # 2. second append → appends (does not overwrite)
 OTTA_LEDGER_DIR="$TMP" bash "$SCRIPT" --source gate --event gate_run --score 1 --feedback ok --project "acme/web" >/dev/null 2>&1
