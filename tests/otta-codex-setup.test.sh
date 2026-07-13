@@ -205,8 +205,26 @@ grep -q 'environment = "production"' "$CODEX_HOME/config.toml" || \
   fail "config.toml missing environment = \"production\""
 pass "AC1: config.toml [otel] section with log_user_prompt + environment"
 
+# The Codex schema accepts OTLP/HTTP exporters as inline tagged objects. A
+# string selector plus [otel.exporter.otlp-http] table is valid TOML but is
+# rejected by Codex because the string cannot also be extended as a table.
+CONFIG="$CODEX_HOME/config.toml" python3 - <<'PY' || fail "AC1: generated exporter shape is not Codex-schema compatible"
+import os, tomllib
+with open(os.environ["CONFIG"], "rb") as handle:
+    config = tomllib.load(handle)
+for key, suffix in (("exporter", "/v1/logs"), ("metrics_exporter", "/v1/metrics")):
+    value = config["otel"][key]
+    assert isinstance(value, dict), (key, value)
+    http = value["otlp-http"]
+    assert http["endpoint"].endswith(suffix)
+    assert http["protocol"] == "json"
+    assert http["headers"]["x-pulse-token"] == "pulse_tok_SECRET123"
+    assert http["headers"]["x-pulse-repo"] == "acme/widget"
+PY
+pass "AC1: config.toml uses Codex-schema inline OTLP/HTTP exporter objects"
+
 # ---------------------------------------------------------------------------
-# 15. AC1: config.toml has [otel.exporter.otlp-http] with endpoint + protocol
+# 15. AC1: config.toml has inline OTLP/HTTP exporter with endpoint + protocol
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo15"
 mkdir -p "$RDIR"
@@ -214,13 +232,11 @@ cd "$RDIR"
 CODEX_HOME="$TMP/codex15"
 mkdir -p "$CODEX_HOME"
 CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "otlp-http run exited non-zero"
-grep -q '^\[otel.exporter.otlp-http\]' "$CODEX_HOME/config.toml" || \
-  fail "config.toml missing [otel.exporter.otlp-http]: $(cat "$CODEX_HOME/config.toml")"
 grep -q 'endpoint = "https://pulse.otta.build/v1/logs"' "$CODEX_HOME/config.toml" || \
   fail "config.toml log endpoint wrong (must include /v1/logs): $(grep endpoint "$CODEX_HOME/config.toml" || echo not-found)"
 grep -q 'protocol = "json"' "$CODEX_HOME/config.toml" || \
   fail "config.toml missing protocol = \"json\""
-pass "AC1: config.toml [otel.exporter.otlp-http] with /v1/logs endpoint + protocol=json"
+pass "AC1: config.toml inline OTLP/HTTP exporter has /v1/logs endpoint + protocol=json"
 
 # Codex has no custom OTEL resource-attribute setting. Send the repo alongside
 # the scoped token so Pulse can attribute and authenticate the stream.
@@ -231,7 +247,7 @@ grep -q "x-pulse-repo = \"$REPO_SLUG\"" "$CODEX_HOME/config.toml" || \
 pass "AC1: config.toml attributes Codex logs and metrics with x-pulse-repo"
 
 # ---------------------------------------------------------------------------
-# 16. AC1: config.toml has [otel.exporter.otlp-http.headers] with x-pulse-token
+# 16. AC1: config.toml inline exporter headers include x-pulse-token
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo16"
 mkdir -p "$RDIR"
@@ -239,11 +255,9 @@ cd "$RDIR"
 CODEX_HOME="$TMP/codex16"
 mkdir -p "$CODEX_HOME"
 CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "headers run exited non-zero"
-grep -q '^\[otel.exporter.otlp-http.headers\]' "$CODEX_HOME/config.toml" || \
-  fail "config.toml missing [otel.exporter.otlp-http.headers]: $(cat "$CODEX_HOME/config.toml")"
 grep -q "x-pulse-token = \"$TOKEN\"" "$CODEX_HOME/config.toml" || \
   fail "config.toml missing x-pulse-token = \"<token>\": $(cat "$CODEX_HOME/config.toml")"
-pass "AC1: config.toml [otel.exporter.otlp-http.headers] with x-pulse-token"
+pass "AC1: config.toml inline exporter headers include x-pulse-token"
 
 # ---------------------------------------------------------------------------
 # 17. AC1: OTTA_PULSE_URL override applies to config.toml endpoint
@@ -336,8 +350,8 @@ grep -q 'log_user_prompt = true' "$CODEX_HOME/config.toml" || \
   fail "AC2: existing [otel] key log_user_prompt=true was clobbered: $(cat "$CODEX_HOME/config.toml")"
 grep -q 'some_custom_key = "user_value"' "$CODEX_HOME/config.toml" || \
   fail "AC2: existing [otel] key some_custom_key was clobbered: $(cat "$CODEX_HOME/config.toml")"
-grep -q '^\[otel.exporter.otlp-http\]' "$CODEX_HOME/config.toml" || \
-  fail "AC2: [otel.exporter.otlp-http] not written after preserve: $(cat "$CODEX_HOME/config.toml")"
+grep -q '^exporter = { otlp-http = {' "$CODEX_HOME/config.toml" || \
+  fail "AC2: inline exporter object not written after preserve: $(cat "$CODEX_HOME/config.toml")"
 pass "AC2: config.toml re-run preserves existing [otel] direct keys"
 
 # ---------------------------------------------------------------------------
@@ -357,7 +371,7 @@ N="$(grep -c 'x-pulse-token' "$CODEX_HOME/config.toml")"
 pass "AC2: config.toml re-run updates [otel.exporter.otlp-http] without duplication"
 
 # ---------------------------------------------------------------------------
-# 23. Bug fix: [otel.metrics_exporter.otlp-http] written with /v1/metrics endpoint
+# 23. Bug fix: inline metrics exporter written with /v1/metrics endpoint
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo23"
 mkdir -p "$RDIR"
@@ -365,18 +379,14 @@ cd "$RDIR"
 CODEX_HOME="$TMP/codex23"
 mkdir -p "$CODEX_HOME"
 CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "metrics exporter run exited non-zero"
-grep -q '^\[otel.metrics_exporter.otlp-http\]' "$CODEX_HOME/config.toml" || \
-  fail "Bug2: config.toml missing [otel.metrics_exporter.otlp-http]: $(cat "$CODEX_HOME/config.toml")"
 grep -q 'endpoint = "https://pulse.otta.build/v1/metrics"' "$CODEX_HOME/config.toml" || \
   fail "Bug2: metrics endpoint wrong (must be /v1/metrics): $(grep endpoint "$CODEX_HOME/config.toml" || echo not-found)"
-grep -q '^\[otel.metrics_exporter.otlp-http.headers\]' "$CODEX_HOME/config.toml" || \
-  fail "Bug2: config.toml missing [otel.metrics_exporter.otlp-http.headers]"
 grep -q "x-pulse-token = \"$TOKEN\"" "$CODEX_HOME/config.toml" || \
   fail "Bug2: metrics exporter headers missing x-pulse-token"
-pass "Bug fix: config.toml [otel.metrics_exporter.otlp-http] with /v1/metrics endpoint + token"
+pass "Bug fix: config.toml inline metrics exporter has /v1/metrics endpoint + token"
 
 # ---------------------------------------------------------------------------
-# 24. AC5: Codex exporter selectors are enabled directly under [otel]
+# 24. AC5: Codex exporter objects are enabled directly under [otel]
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo24"
 mkdir -p "$RDIR"
@@ -384,11 +394,11 @@ cd "$RDIR"
 CODEX_HOME="$TMP/codex24"
 mkdir -p "$CODEX_HOME"
 CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "selector run exited non-zero"
-[ "$(grep -c '^exporter = "otlp-http"$' "$CODEX_HOME/config.toml")" = "1" ] || \
-  fail "AC5: config.toml must contain one exporter = \"otlp-http\" selector under [otel]"
-[ "$(grep -c '^metrics_exporter = "otlp-http"$' "$CODEX_HOME/config.toml")" = "1" ] || \
-  fail "AC5: config.toml must contain one metrics_exporter = \"otlp-http\" selector under [otel]"
-pass "AC5: config.toml enables log and metrics exporters with direct [otel] selectors"
+[ "$(grep -c '^exporter = { otlp-http = {' "$CODEX_HOME/config.toml")" = "1" ] || \
+  fail "AC5: config.toml must contain one inline exporter object under [otel]"
+[ "$(grep -c '^metrics_exporter = { otlp-http = {' "$CODEX_HOME/config.toml")" = "1" ] || \
+  fail "AC5: config.toml must contain one inline metrics exporter object under [otel]"
+pass "AC5: config.toml enables log and metrics exporters with inline [otel] objects"
 
 # ---------------------------------------------------------------------------
 # 25. AC5: merge replaces disabled selectors, preserves other [otel] keys,
@@ -431,20 +441,18 @@ CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "quoted me
 CONFIG="$CODEX_HOME/config.toml"
 [ "$(grep -c '^exporter = ' "$CONFIG")" = "1" ] || fail "AC5: exporter selector duplicated during merge"
 [ "$(grep -c '^metrics_exporter = ' "$CONFIG")" = "1" ] || fail "AC5: metrics selector duplicated during merge"
-grep -q '^exporter = "otlp-http"$' "$CONFIG" || fail "AC5: disabled exporter selector was not replaced"
-grep -q '^metrics_exporter = "otlp-http"$' "$CONFIG" || fail "AC5: disabled metrics selector was not replaced"
+grep -q '^exporter = { otlp-http = {' "$CONFIG" || fail "AC5: disabled exporter selector was not replaced"
+grep -q '^metrics_exporter = { otlp-http = {' "$CONFIG" || fail "AC5: disabled metrics selector was not replaced"
 grep -q '^log_user_prompt = true$' "$CONFIG" || fail "AC5: explicit log_user_prompt value was not preserved"
 grep -q '^environment = "staging"$' "$CONFIG" || fail "AC5: unrelated environment key was not preserved"
 grep -q '^custom_direct_key = "keep-me"$' "$CONFIG" || fail "AC5: unrelated direct [otel] key was not preserved"
 grep -q '^\[history\]$' "$CONFIG" || fail "AC5: unrelated table was not preserved"
 ! grep -q 'old.invalid\|fixture-old-token\|protocol = "protobuf"' "$CONFIG" || \
   fail "AC5: quoted Otta-managed exporter subtables were not replaced"
-grep -q '^\[otel.exporter.otlp-http\]$' "$CONFIG" || fail "AC5: supported logs subtable missing"
-grep -q '^endpoint = "https://pulse.otta.build/v1/logs"$' "$CONFIG" || fail "AC5: supported logs endpoint missing"
-grep -q '^\[otel.metrics_exporter.otlp-http\]$' "$CONFIG" || fail "AC5: supported metrics subtable missing"
-grep -q '^endpoint = "https://pulse.otta.build/v1/metrics"$' "$CONFIG" || fail "AC5: supported metrics endpoint missing"
-[ "$(grep -c '^protocol = "json"$' "$CONFIG")" = "2" ] || fail "AC5: logs and metrics must keep protocol=json"
-[ "$(grep -c '^x-pulse-token = ' "$CONFIG")" = "2" ] || fail "AC5: expected one token header per exporter"
+grep -q 'endpoint = "https://pulse.otta.build/v1/logs"' "$CONFIG" || fail "AC5: supported logs endpoint missing"
+grep -q 'endpoint = "https://pulse.otta.build/v1/metrics"' "$CONFIG" || fail "AC5: supported metrics endpoint missing"
+[ "$(grep -o 'protocol = "json"' "$CONFIG" | wc -l | tr -d ' ')" = "2" ] || fail "AC5: logs and metrics must keep protocol=json"
+[ "$(grep -o 'x-pulse-token = ' "$CONFIG" | wc -l | tr -d ' ')" = "2" ] || fail "AC5: expected one token header per exporter"
 FIRST="$(cat "$CONFIG")"
 CODEX_HOME="$CODEX_HOME" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "quoted merge rerun exited non-zero"
 SECOND="$(cat "$CONFIG")"
@@ -575,7 +583,7 @@ grep -q '^\["otel.exporter.otlp-http"\]$' "$TMP/codex31/config.toml" || fail "AC
 grep -q '^literal_table_value = "preserve-me"$' "$TMP/codex31/config.toml" || fail "AC5: literal quoted table content was removed"
 grep -q '^\["otel.metrics_exporter.otlp-http".headers\]$' "$TMP/codex31/config.toml" || fail "AC5: literal quoted metrics table was removed"
 grep -q '^literal_metrics_value = "also-preserve"$' "$TMP/codex31/config.toml" || fail "AC5: literal quoted metrics content was removed"
-grep -q '^\[otel.exporter.otlp-http\]$' "$TMP/codex31/config.toml" || fail "AC5: managed dotted exporter table missing"
+grep -q '^exporter = { otlp-http = {' "$TMP/codex31/config.toml" || fail "AC5: managed inline exporter object missing"
 pass "AC5: literal quoted TOML tables remain distinct from managed dotted tables"
 
 # ---------------------------------------------------------------------------
