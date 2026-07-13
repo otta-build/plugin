@@ -74,6 +74,120 @@ _record_correlated_run() {
   printf '%s\n' "$run_id"
 }
 
+_workflow_sha_match() {
+  local expected="$1" actual="$2"
+  [ -n "$expected" ] && [ -n "$actual" ] || return 1
+  case "$actual" in "$expected"*) return 0 ;; esac
+  case "$expected" in "$actual"*) return 0 ;; esac
+  return 1
+}
+
+# wait_for_workflow_terminal <repo> <project> <key> <input-json> <run-id> <expected-sha>
+wait_for_workflow_terminal() {
+  local repo="$1" project="$2" key="$3" input="$4" run_id="$5" expected_sha="$6"
+  local timeout="${OTTA_WORKFLOW_POLL_TIMEOUT:-1800}"
+  local interval="${OTTA_WORKFLOW_POLL_INTERVAL:-10}"
+  local waited=0 last_print=-60 json status conclusion url head output
+
+  while :; do
+    json="$(gh run view "$run_id" --repo "$repo" --json status,conclusion,url,headSha 2>/dev/null)" || {
+      echo "deploy: cannot read workflow run $run_id" >&2
+      return 1
+    }
+    status="$(jq -r '.status // ""' <<<"$json")"
+    conclusion="$(jq -r '.conclusion // ""' <<<"$json")"
+    url="$(jq -r '.url // ""' <<<"$json")"
+    head="$(jq -r '.headSha // ""' <<<"$json")"
+
+    if [ "$status" = "completed" ]; then
+      output="$(jq -cn --arg run_id "$run_id" --arg conclusion "$conclusion" \
+        --arg url "$url" --arg head "$head" \
+        '{run_id:($run_id|tonumber),conclusion:$conclusion,url:$url,head_sha:$head}')"
+      if [ "$conclusion" = "success" ] && _workflow_sha_match "$expected_sha" "$head"; then
+        append_deploy_record "$project" deploy_workflow_succeeded "$key" "$input" "$output" >/dev/null
+        echo "deploy: workflow run $run_id succeeded ($url)" >&2
+        return 0
+      fi
+      append_deploy_record "$project" deploy_workflow_failed "$key" "$input" "$output" >/dev/null
+      if [ "$conclusion" = "success" ]; then
+        echo "deploy: workflow run $run_id head mismatch — expected $expected_sha, observed ${head:-<none>}" >&2
+      else
+        echo "deploy: workflow run $run_id completed with ${conclusion:-unknown} ($url)" >&2
+      fi
+      return 1
+    fi
+
+    if [ "$waited" -ge "$timeout" ]; then
+      echo "deploy: workflow run $run_id did not complete within ${timeout}s; retry will resume this run" >&2
+      return 1
+    fi
+    if [ $((waited - last_print)) -ge 60 ]; then
+      echo "deploy: waiting for workflow run $run_id (${status:-unknown}, ${waited}s/${timeout}s)" >&2
+      last_print=$waited
+    fi
+    sleep "$interval"
+    waited=$((waited + interval))
+  done
+}
+
+# verify_health_sha <url> <top-level-json-field> <expected-sha>
+verify_health_sha() {
+  local url="$1" field="$2" expected="$3"
+  local timeout="${OTTA_HEALTH_POLL_TIMEOUT:-300}"
+  local interval="${OTTA_HEALTH_POLL_INTERVAL:-10}"
+  local waited=0 body observed="" state="unavailable"
+  while :; do
+    body="$(curl -fsS --max-time 10 "$url" 2>/dev/null)" || body=""
+    if [ -n "$body" ]; then
+      observed="$(jq -r --arg field "$field" '.[$field] // empty' <<<"$body" 2>/dev/null || true)"
+      if [ -n "$observed" ]; then
+        state="$observed"
+        if _workflow_sha_match "$expected" "$observed"; then
+          echo "deploy: runtime health SHA verified ($observed)" >&2
+          return 0
+        fi
+      else
+        state="unavailable"
+      fi
+    else
+      state="unavailable"
+    fi
+    if [ "$waited" -ge "$timeout" ]; then
+      echo "deploy: health SHA verification failed after ${timeout}s — expected $expected, observed $state, url=$url" >&2
+      return 1
+    fi
+    sleep "$interval"
+    waited=$((waited + interval))
+  done
+}
+
+# run_github_workflow_deploy <repo> <project> <target> <workflow> <ref>
+#   <sha-input> <merge-sha> <health-url> <health-field>
+run_github_workflow_deploy() {
+  local repo="$1" project="$2" target="$3" workflow="$4" ref="$5"
+  local sha_input="$6" merge_sha="$7" health_url="$8" health_field="$9"
+  local key latest run_id input output
+  key="$(workflow_deploy_key "$repo" "$workflow" "$target" "$merge_sha")"
+  latest="$(deployment_last_record "$project" "$key" 2>/dev/null || true)"
+  if [ -n "$latest" ] && [ "$(jq -r '.event' <<<"$latest")" = "deploy_runtime_verified" ]; then
+    echo "deploy: runtime already verified for $merge_sha" >&2
+    return 0
+  fi
+
+  run_id="$(ensure_workflow_dispatched "$repo" "$project" "$target" "$workflow" "$ref" "$sha_input" "$merge_sha")" || return $?
+  latest="$(deployment_last_record "$project" "$key")" || return 1
+  input="$(jq -c '.input' <<<"$latest")"
+  if [ "$(jq -r '.event' <<<"$latest")" != "deploy_workflow_succeeded" ]; then
+    wait_for_workflow_terminal "$repo" "$project" "$key" "$input" "$run_id" "$merge_sha" || return $?
+  fi
+  [ -n "$health_url" ] || { echo "deploy: github-workflow executor requires deploy.health_url" >&2; return 1; }
+  verify_health_sha "$health_url" "$health_field" "$merge_sha" || return $?
+  output="$(jq -cn --arg run_id "$run_id" --arg url "$health_url" --arg sha "$merge_sha" \
+    '{run_id:($run_id|tonumber),health_url:$url,verified_sha:$sha}')"
+  append_deploy_record "$project" deploy_runtime_verified "$key" "$input" "$output" >/dev/null
+  echo "deploy: workflow and runtime verified for $merge_sha" >&2
+}
+
 # ensure_workflow_dispatched <repo> <project> <target> <workflow> <ref> <sha-input> <merge-sha>
 # At-most-once under uncertainty: once dispatching is recorded, retries only
 # reconcile/resume and never issue another workflow_dispatch implicitly.
