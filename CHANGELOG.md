@@ -1,3 +1,9 @@
+## 1.1.2
+
+### Fixed
+
+- complete native workflow and telemetry parity (#131) (#132)
+
 ## 1.1.1
 
 ### Changed
