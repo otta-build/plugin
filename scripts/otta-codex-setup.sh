@@ -97,12 +97,32 @@ try:
 except FileNotFoundError:
     lines = []
 
-# Strip only Otta-managed exporter sub-tables and the two Otta-managed selector
-# keys. Table names may use bare or quoted TOML segments. All unrelated content,
-# including other direct [otel] keys, is preserved verbatim.
+# Strip only Otta-managed legacy exporter sub-tables and the two Otta-managed
+# exporter keys. Codex's schema requires each OTLP/HTTP exporter to be an inline
+# tagged object; the older string selector + child table shape is invalid.
+# Table names may use bare or quoted TOML segments. All unrelated content,
+# including other direct [otel] keys and literal quoted tables, is preserved.
 kept = []
 has_otel = False
 in_managed_table = False
+
+def toml_string(value):
+    # JSON basic strings use the same escaping needed here; retain Unicode as
+    # UTF-8 so non-BMP values do not become invalid TOML surrogate escapes.
+    return json.dumps(value, ensure_ascii=False)
+
+def exporter_value(endpoint):
+    return (
+        '{ otlp-http = { endpoint = ' + toml_string(endpoint) +
+        ', protocol = "json", headers = { x-pulse-token = ' +
+        toml_string(token) + ', x-pulse-repo = ' + toml_string(repo) +
+        ' } } }'
+    )
+
+exporter_lines = (
+    'exporter = ' + exporter_value(pulse + '/v1/logs') + '\n'
+    'metrics_exporter = ' + exporter_value(pulse + '/v1/metrics') + '\n'
+)
 
 def table_path(line):
     match = re.match(r'^\s*\[\s*(.*?)\s*\]\s*(?:#.*)?$', line)
@@ -167,8 +187,7 @@ for line in lines:
         if section == ('otel',):
             has_otel = True
             kept.append(line)
-            kept.append('exporter = "otlp-http"\n')
-            kept.append('metrics_exporter = "otlp-http"\n')
+            kept.append(exporter_lines)
             continue
     if in_managed_table:
         continue
@@ -182,47 +201,23 @@ for line in lines:
 # Remove trailing blank lines from preserved content
 content = ''.join(kept).rstrip('\n')
 
-# Exporter sub-sections only (token-bearing; always overwritten)
-exporter_block = (
-    '[otel.exporter.otlp-http]\n'
-    'endpoint = ' + json.dumps(pulse + '/v1/logs') + '\n'
-    'protocol = "json"\n'
-    '\n'
-    '[otel.exporter.otlp-http.headers]\n'
-    'x-pulse-token = ' + json.dumps(token) + '\n'
-    'x-pulse-repo = ' + json.dumps(repo) + '\n'
-    '\n'
-    '[otel.metrics_exporter.otlp-http]\n'
-    'endpoint = ' + json.dumps(pulse + '/v1/metrics') + '\n'
-    'protocol = "json"\n'
-    '\n'
-    '[otel.metrics_exporter.otlp-http.headers]\n'
-    'x-pulse-token = ' + json.dumps(token) + '\n'
-    'x-pulse-repo = ' + json.dumps(repo) + '\n'
-)
-
 # Default [otel] header written only when absent from existing config
 otel_header = (
     '[otel]\n'
-    'exporter = "otlp-http"\n'
-    'metrics_exporter = "otlp-http"\n'
+    + exporter_lines +
     'log_user_prompt = false\n'
     'environment = "production"\n'
 )
 
 if content:
     if has_otel:
-        # Existing [otel] section present — just append exporter sub-sections
-        final = content + '\n\n' + exporter_block
+        # Existing [otel] section already received the inline exporter values.
+        final = content + '\n'
     else:
-        # No [otel] section — add defaults then exporter
-        final = content + '\n\n' + otel_header + '\n' + exporter_block
+        # No [otel] section — add defaults and inline exporters.
+        final = content + '\n\n' + otel_header
 else:
-    if has_otel:
-        # File had only otel sections (all stripped) — just write exporter
-        final = exporter_block
-    else:
-        final = otel_header + '\n' + exporter_block
+    final = otel_header
 
 with open(path, 'w') as f:
     f.write(final)
