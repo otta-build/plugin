@@ -5,7 +5,7 @@
 # Each failing probe prints ✗ and continues — no single probe aborts the script.
 set -euo pipefail
 
-REPO_ROOT="$(pwd)"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 score=0
 
 pass()     { echo "  ✓ $1"; score=$((score + 1)); }
@@ -87,7 +87,7 @@ fi
 if [ -f "$REPO_ROOT/.otta/pulse.env" ]; then
   STATUS_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/otta-pulse-status.sh"
   set +e
-  PULSE_STATUS="$(bash "$STATUS_SCRIPT" 2>&1)"
+  PULSE_STATUS="$(OTTA_PULSE_ENV_FILE="$REPO_ROOT/.otta/pulse.env" bash "$STATUS_SCRIPT" 2>&1)"
   PULSE_STATUS_RC=$?
   set -e
   if [ "$PULSE_STATUS_RC" -eq 0 ]; then

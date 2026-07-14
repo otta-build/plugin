@@ -188,6 +188,15 @@ grep -qi "pulse.env.*token\|token.*pulse.env" "$SETUP" \
   || fail "setup.md must describe hosted repo-token reuse from .otta/pulse.env"
 grep -qi "installation-status\|repository access.*checks:write\|checks:write.*repository access" "$SETUP" \
   || fail "setup.md must describe hosted installation-status verification"
+grep -q -- '--instructions-only' "$SETUP" \
+  || fail "setup.md must show browser instructions without starting the blocking verification poll"
+grep -q -- '--verify' "$SETUP" \
+  || fail "setup.md must run wiring/verification only after browser consent"
+INSTRUCTIONS_LINE="$(grep -n -- '--instructions-only' "$SETUP" | head -1 | cut -d: -f1)"
+CONFIRM_LINE="$(grep -n -E 'confirm.*install|install.*confirm|After the user confirms' "$SETUP" | head -1 | cut -d: -f1)"
+VERIFY_LINE="$(grep -n -- '--verify' "$SETUP" | head -1 | cut -d: -f1)"
+[ -n "$CONFIRM_LINE" ] && [ "$INSTRUCTIONS_LINE" -lt "$CONFIRM_LINE" ] && [ "$CONFIRM_LINE" -lt "$VERIFY_LINE" ] \
+  || fail "setup.md order must be instructions -> user confirmation -> blocking verification"
 grep -qi "self.hosted.*secret\|secret.*self.hosted\|self.hosted.*webhook\|webhook.*self.hosted" "$SETUP" \
   || fail "AC(#70b): setup.md B5 must clarify that webhook secret is only for self-hosted instances"
 

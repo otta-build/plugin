@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pulse-install.sh [--open] — onboard the Otta Pulse GitHub App and auto-wire
+# pulse-install.sh [--open] [--instructions-only|--verify] — onboard Pulse
 # the repo's Pulse credentials into .otta/pulse.env.
 #
 # Install is interactive browser consent (GitHub never lets a tool install an
@@ -8,10 +8,27 @@
 # App credentials remain server-side and are never requested from customers.
 set -euo pipefail
 
+OPEN=0
+INSTRUCTIONS_ONLY=0
+VERIFY_ONLY=0
+for _arg in "$@"; do
+  case "$_arg" in
+    --open) OPEN=1 ;;
+    --instructions-only) INSTRUCTIONS_ONLY=1 ;;
+    --verify) VERIFY_ONLY=1 ;;
+    *) echo "usage: pulse-install.sh [--open] [--instructions-only|--verify]" >&2; exit 2 ;;
+  esac
+done
+if [ "$INSTRUCTIONS_ONLY" -eq 1 ] && [ "$VERIFY_ONLY" -eq 1 ]; then
+  echo "ERROR: --instructions-only and --verify are mutually exclusive." >&2
+  exit 2
+fi
+
 APP_SLUG="otta-pulse"
 INSTALL_URL="https://github.com/apps/${APP_SLUG}/installations/new"
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo '<your repo>')"
 
+if [ "$VERIFY_ONLY" -eq 0 ]; then
 cat <<EOF
 Otta Pulse — DORA metrics + merge gates for your repos.
 
@@ -22,12 +39,15 @@ Otta Pulse — DORA metrics + merge gates for your repos.
 
 After install, Pulse ingests your PR/CI/tag webhooks with zero further config.
 EOF
+fi
 
-if [ "${1:-}" = "--open" ]; then
+if [ "$OPEN" -eq 1 ]; then
   if command -v open >/dev/null; then open "$INSTALL_URL"
   elif command -v xdg-open >/dev/null; then xdg-open "$INSTALL_URL"
   else echo "(could not auto-open — visit the URL above)"; fi
 fi
+
+[ "$INSTRUCTIONS_ONLY" -eq 1 ] && exit 0
 
 # Auto-wire Pulse credentials: POST /connect to get a per-repo scoped token and
 # write .otta/pulse.env so ledger-append.sh can stream gate verdicts without any
@@ -109,16 +129,18 @@ for _attempt in $(seq 1 "$ATTEMPTS"); do
   STATUS_OUT="$(OTTA_PULSE_URL="$PULSE_URL" OTTA_PULSE_TOKEN="$PULSE_TOKEN" bash "$STATUS_SCRIPT" "$REPO" 2>&1)"
   STATUS_RC=$?
   set -e
-  if [ "$STATUS_RC" -eq 0 ] || [ "$STATUS_RC" -eq 3 ] || [ "$STATUS_RC" -eq 4 ]; then
-    printf '%s\n' "$STATUS_OUT"
+  if [ "$STATUS_RC" -eq 0 ] || [ "$STATUS_RC" -eq 4 ]; then
     break
   fi
-  [ "$_attempt" -lt "$ATTEMPTS" ] && sleep "$INTERVAL"
+  if [ "$_attempt" -ge "$ATTEMPTS" ]; then
+    break
+  fi
+  sleep "$INTERVAL"
 done
 
 case "$STATUS_RC" in
-  0) : ;;
-  3|4) exit "$STATUS_RC" ;;
+  0) printf '%s\n' "$STATUS_OUT" ;;
+  3|4) printf '%s\n' "$STATUS_OUT"; exit "$STATUS_RC" ;;
   *)
     printf '%s\n' "${STATUS_OUT:-Pulse verification unavailable; local setup can continue, but connection is not verified.}"
     ;;

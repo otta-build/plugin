@@ -105,6 +105,14 @@ echo "$OUTPUT" | grep -qE '8/8' \
   || fail "all-repo: expected '8/8' in output, got:\n$OUTPUT"
 echo "  ✓ 8/8 score correct"
 
+mkdir -p "$ALL_REPO/packages/example"
+OUTPUT="$(cd "$ALL_REPO/packages/example" && PATH="$FAKE_BIN_ALL:$PATH" bash "$SCRIPT" 2>&1)" || true
+echo "$OUTPUT" | grep -qE '8/8' \
+  || fail "subdirectory: expected root configuration to remain 8/8, got:\n$OUTPUT"
+echo "$OUTPUT" | grep -q 'Pulse connected (repository access + checks:write verified)' \
+  || fail "subdirectory: root pulse.env was not server-verified: $OUTPUT"
+echo "  ✓ repository root Pulse configuration works from a subdirectory"
+
 # =============================================================================
 # 3. Score 3/8 — partial: dims 1, 2, 8 only; pulse.env is unverified
 # =============================================================================

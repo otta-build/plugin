@@ -128,25 +128,43 @@ Ask via AskUserQuestion — header "Otta Pulse", question "Install the Otta Puls
 Only if the developer chooses "Install":
 
 ```bash
-bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --instructions-only
 ```
 
 **Self-hosting Pulse?** By default this wires to the hosted Otta Pulse at `https://pulse.otta.build`. A team running its own Pulse instance sets `OTTA_PULSE_URL` first:
 
 ```bash
-OTTA_PULSE_URL="https://pulse.your-team.example" bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh"
+export OTTA_PULSE_URL="https://pulse.your-team.example"
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --instructions-only
 ```
 
-Print the installation URL from the script and ask the user to open it, pick their account/org, and click Install. Offer to open it with `--open` if they are on this machine.
+Print the installation URL from the instructions-only call and ask the user to
+open it, pick their account/org, and click Install. If they want it opened on
+this machine, run the same instructions-only call with `--open`:
 
-The script then polls Pulse's customer-safe `installation-status` endpoint
+```bash
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --open --instructions-only
+```
+
+After the user confirms installation is complete, start repo wiring and the
+blocking verification poll:
+
+```bash
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --verify
+```
+
+The verify call polls Pulse's customer-safe `installation-status` endpoint
 using the repo token written to `.otta/pulse.env`. Setup succeeds only after
 Pulse confirms repository access and effective `checks:write`. A missing
 installation or stale permission approval fails with the GitHub repair action.
 A temporary Pulse/GitHub outage fails open for local gates, but is labeled
 "verification unavailable" and is not reported as connected by readiness.
 
-After the user confirms installation, record the choice; it is passed as the `--pulse` flag to `write-otta-contract.sh` → sets `telemetry.pulse: true` in `.otta.yml`. On "Skip", no flag is passed → `telemetry.pulse: false`. Do NOT run `pulse-install.sh` on "Skip".
+After verification completes (or explicitly reports a temporary fail-open
+outage), record the choice; it is passed as the `--pulse` flag to
+`write-otta-contract.sh` → sets `telemetry.pulse: true` in `.otta.yml`. On
+"Skip", no flag is passed → `telemetry.pulse: false`. Do NOT run
+`pulse-install.sh` on "Skip".
 
 ---
 

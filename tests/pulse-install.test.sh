@@ -41,7 +41,7 @@ case "$*" in
     count=$((count + 1))
     printf '%s' "$count" > "$STATUS_COUNT_FILE"
     if [ "$count" -eq 1 ]; then
-      printf '%s\n502' '{"repo":"acme/widget","state":"github_unavailable","repositoryAccess":false,"checksWrite":false}'
+      printf '%s\n200' '{"repo":"acme/widget","state":"not_installed","repositoryAccess":false,"checksWrite":false}'
     else
       printf '%s\n200' '{"repo":"acme/widget","state":"ready","repositoryAccess":true,"checksWrite":true}'
     fi
@@ -56,8 +56,8 @@ CURL_LOG="$TMP/ready.log" STATUS_COUNT_FILE="$TMP/ready-count" PATH="$BIN:$PATH"
   || fail "ready installation should pass: $(cat "$TMP/ready.out")"
 grep -q 'Pulse installation verified' "$TMP/ready.out" || fail "ready output missing verified verdict"
 grep -q 'x-pulse-token: repo-token' "$TMP/ready.log" || fail "status request did not use repo-scoped token"
-[ "$(cat "$TMP/ready-count")" = 2 ] || fail "setup did not poll status after a temporary outage"
-pass "setup polls until installed repository with checks:write is verified"
+[ "$(cat "$TMP/ready-count")" = 2 ] || fail "setup did not poll through initial not_installed status"
+pass "setup polls through not_installed until browser consent becomes ready"
 
 assert_definitive_failure() {
   local state="$1" expected="$2"
