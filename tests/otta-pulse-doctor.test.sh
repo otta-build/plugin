@@ -18,11 +18,15 @@ command -v jq >/dev/null || fail "jq required to run this test"
 # 1. Missing GitHub App credentials fails with an actionable auth-type message.
 # ---------------------------------------------------------------------------
 OUT="$("$SCRIPT" acme/widget 2>&1 || true)"
+echo "$OUT" | grep -qi "operator-only" || \
+  fail "doctor must be explicitly operator-only, got: $OUT"
+echo "$OUT" | grep -Eqi "hosted customer|run.*setup|installation-status" || \
+  fail "doctor must redirect hosted customers to setup/status, got: $OUT"
 echo "$OUT" | grep -q "GitHub App credentials required" || \
   fail "missing credentials output should explain App JWT creds, got: $OUT"
 echo "$OUT" | grep -q "user token" || \
   fail "missing credentials output should mention a gh user token is not enough, got: $OUT"
-pass "missing App credentials fail with actionable auth guidance"
+pass "operator-only doctor redirects hosted customers before credential guidance"
 
 # ---------------------------------------------------------------------------
 # 2. Happy path uses App JWT auth, mints installation token, and validates

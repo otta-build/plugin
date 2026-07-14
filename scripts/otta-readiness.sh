@@ -82,10 +82,21 @@ else
 fi
 
 # ------------------------------------------------------------------
-# dim 5: Pulse connected (.otta/pulse.env exists)
+# dim 5: Pulse connected (server-verified; file existence is not authority)
 # ------------------------------------------------------------------
 if [ -f "$REPO_ROOT/.otta/pulse.env" ]; then
-  pass "Pulse connected (.otta/pulse.env present)"
+  STATUS_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/otta-pulse-status.sh"
+  set +e
+  PULSE_STATUS="$(bash "$STATUS_SCRIPT" 2>&1)"
+  PULSE_STATUS_RC=$?
+  set -e
+  if [ "$PULSE_STATUS_RC" -eq 0 ]; then
+    pass "Pulse connected (repository access + checks:write verified)"
+  elif [ "$PULSE_STATUS_RC" -eq 3 ] || [ "$PULSE_STATUS_RC" -eq 4 ]; then
+    fail_dim "$PULSE_STATUS"
+  else
+    fail_dim "Pulse verification unavailable — .otta/pulse.env exists, but connection is not verified"
+  fi
 else
   fail_dim "Pulse not connected (no .otta/pulse.env — Pulse step needed)"
 fi

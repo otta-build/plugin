@@ -139,6 +139,13 @@ OTTA_PULSE_URL="https://pulse.your-team.example" bash "${OTTA_PLUGIN_ROOT:-${PLU
 
 Print the installation URL from the script and ask the user to open it, pick their account/org, and click Install. Offer to open it with `--open` if they are on this machine.
 
+The script then polls Pulse's customer-safe `installation-status` endpoint
+using the repo token written to `.otta/pulse.env`. Setup succeeds only after
+Pulse confirms repository access and effective `checks:write`. A missing
+installation or stale permission approval fails with the GitHub repair action.
+A temporary Pulse/GitHub outage fails open for local gates, but is labeled
+"verification unavailable" and is not reported as connected by readiness.
+
 After the user confirms installation, record the choice; it is passed as the `--pulse` flag to `write-otta-contract.sh` → sets `telemetry.pulse: true` in `.otta.yml`. On "Skip", no flag is passed → `telemetry.pulse: false`. Do NOT run `pulse-install.sh` on "Skip".
 
 ---
@@ -403,7 +410,7 @@ bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/insta
 
 ### B5. Wire telemetry (if chosen)
 
-If the developer enabled Claude telemetry in step 9 and/or the Codex adapter in step 9b, derive a separate per-repo token for each selected writer and wire its active telemetry config. The flow depends on whether this repo uses hosted or self-hosted Pulse:
+If the developer enabled Claude telemetry in step 9 and/or the Codex adapter in step 9b, wire its active telemetry config. The flow depends on whether this repo uses hosted or self-hosted Pulse:
 
 **Determine the Pulse URL** first:
 ```bash
@@ -413,7 +420,9 @@ REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 
 **For hosted `pulse.otta.build`** (no `OTTA_PULSE_URL` override, or `OTTA_PULSE_URL=https://pulse.otta.build`):
 
-No webhook secret is needed. The `/token?repo=` endpoint is public — GitHub App installation is the proof of authorization. Do NOT ask for a webhook secret.
+No webhook secret is needed. Reuse the repo-scoped token already written by
+`pulse-install.sh` to `.otta/pulse.env`; hosted `/token` is admin-only. Do not
+call `/token` unauthenticated and do not ask a hosted customer for App credentials.
 
 If the developer chose Claude Logs or Logs+traces, call its writer without a secret:
 
@@ -444,7 +453,13 @@ OTTA_PULSE_WEBHOOK_SECRET="$WEBHOOK_SECRET" \
   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-codex-setup.sh" --derive "$REPO"
 ```
 
-Each script calls `GET /token?repo=<repo>` (with the webhook secret as `x-pulse-token` only for self-hosted derivation). The Claude writer stores only its derived token in `.claude/settings.local.json`; the Codex writer stores only its derived token in `$CODEX_HOME/config.toml` and the ignored compatibility `.otta/codex.env`. The webhook secret is **never written to any file**, and neither writer prints tokens or token-bearing response bodies.
+For hosted Pulse, each writer reads `.otta/pulse.env` and makes no `/token`
+request. For self-hosted Pulse, each script calls `GET /token?repo=<repo>` with
+the operator webhook secret as `x-pulse-token`. The Claude writer stores only
+the repo token in `.claude/settings.local.json`; the Codex writer stores only
+the repo token in `$CODEX_HOME/config.toml` and the ignored compatibility
+`.otta/codex.env`. The webhook secret is **never written to any file**, and
+neither writer prints tokens or token-bearing response bodies.
 
 **Traces are a SEPARATE opt-in (beta, default NO).** Only if the developer chose Logs+traces, add `--traces` to the above call. For non-setup users, the manual env block is documented in the README.
 
@@ -516,6 +531,8 @@ bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-
 ```
 
 Show the developer the updated ✓/✗ list and the new `N/8 production-ready` score. Compare to the **before** snapshot from step 0.
+The Pulse dimension is green only when Pulse confirms repository access and
+effective `checks:write`; `.otta/pulse.env` existence alone is never called connected.
 
 ---
 

@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 # otta-telemetry-setup.sh <owner/repo> [webhook-secret] [--traces]
 #
-# Derives a per-repo HMAC token by calling the Pulse /token endpoint, then
+# Reuses the hosted repo token written by pulse-install.sh (or derives one from
+# an operator-authenticated self-hosted /token endpoint), then
 # merges an OTEL `env` block into .claude/settings.local.json (gitignored,
 # token-bearing — NEVER the committed settings.json) so Claude Code emits
 # telemetry to Otta Pulse. Logs are the default; --traces additionally opts
 # into the BETA traces/spans exporters. Merge-into-existing, never clobber;
 # idempotent on re-run.
 #
-# Hosted pulse.otta.build (no OTTA_PULSE_URL override): the /token endpoint is
-# public — no auth header required. GitHub App installation is the proof of
-# authorization. The webhook secret is NOT needed and NOT prompted for.
+# Hosted pulse.otta.build: .otta/pulse.env is required. /token is admin-only.
 #
 # Self-hosted (OTTA_PULSE_URL set to a non-hosted URL): the webhook secret must
 # be provided as the second positional argument. It is passed as the
@@ -45,15 +44,25 @@ HOSTED_DEFAULT="https://pulse.otta.build"
 
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required for the JSON merge." >&2; exit 1; }
 
-PULSE="${OTTA_PULSE_URL:-$HOSTED_DEFAULT}"
+PULSE_ENV_FILE="${OTTA_PULSE_ENV_FILE:-.otta/pulse.env}"
+env_value() {
+  local key="$1"
+  [ -f "$PULSE_ENV_FILE" ] || return 0
+  sed -n "s/^${key}=//p" "$PULSE_ENV_FILE" | tail -1
+}
+
+PULSE="${OTTA_PULSE_URL:-$(env_value OTTA_PULSE_URL)}"
+PULSE="${PULSE:-$HOSTED_DEFAULT}"
 PULSE="${PULSE%/}"            # normalize trailing slash so /v1/logs isn't doubled
 
-# Hosted pulse.otta.build: /token is public — no auth header. GitHub App = proof.
+# Hosted pulse.otta.build: reuse the repo-scoped token from pulse.env.
 # Self-hosted: webhook secret required; passed as x-pulse-token header.
 if [ "$PULSE" = "$HOSTED_DEFAULT" ]; then
-  # Hosted path: no secret needed or expected.
-  if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" 2>&1); then
-    echo "Error: could not reach Pulse at ${PULSE}/token" >&2
+  TOKEN="$(env_value OTTA_PULSE_TOKEN)"
+  TOKEN="${TOKEN:-${OTTA_PULSE_TOKEN:-}}"
+  if [ -z "$TOKEN" ]; then
+    echo "Error: hosted Pulse requires the repo token written by pulse-install.sh in ${PULSE_ENV_FILE}." >&2
+    echo "Run otta setup/status to complete and verify the GitHub App installation first." >&2
     exit 1
   fi
 else
@@ -69,11 +78,11 @@ else
     echo "Error: could not reach Pulse at ${PULSE}/token" >&2
     exit 1
   fi
-fi
-TOKEN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])" 2>/dev/null) || true
-if [ -z "$TOKEN" ]; then
-  echo "Error: /token response did not contain a token field (response body redacted)." >&2
-  exit 1
+  TOKEN=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])" 2>/dev/null) || true
+  if [ -z "$TOKEN" ]; then
+    echo "Error: /token response did not contain a token field (response body redacted)." >&2
+    exit 1
+  fi
 fi
 
 SETTINGS=".claude/settings.local.json"

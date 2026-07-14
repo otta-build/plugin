@@ -182,10 +182,12 @@ grep -qi "update.*in.place\|idempotent.*re.run\|re.run.*idempotent\|not.*duplica
   || fail "AC(#70a): setup.md must describe idempotent re-run (no duplicate blocks)"
 
 # ---------------------------------------------------------------------------
-# AC (issue #70b): hosted Pulse token flow — no webhook secret for pulse.otta.build
+# Hosted Pulse token flow reuses pulse.env and verifies installation status.
 # ---------------------------------------------------------------------------
-grep -qi "no.*webhook.*secret\|without.*webhook.*secret\|no auth.*header\|GET /token\?repo\|/token?repo" "$SETUP" \
-  || fail "AC(#70b): setup.md B5 must describe the hosted /token?repo= no-auth path"
+grep -qi "pulse.env.*token\|token.*pulse.env" "$SETUP" \
+  || fail "setup.md must describe hosted repo-token reuse from .otta/pulse.env"
+grep -qi "installation-status\|repository access.*checks:write\|checks:write.*repository access" "$SETUP" \
+  || fail "setup.md must describe hosted installation-status verification"
 grep -qi "self.hosted.*secret\|secret.*self.hosted\|self.hosted.*webhook\|webhook.*self.hosted" "$SETUP" \
   || fail "AC(#70b): setup.md B5 must clarify that webhook secret is only for self-hosted instances"
 

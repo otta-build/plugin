@@ -6,6 +6,13 @@
 # checks: the app installation token must include checks=write.
 set -euo pipefail
 
+cat >&2 <<'EOF'
+NOTICE: Pulse Doctor is operator-only.
+Hosted customers should run Otta setup/status; those commands use Pulse's
+customer-safe installation-status endpoint and never require App private keys.
+The credentials below belong only to operators of a self-hosted Pulse service.
+EOF
+
 API="${GITHUB_API_URL:-https://api.github.com}"
 
 need() {

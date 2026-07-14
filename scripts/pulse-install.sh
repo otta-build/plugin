@@ -4,8 +4,8 @@
 #
 # Install is interactive browser consent (GitHub never lets a tool install an
 # App silently). This prints the install URL and, with --open, launches it.
-# Detection of an existing install needs the App's own JWT, which a customer
-# doesn't have — so we guide rather than auto-detect.
+# Verification uses Pulse's customer-safe installation-status endpoint. GitHub
+# App credentials remain server-side and are never requested from customers.
 set -euo pipefail
 
 APP_SLUG="otta-pulse"
@@ -95,3 +95,31 @@ else
 fi
 
 echo "✓ Pulse wired — .otta/pulse.env written (gitignored). Gate verdicts will stream automatically."
+
+# Verify the browser installation with the server-side App authority. Missing
+# access and stale permission approval are definitive setup failures. A
+# temporary Pulse/GitHub outage fails open: preserve the repo token and explain
+# that readiness remains unverified so local gates can still run.
+STATUS_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/otta-pulse-status.sh"
+ATTEMPTS="${OTTA_PULSE_STATUS_ATTEMPTS:-15}"
+INTERVAL="${OTTA_PULSE_STATUS_INTERVAL_SECONDS:-2}"
+STATUS_RC=5
+for _attempt in $(seq 1 "$ATTEMPTS"); do
+  set +e
+  STATUS_OUT="$(OTTA_PULSE_URL="$PULSE_URL" OTTA_PULSE_TOKEN="$PULSE_TOKEN" bash "$STATUS_SCRIPT" "$REPO" 2>&1)"
+  STATUS_RC=$?
+  set -e
+  if [ "$STATUS_RC" -eq 0 ] || [ "$STATUS_RC" -eq 3 ] || [ "$STATUS_RC" -eq 4 ]; then
+    printf '%s\n' "$STATUS_OUT"
+    break
+  fi
+  [ "$_attempt" -lt "$ATTEMPTS" ] && sleep "$INTERVAL"
+done
+
+case "$STATUS_RC" in
+  0) : ;;
+  3|4) exit "$STATUS_RC" ;;
+  *)
+    printf '%s\n' "${STATUS_OUT:-Pulse verification unavailable; local setup can continue, but connection is not verified.}"
+    ;;
+esac
