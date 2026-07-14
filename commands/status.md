@@ -42,7 +42,7 @@ If `$1` is empty/absent, don't require an issue number — instead enumerate ope
 
 4. **Gate + CI stages.** `gh pr checks <pr-number> --repo "$REPO" --json name,state,bucket` (or `gh pr checks <pr-number>` if `--json` isn't supported by the installed `gh` version — fall back to parsing the plain-text table). Map the check named `Otta Gate` (or its sub-checks) to the **Gate** stage, and the CI workflow check (e.g. `CI` / `ci.yml`) to the **CI** stage. `bucket`/state `pass`→pass, `fail`→fail, anything in-progress/queued→pending. This is the gh-only detail text (e.g. `"Otta Gate: 2/3 sub-checks failing"`); step 6 below enriches it with Pulse feedback when configured.
 
-5. **Release/Deploy stage.** From the PR JSON: `mergedAt` unset → `pending`. `mergedAt` set → check `gh release list --repo "$REPO" -L 5` for a tag containing the merge commit, or fall back to the `.otta.yml` `deploy.auto` policy text (e.g. "merged, deploy policy: human-approve — no auto-deploy configured") when there's nothing further to verify. Merged with a matching release → `pass`. This is the gh-only detail text; step 6 below enriches it with Pulse `/lifecycle` ship info when configured.
+5. **Release/Deploy stage.** From the PR JSON: `mergedAt` unset → `pending`. For `executor: github-workflow`, inspect `source:"deploy"` records for the merge SHA in `~/.otta/ledger/<repo-slug>.jsonl`: `deploy_dispatching`/`deploy_dispatched`/`deploy_workflow_succeeded` are pending, `deploy_dispatch_unknown`/`deploy_workflow_failed` are fail, and only `deploy_runtime_verified` is pass. Include the recorded run ID/URL and verified SHA when present. For legacy contracts, check `gh release list --repo "$REPO" -L 5` or fall back to the `deploy.auto` policy text. A merge or successful dispatch alone is never deployment proof.
 
 6. **Pulse `/grade` + `/lifecycle` (opt-in).** Only if both `OTTA_PULSE_URL` and `OTTA_PULSE_TOKEN` are set (check env, then `./.otta/pulse.env`). If unset, skip this step entirely and note in the Gate stage detail: `"Pulse not configured — gate status from gh checks only"`. Never treat "not configured" as an error, and a failed/timed-out call must never block rendering — swallow it and fall through to the gh-only detail text from steps 4/5.
 
@@ -95,7 +95,7 @@ Check the LEARN ledger (`~/.otta/ledger/<repo-slug>.jsonl`) for recent `deploy_a
 | Build in-progress | PR not yet open (no cross-reference in issue timeline) |
 | Gate/CI in-progress | PR open, gate checks queued or in-progress |
 | Deploy in-progress | PR merged, deploy-verify not yet confirmed |
-| Done | PR merged + deploy confirmed (or human-approve policy) |
+| Done | PR merged + deploy confirmed; workflow executor requires `deploy_runtime_verified` |
 
 Render the stage checklist as a compact list alongside the standard 5-stage view:
 

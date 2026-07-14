@@ -36,8 +36,12 @@ After merge + release tag, Pulse ingests the PR/tag webhooks automatically. The 
    ```
 
    The stage reads the `deploy` block from `.otta.yml`:
-   - **`human-approve`** (default, and what an absent block resolves to) — stops at the open PR. The human merges. This preserves today's behavior exactly; nothing auto-merges.
+   - **`human-approve`** (default, and what an absent block resolves to) — without an executor, stops at the open PR exactly as before. With `executor: github-workflow`, show the exact repo, PR head, target, workflow, ref, and health URL; after explicit approval rerun with `--approved-head <exact-pr-head>`. A changed head invalidates approval.
    - **`merge-on-green`** — polls the Otta Gate until every sub-check is green (on stall it prints the blocking sub-check — e.g. a `ciGreen` stuck with no runner — instead of hanging), then squash-merges. Downstream deploy is handled outside Otta.
-   - **`merge-and-deploy`** — merges on green, then verifies the deploy reached the merged SHA via the configured `provider` (Coolify adapter reads `OTTA_COOLIFY_*` from the env; `provider: none` is the generic path), optionally probes a health endpoint, and reports the live URL + SHA or the exact failing step.
+   - **`merge-and-deploy`** — legacy contracts merge then verify via the configured provider. With `executor: github-workflow`, Otta dispatches exactly one configured workflow for the merge SHA, polls it to terminal success, then verifies the live health commit.
 
    **Prod guard (AC5):** `target: production` with `auto: merge-and-deploy` is **rejected** unless `deploy.allow_production: true` is set in `.otta.yml` — no accidental hands-off prod deploys. Coolify creds are never baked into the plugin; they come from the environment.
+
+   **One mutation authority.** For `executor: github-workflow`, the repository workflow is the only infrastructure mutator. Disable parallel provider/webhook triggers, use one production concurrency group with `cancel-in-progress: false`, reuse artifacts, and keep cleanup outside the deploy critical section. Otta stores only workflow/run/commit evidence; provider credentials stay in the workflow.
+
+   **Recovery is explicit.** A normal retry resumes the recorded run. Inspect it with `gh run view <run-id> --log-failed` and the deploy records in `~/.otta/ledger/<repo>.jsonl`. Attach a known workflow-dispatch run to `dispatch_unknown` with `--resolve-run-id <run-id>`; retry a recorded failed run with `--retry-failed-run`. For rollback, invoke the repository's documented rollback workflow. Never guess among multiple runs or create a second ordinary deployment while dispatch state is uncertain.

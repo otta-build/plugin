@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # write-otta-contract.sh [--output <file>] [--seo-geo] [--deploy-target <target>]
-#   [--deploy-project <project>] [--pulse] [--otel <endpoint>]
+#   [--deploy-project <project>] [--deploy-executor none|github-workflow]
+#   [--deploy-workflow <file-or-id>] [--pulse] [--otel <endpoint>]
 #
 # Writes the v2 .otta.yml contract — the single per-repo interface every loop
 # + Paperclip dispatch reads (OTT-36 / Autonomous Marketing Operating Plan §2).
@@ -8,7 +9,7 @@
 # Schema (6 keys — locked; do not add extras):
 #   tracker:   { kind: linear, team: <team> }  or  { kind: gh }
 #   autonomy:  auto | human-gated
-#   deploy:    { target: <target | null>, project: <project | null> }
+#   deploy:    { target, project, auto[, GitHub workflow executor fields] }
 #   gates:     [pr-body-acceptance, test-coverage, review-thread]
 #   telemetry: { pulse: <true|false>, otel: <endpoint|null> }
 #   loops:     [dev_loop]  (+seo_geo when --seo-geo is passed)

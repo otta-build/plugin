@@ -16,6 +16,7 @@ AI agents code fast but quality is inconsistent — defects ship, runs forget co
 |------|---------------|-----------------|
 | **base / staging branches** | Otta must know your branch flow to route PRs and deploys | PRs auto-target the right branch; staging-accumulate → promote works |
 | **deploy.auto policy** | How far should the pipeline drive: stop at green PR / merge / merge+deploy? | You pick the safety level; `human-approve` ships nothing without you — never an accidental prod deploy |
+| **GitHub workflow executor** | Competing Otta/provider/webhook triggers can duplicate builds and overload an application host | Otta controls approval and one commit-bound dispatch while the repository workflow remains the sole mutation authority, serializes production work, and proves the live SHA |
 | **ci.required** | You need one authoritative "is this production-ready?" signal | The gate aggregates YOUR CI checks; agents can't merge red — no green-but-broken |
 | **Pulse App** | The loop has amnesia without a memory — runs don't learn from each other | DORA free (deploy frequency, lead time, change-failure rate) + escape detection (what shipped broken) + the LEARN data that improves agents over time |
 | **sandbox.credentials** | The pipeline runs Bash commands near your secrets | Agents can't read `~/.aws`, `~/.ssh`, or token env vars — credential exfiltration blocked |
@@ -30,5 +31,6 @@ After setup, this repo has:
 - **Memory** — Pulse learns from every gate verdict
 - **Visibility** — DORA metrics + cost per PR, free
 - **Safety** — sandboxed agents can't touch your credentials
+- **Controlled delivery** — one repository-owned deployment mutation path, explicit recovery/rollback, and no shipped verdict before workflow success plus live-SHA proof
 
 Ad-hoc AI coding → a measured, self-improving factory.
