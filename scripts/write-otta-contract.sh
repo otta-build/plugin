@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # write-otta-contract.sh [--output <file>] [--seo-geo] [--deploy-target <target>]
-#   [--deploy-project <project>] [--pulse] [--otel <endpoint>]
+#   [--deploy-project <project>] [--deploy-executor none|github-workflow]
+#   [--deploy-workflow <file-or-id>] [--pulse] [--otel <endpoint>]
 #
 # Writes the v2 .otta.yml contract — the single per-repo interface every loop
 # + Paperclip dispatch reads (OTT-36 / Autonomous Marketing Operating Plan §2).
@@ -8,7 +9,7 @@
 # Schema (6 keys — locked; do not add extras):
 #   tracker:   { kind: linear, team: <team> }  or  { kind: gh }
 #   autonomy:  auto | human-gated
-#   deploy:    { target: <target | null>, project: <project | null> }
+#   deploy:    { target, project, auto[, GitHub workflow executor fields] }
 #   gates:     [pr-body-acceptance, test-coverage, review-thread]
 #   telemetry: { pulse: <true|false>, otel: <endpoint|null> }
 #   loops:     [dev_loop]  (+seo_geo when --seo-geo is passed)
@@ -36,6 +37,14 @@ SEO_GEO=false
 DEPLOY_TARGET="null"
 DEPLOY_PROJECT="null"
 DEPLOY_AUTO="human-approve"
+DEPLOY_EXECUTOR="none"
+DEPLOY_WORKFLOW=""
+DEPLOY_REF="main"
+DEPLOY_SHA_INPUT="commit_sha"
+DEPLOY_PROVIDER="none"
+DEPLOY_VERIFY="sha-match"
+DEPLOY_HEALTH_URL=""
+DEPLOY_HEALTH_COMMIT_FIELD="commit"
 ALLOW_PRODUCTION=false
 PULSE=false
 OTEL_ENDPOINT="null"
@@ -50,6 +59,14 @@ while [[ $# -gt 0 ]]; do
     --deploy-target)       DEPLOY_TARGET="$2"; shift 2 ;;
     --deploy-project)      DEPLOY_PROJECT="$2"; shift 2 ;;
     --deploy-auto)         DEPLOY_AUTO="$2"; shift 2 ;;
+    --deploy-executor)     DEPLOY_EXECUTOR="$2"; shift 2 ;;
+    --deploy-workflow)     DEPLOY_WORKFLOW="$2"; shift 2 ;;
+    --deploy-ref)          DEPLOY_REF="$2"; shift 2 ;;
+    --deploy-sha-input)    DEPLOY_SHA_INPUT="$2"; shift 2 ;;
+    --deploy-provider)     DEPLOY_PROVIDER="$2"; shift 2 ;;
+    --deploy-verify)       DEPLOY_VERIFY="$2"; shift 2 ;;
+    --deploy-health-url)   DEPLOY_HEALTH_URL="$2"; shift 2 ;;
+    --deploy-health-commit-field) DEPLOY_HEALTH_COMMIT_FIELD="$2"; shift 2 ;;
     --allow-production)    ALLOW_PRODUCTION=true; shift ;;
     --pulse)               PULSE=true; shift ;;
     --otel)                OTEL_ENDPOINT="$2"; shift 2 ;;
@@ -64,6 +81,17 @@ done
 case "$DEPLOY_AUTO" in
   human-approve|merge-on-green|merge-and-deploy) ;;
   *) echo "unknown --deploy-auto value: $DEPLOY_AUTO (must be human-approve|merge-on-green|merge-and-deploy)" >&2; exit 1 ;;
+esac
+
+case "$DEPLOY_EXECUTOR" in
+  none) ;;
+  github-workflow)
+    [ -n "$DEPLOY_WORKFLOW" ] || {
+      echo "--deploy-executor github-workflow requires --deploy-workflow" >&2
+      exit 1
+    }
+    ;;
+  *) echo "unknown --deploy-executor value: $DEPLOY_EXECUTOR (must be none|github-workflow)" >&2; exit 1 ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -223,6 +251,16 @@ fi
   printf '  auto: %s\n' "$DEPLOY_AUTO_YAML"
   if [ -n "$ALLOW_PRODUCTION_YAML" ]; then
     printf '  allow_production: %s\n' "$ALLOW_PRODUCTION_YAML"
+  fi
+  if [ "$DEPLOY_EXECUTOR" != "none" ]; then
+    printf '  executor: %s\n' "$DEPLOY_EXECUTOR"
+    printf '  workflow: %s\n' "$DEPLOY_WORKFLOW"
+    printf '  ref: %s\n' "$DEPLOY_REF"
+    printf '  sha_input: %s\n' "$DEPLOY_SHA_INPUT"
+    printf '  provider: %s\n' "$DEPLOY_PROVIDER"
+    printf '  verify: %s\n' "$DEPLOY_VERIFY"
+    printf '  health_url: %s\n' "$DEPLOY_HEALTH_URL"
+    printf '  health_commit_field: %s\n' "$DEPLOY_HEALTH_COMMIT_FIELD"
   fi
   printf 'gates: %s\n' "$GATES_YAML"
   printf '%s\n' "telemetry:"

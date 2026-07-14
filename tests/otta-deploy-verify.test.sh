@@ -55,6 +55,24 @@ check "parse target=production"     "production"       "$(parse_deploy_target "$
 check "parse verify=health"         "health"           "$(parse_deploy_verify "$Y")"
 check "parse allow_production=true" "true"             "$(parse_deploy_allow_production "$Y")"
 
+Y="$(mk_yml workflow 'deploy:
+  auto: human-approve
+  target: production
+  executor: github-workflow
+  workflow: deploy-production.yml
+  ref: release
+  sha_input: expected_sha
+  provider: coolify
+  verify: health-sha
+  health_url: https://example.test/health
+  health_commit_field: revision')"
+check "parse executor=github-workflow" "github-workflow" "$(parse_deploy_executor "$Y")"
+check "parse workflow" "deploy-production.yml" "$(parse_deploy_workflow "$Y")"
+check "parse workflow ref" "release" "$(parse_deploy_ref "$Y")"
+check "parse SHA input" "expected_sha" "$(parse_deploy_sha_input "$Y")"
+check "parse health URL" "https://example.test/health" "$(parse_deploy_health_url "$Y")"
+check "parse health commit field" "revision" "$(parse_deploy_health_commit_field "$Y")"
+
 # ---------------------------------------------------------------------------
 # 2. Absent deploy block → human-approve (back-compat — the load-bearing default)
 # ---------------------------------------------------------------------------
@@ -65,6 +83,10 @@ ci:
 check "absent deploy block → human-approve" "human-approve" "$(parse_deploy_auto "$Y")"
 check "absent → target defaults production" "production"     "$(parse_deploy_target "$Y")"
 check "absent → provider defaults none"     "none"           "$(parse_deploy_provider "$Y")"
+check "absent → executor defaults none"     "none"           "$(parse_deploy_executor "$Y")"
+check "absent → workflow ref defaults main" "main"           "$(parse_deploy_ref "$Y")"
+check "absent → SHA input defaults commit_sha" "commit_sha"   "$(parse_deploy_sha_input "$Y")"
+check "absent → health field defaults commit" "commit"       "$(parse_deploy_health_commit_field "$Y")"
 check "absent → allow_production false"      "false"          "$(parse_deploy_allow_production "$Y")"
 
 # Missing file entirely → still human-approve.
@@ -100,6 +122,26 @@ check "prod + merge-and-deploy + opt-in + NOT green → no-merge" "no-merge" "$(
 # decide_merge exit code matches (0 only for merge).
 decide_merge human-approve true staging false >/dev/null; check "decide_merge no-merge → exit 1" 1 "$?"
 decide_merge merge-on-green true staging false >/dev/null; check "decide_merge merge → exit 0" 0 "$?"
+
+# GitHub-workflow delivery separates immutable approval from execution (#137 AC2).
+check "workflow human approval absent → wait-human" "wait-human" \
+  "$(decide_delivery_action human-approve OPEN github-workflow '' abc123 true)"
+check "workflow approved open PR → merge-dispatch" "merge-dispatch" \
+  "$(decide_delivery_action human-approve OPEN github-workflow abc123 abc123 true)"
+check "workflow changed head invalidates approval" "invalid-approval" \
+  "$(decide_delivery_action human-approve OPEN github-workflow abc123 def456 true)"
+check "workflow approval never accepts a SHA prefix" "invalid-approval" \
+  "$(decide_delivery_action human-approve OPEN github-workflow a abc123 true)"
+check "workflow approved merged PR → dispatch only" "dispatch" \
+  "$(decide_delivery_action human-approve MERGED github-workflow abc123 abc123 true)"
+check "workflow merged PR without approval → wait-human" "wait-human" \
+  "$(decide_delivery_action human-approve MERGED github-workflow '' abc123 true)"
+check "workflow merge-on-green remains merge-only" "merge-only" \
+  "$(decide_delivery_action merge-on-green OPEN github-workflow '' abc123 true)"
+check "workflow merge-and-deploy merges and dispatches" "merge-dispatch" \
+  "$(decide_delivery_action merge-and-deploy OPEN github-workflow '' abc123 true)"
+check "executor none uses legacy policy" "legacy" \
+  "$(decide_delivery_action human-approve OPEN none '' abc123 true)"
 
 # ---------------------------------------------------------------------------
 # 4. sha_match — pass / fail
@@ -164,6 +206,144 @@ case "$_ac2_out" in
   *"cannot determine repo"*) check "AC2 _run no-origin → error message" "yes" "yes" ;;
   *) check "AC2 _run no-origin → error message" "yes" "no ($_ac2_out)" ;;
 esac
+
+# Workflow executor refuses mutation without a matching immutable approval.
+Y="$(mk_yml approval 'deploy:
+  auto: human-approve
+  target: production
+  executor: github-workflow
+  workflow: deploy-production.yml
+  ref: main
+  sha_input: commit_sha
+  provider: coolify
+  verify: health-sha
+  health_url: https://example.test/health
+  health_commit_field: commit')"
+CALLS="$TMP/approval-calls"
+git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
+gh() {
+  printf '%s\n' "$*" >> "$CALLS"
+  if [ "$1 $2" = "pr view" ]; then
+    printf '{"state":"OPEN","headRefOid":"abc123","mergeCommit":null}\n'
+  fi
+}
+_approval_out="$(_run 42 --otta-yml "$Y" 2>&1)"; _approval_rc=$?
+check "workflow no approval stops safely" 1 "$_approval_rc"
+case "$_approval_out" in *"approval"*"abc123"*) check "workflow no approval shows exact head" yes yes ;; *) check "workflow no approval shows exact head" yes "no ($_approval_out)" ;; esac
+if grep -Eq 'pr merge|workflow run' "$CALLS"; then
+  check "workflow no approval performs no mutation" yes no
+else
+  check "workflow no approval performs no mutation" yes yes
+fi
+
+: > "$CALLS"
+_changed_out="$(_run 42 --otta-yml "$Y" --approved-head deadbeef 2>&1)"; _changed_rc=$?
+check "changed PR head invalidates approval" 1 "$_changed_rc"
+case "$_changed_out" in *"invalid"*"deadbeef"*"abc123"*) check "invalid approval reports both SHAs" yes yes ;; *) check "invalid approval reports both SHAs" yes "no ($_changed_out)" ;; esac
+if grep -Eq 'pr merge|workflow run' "$CALLS"; then
+  check "changed approval performs no mutation" yes no
+else
+  check "changed approval performs no mutation" yes yes
+fi
+
+: > "$CALLS"
+_prefix_out="$(_run 42 --otta-yml "$Y" --approved-head a 2>&1)"; _prefix_rc=$?
+check "prefix approval is rejected at initial boundary" 1 "$_prefix_rc"
+if grep -Eq 'pr merge|workflow run' "$CALLS"; then
+  check "prefix approval performs no mutation" yes no
+else
+  check "prefix approval performs no mutation" yes yes
+fi
+unset -f git gh
+
+# End-to-end orchestration routes only the configured workflow executor through
+# the adapter, and an already-merged PR is never merged again.
+ORCH_CALLS="$TMP/orch-calls"
+export OTTA_DEPLOY_POLL_TIMEOUT=0 OTTA_DEPLOY_POLL_INTERVAL=1
+git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
+run_github_workflow_deploy() {
+  printf 'adapter retry=%s resolve=%s args=%s\n' \
+    "${OTTA_DEPLOY_RETRY_FAILED_RUN:-}" "${OTTA_DEPLOY_RESOLVE_RUN_ID:-}" "$*" >> "$ORCH_CALLS"
+  return "${ADAPTER_RC:-0}"
+}
+gh() {
+  printf 'gh %s\n' "$*" >> "$ORCH_CALLS"
+  case "$1 $2" in
+    "pr view")
+      case "$*" in
+        *"--json mergeCommit -q"*) printf 'merge123\n' ;;
+        *) printf '{"state":"OPEN","headRefOid":"abc123","mergeCommit":null}\n' ;;
+      esac
+      ;;
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr merge") return 0 ;;
+  esac
+}
+: > "$ORCH_CALLS"
+_orch_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _orch_rc=$?
+check "approved open PR workflow path succeeds" 0 "$_orch_rc"
+check "approved open PR merges once" 1 "$(grep -c '^gh pr merge ' "$ORCH_CALLS")"
+case "$(grep '^adapter ' "$ORCH_CALLS")" in *"merge123"*"https://example.test/health"*"commit"*) check "open PR dispatches adapter with merge SHA and health contract" yes yes ;; *) check "open PR dispatches adapter with merge SHA and health contract" yes no ;; esac
+
+# A push while checks are polling invalidates approval even when the refreshed
+# head only extends the approved text as a SHA prefix.
+REFRESH_COUNT="$TMP/refresh-count"; printf '0\n' > "$REFRESH_COUNT"
+gh() {
+  printf 'gh %s\n' "$*" >> "$ORCH_CALLS"
+  case "$1 $2" in
+    "pr view")
+      count="$(cat "$REFRESH_COUNT")"; count=$((count + 1)); printf '%s\n' "$count" > "$REFRESH_COUNT"
+      if [ "$count" -eq 1 ]; then
+        printf '{"state":"OPEN","headRefOid":"abc123","mergeCommit":null}\n'
+      else
+        printf '{"state":"OPEN","headRefOid":"abc1234","mergeCommit":null}\n'
+      fi
+      ;;
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr merge") return 0 ;;
+  esac
+}
+: > "$ORCH_CALLS"
+_refresh_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _refresh_rc=$?
+check "prefix drift is rejected at refreshed boundary" 1 "$_refresh_rc"
+check "refreshed prefix drift performs no merge" 0 "$(grep -c '^gh pr merge ' "$ORCH_CALLS" || true)"
+
+gh() {
+  printf 'gh %s\n' "$*" >> "$ORCH_CALLS"
+  [ "$1 $2" = "pr view" ] && {
+    printf '{"state":"MERGED","headRefOid":"abc123","mergeCommit":{"oid":"merged999"}}\n'; return 0
+  }
+  return 1
+}
+: > "$ORCH_CALLS"
+_merged_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _merged_rc=$?
+check "approved merged PR dispatch path succeeds" 0 "$_merged_rc"
+check "approved merged PR is not merged again" 0 "$(grep -c '^gh pr merge ' "$ORCH_CALLS" || true)"
+case "$(grep '^adapter ' "$ORCH_CALLS")" in *"merged999"*) check "merged PR dispatches its recorded merge SHA" yes yes ;; *) check "merged PR dispatches its recorded merge SHA" yes no ;; esac
+
+: > "$ORCH_CALLS"
+_recovery_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 --retry-failed-run --resolve-run-id 55 2>&1)"; _recovery_rc=$?
+check "explicit recovery flags reach the adapter" 0 "$_recovery_rc"
+case "$(grep '^adapter ' "$ORCH_CALLS")" in *"retry=true"*"resolve=55"*) check "recovery flags are scoped to workflow execution" yes yes ;; *) check "recovery flags are scoped to workflow execution" yes no ;; esac
+
+ADAPTER_RC=1
+: > "$ORCH_CALLS"
+_failed_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _failed_rc=$?
+check "adapter workflow or health failure propagates" 1 "$_failed_rc"
+unset ADAPTER_RC
+
+MISSING="$(mk_yml missingworkflow 'deploy:
+  auto: human-approve
+  target: production
+  executor: github-workflow
+  health_url: https://example.test/health')"
+: > "$ORCH_CALLS"
+_missing_out="$(_run 42 --otta-yml "$MISSING" --approved-head abc123 2>&1)"; _missing_rc=$?
+check "missing configured workflow fails before mutation" 1 "$_missing_rc"
+check "missing workflow performs no merge or dispatch" 0 "$(grep -Ec '^gh pr merge |^adapter ' "$ORCH_CALLS" || true)"
+
+unset -f git gh run_github_workflow_deploy
+unset OTTA_DEPLOY_POLL_TIMEOUT OTTA_DEPLOY_POLL_INTERVAL
 
 # ---------------------------------------------------------------------------
 # 8. AC3: verify_deploy coolify — polling loop retries before timing out
@@ -268,6 +448,29 @@ if command -v python3 >/dev/null 2>&1; then
   check "AC(#100) self_audit logs at least 4 status lines (one per question)" "yes" \
     "$([ "$_audit_lines" -ge 4 ] && echo yes || echo "no ($_audit_lines lines)")"
 fi
+
+# Legacy merge-and-deploy keeps its provider verification route when no new
+# executor is configured (#137 AC6).
+LEGACY_ORCH="$(mk_yml legacyorch 'deploy:
+  auto: merge-and-deploy
+  target: staging
+  provider: none
+  verify: sha-match')"
+LEGACY_CALLS="$TMP/legacy-orch-calls"; : > "$LEGACY_CALLS"
+git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
+gh() {
+  printf '%s\n' "$*" >> "$LEGACY_CALLS"
+  case "$1 $2" in
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr merge") return 0 ;;
+    "pr view") printf 'legacy123\n' ;;
+  esac
+}
+legacy_out="$(OTTA_PULSE_URL= OTTA_PULSE_TOKEN= _run 77 --otta-yml "$LEGACY_ORCH" 2>&1)"; legacy_rc=$?
+check "legacy merge-and-deploy still succeeds" 0 "$legacy_rc"
+check "legacy merge-and-deploy still merges" 1 "$(grep -c '^pr merge ' "$LEGACY_CALLS")"
+case "$legacy_out" in *"provider 'none'"*) check "legacy route still invokes provider verification" yes yes ;; *) check "legacy route still invokes provider verification" yes no ;; esac
+unset -f git gh
 
 echo "  → $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

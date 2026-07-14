@@ -129,5 +129,36 @@ else
   echo "  ⚠ python3 unavailable — skipping engine YAML structure check (AC4)"
 fi
 
+# ── Test 13: GitHub workflow executor contract is additive (#137 AC1) ────────
+OUT="$TMP/t13.yml"
+bash "$SCRIPT" --output "$OUT" \
+  --deploy-target production --deploy-project leadcognition \
+  --deploy-auto human-approve --deploy-executor github-workflow \
+  --deploy-workflow deploy-production.yml --deploy-ref main \
+  --deploy-sha-input commit_sha --deploy-provider coolify \
+  --deploy-verify health-sha \
+  --deploy-health-url https://app.leadcognition.io/health \
+  --deploy-health-commit-field commit >/dev/null 2>&1
+for expected in \
+  'executor: github-workflow' \
+  'workflow: deploy-production.yml' \
+  'ref: main' \
+  'sha_input: commit_sha' \
+  'provider: coolify' \
+  'verify: health-sha' \
+  'health_url: https://app.leadcognition.io/health' \
+  'health_commit_field: commit'; do
+  grep -q "^[[:space:]]*$expected$" "$OUT" || fail "test 13: missing generated deploy key: $expected"
+done
+pass "github-workflow executor fields preserve provider and verification config"
+
+if bash "$SCRIPT" --deploy-executor github-workflow >/dev/null 2>&1; then
+  fail "test 13: github-workflow without --deploy-workflow should fail"
+fi
+if bash "$SCRIPT" --deploy-executor unknown --deploy-workflow x.yml >/dev/null 2>&1; then
+  fail "test 13: unknown deploy executor should fail"
+fi
+pass "workflow executor validation fails closed"
+
 echo ""
-echo "✓ write-otta-contract: all 12 checks passed"
+echo "✓ write-otta-contract: all 13 checks passed"

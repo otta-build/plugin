@@ -49,9 +49,9 @@ Run the detection script to inspect the repo and surface branch/deploy signals.
 bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/detect-delivery-context.sh"
 ```
 
-Show the developer the detection output. It will contain detected CI workflow names and `paths:` filters, any `deploy` signal found in the workflow files, and Linear/tracker signals. This includes `deploy.mode` — one of `"auto-on-merge"`, `"tag"`, `"manual"`, `"none"` — an informational delivery signal detected from CI; it is display-only here and is **not** one of the fields written to `.otta.yml` (the v2 contract's `deploy` block only has `target` and `project` — see step 2). Use this information to pre-fill the deploy and tracker answers for the steps below before anything is committed.
+Show the developer the detection output. It will contain detected CI workflow names and `paths:` filters, any `deploy` signal found in the workflow files, and Linear/tracker signals. `deploy.mode` is one of `"auto-on-merge"`, `"tag"`, `"manual"`, or `"none"`; it is diagnostic input, while the committed contract uses `deploy.auto` plus the optional GitHub workflow executor fields collected below.
 
-> **Preview vs. v2 contract mismatch:** `detect-delivery-context.sh` outputs a "preview" of detected fields. This preview may include keys (e.g., `deploy.mode`, `deploy.provider`) that do **not** appear in the written `.otta.yml` — the v2 contract schema is fixed at 6 keys (`tracker`, `autonomy`, `deploy`, `gates`, `telemetry`, `loops`). Treat the preview as diagnostic input, not as a draft of the final contract.
+> **Preview vs. v2 contract:** `detect-delivery-context.sh` is diagnostic, not a draft. The top-level v2 contract remains six keys, while `deploy:` can add `executor`, `workflow`, `ref`, `sha_input`, `provider`, `verify`, `health_url`, and `health_commit_field` when GitHub workflow execution is selected.
 
 ---
 
@@ -93,6 +93,20 @@ Ask via AskUserQuestion — header "Production auto-deploy opt-in", question "Th
 - `No, keep human gate on production` (default) — `allow_production` is omitted (false); a human must approve before production auto-deploys run
 
 Record both answers.
+
+### 3b. Optional GitHub workflow deployment executor
+
+If the repository already has an audited manual deployment workflow, ask whether Otta should control it. The recommended production shape is `human-approve` plus `executor: github-workflow`: Otta binds approval to the exact PR head, merges, dispatches one workflow for the merge SHA, polls it, and verifies the live health SHA. GitHub Actions remains the sole infrastructure mutation authority.
+
+Collect:
+
+- workflow file or ID (`deploy-production.yml`);
+- immutable dispatch ref (`main` by default);
+- workflow input that accepts the merge SHA (`commit_sha` by default);
+- provider label for evidence attribution;
+- health URL and top-level JSON commit field (`commit` by default).
+
+Before enabling it, require the target repository to disable competing deployment triggers, define one production concurrency group with cancellation disabled, reuse build artifacts where practical, and document a repository-owned rollback workflow. The workflow must put the exact SHA input in `run-name` as a standalone token (for example, `deploy ${{ inputs.commit_sha }}`). Otta requires that exact `display_title` marker for correlation; `head_sha` is never a substitute because it identifies the workflow ref rather than proving which SHA input the run received. The workflow must also self-dedupe across machines: after entering the global production concurrency group, compare live health to the requested SHA and exit without mutation when it already matches. Otta's local ledger lock cannot serialize agents on different hosts. These answers map to `--deploy-executor github-workflow`, `--deploy-workflow`, `--deploy-ref`, `--deploy-sha-input`, `--deploy-provider`, `--deploy-verify health-sha`, `--deploy-health-url`, and `--deploy-health-commit-field`.
 
 ---
 
@@ -300,7 +314,7 @@ Record the choice — the file is installed after confirmation in step 10.
 Show a complete summary of what will be written based on all choices above:
 
 > "Here is what I will write:
-> - `.otta.yml` — tracker: `{kind: linear, team: {team} | kind: gh}`, autonomy: `{auto | human-gated}`, deploy: `{target: {target}, project: {project}}`, gates: `[pr-body-acceptance, test-coverage, review-thread]`, telemetry: `{pulse: {true|false}, otel: {endpoint|null}}`, loops: `{[dev_loop] | [dev_loop, seo_geo]}`
+> - `.otta.yml` — tracker: `{kind: linear, team: {team} | kind: gh}`, autonomy: `{auto | human-gated}`, deploy: `{target, project, auto[, executor, workflow, ref, sha_input, provider, verify, health_url, health_commit_field]}`, gates: `[pr-body-acceptance, test-coverage, review-thread]`, telemetry: `{pulse: {true|false}, otel: {endpoint|null}}`, loops: `{[dev_loop] | [dev_loop, seo_geo]}`
 > - `.claude/settings.json` (sandbox credentials): `{yes/no}`
 > - `.github/workflows/ci-test.yml` (CI scaffold): `{yes/no}`
 > - `.github/workflows/otta-release.yml` (release tagging): `{yes/no}`
@@ -332,6 +346,14 @@ Pass the collected answers as flags (omit flags for fields that were left as def
 #   --deploy-target <target>   (e.g. cloudflare-pages, vercel, coolify, none)
 #   --deploy-project <name>    (project name on the deploy platform)
 #   --deploy-auto <policy>     (human-approve [default] | merge-on-green | merge-and-deploy)
+#   --deploy-executor github-workflow
+#   --deploy-workflow <file-or-id>
+#   --deploy-ref <dispatch-ref>                 (default main)
+#   --deploy-sha-input <workflow-input-name>    (default commit_sha)
+#   --deploy-provider <evidence-provider>
+#   --deploy-verify health-sha
+#   --deploy-health-url <https-url>
+#   --deploy-health-commit-field <json-field>   (default commit)
 #   --allow-production         (only if developer explicitly opted in during step 3)
 #   --learn                    (if developer enabled LEARN in step 4)
 #   --learn-expiry-days <N>    (if developer provided a custom expiry; default 180)

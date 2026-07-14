@@ -152,24 +152,44 @@ By default the loop stops at a green PR for a human to merge. Opt a repo into ha
 
 ```yaml
 deploy:
-  auto: human-approve   # human-approve | merge-on-green | merge-and-deploy
-  target: production    # production | staging — environment a merge ships to
-  provider: coolify     # coolify | vercel | tauri | none (generic)
-  verify: sha-match     # sha-match | health | none
-  allow_production: false  # explicit opt-in for hands-off prod (see guard below)
+  auto: human-approve
+  target: production
+  project: acme/widget
+  executor: github-workflow
+  workflow: deploy-production.yml
+  ref: main
+  sha_input: commit_sha
+  provider: coolify
+  verify: health-sha
+  health_url: https://app.example.com/health
+  health_commit_field: commit
 ```
 
 The three modes:
 
 | `auto` | What `/otta:ship`'s deploy stage does |
 |---|---|
-| `human-approve` *(default)* | Stops at the open PR — the human merges. **An absent `deploy` block resolves to this**, so existing repos are unchanged. Never auto-merges. |
+| `human-approve` *(default)* | Without an executor, stops at the open PR exactly as before. With `executor: github-workflow`, requires `--approved-head <exact-pr-head>`, invalidates approval after any push, then merges and dispatches the approved change. An already-merged approved PR dispatches without merging again. |
 | `merge-on-green` | Polls the Otta Gate until **every** sub-check is green, then squash-merges. On a stall it prints the blocking sub-check (e.g. a `ciGreen` stuck with no runner) instead of hanging. Downstream deploy is handled outside Otta. |
-| `merge-and-deploy` | Merges on green, then verifies the deploy reached the merged SHA via `provider` (Coolify adapter, or `none` for the generic path), optionally probes a `health` URL, and reports the live URL + SHA or the exact failing step. |
+| `merge-and-deploy` | Legacy contracts merge and verify through `provider`. With `executor: github-workflow`, Otta dispatches the configured repository workflow, polls it to terminal success, and then requires the live health SHA to match the merge SHA. |
 
 **Production opt-in guard.** `target: production` with `auto: merge-and-deploy` is **rejected** unless `deploy.allow_production: true` is set — so no repo ships hands-off to prod by accident. Staging needs no opt-in.
 
 **No baked-in infra.** The Coolify adapter reads `OTTA_COOLIFY_URL` / `_TOKEN` / `_APP_UUID` (and `OTTA_DEPLOY_HEALTH_URL` for `verify: health`) from the environment — no provider creds or org infra are shipped in the plugin.
+
+### GitHub workflow mutation boundary and recovery
+
+With `executor: github-workflow`, Otta owns approval, merge, dispatch identity, polling, and runtime verification. The configured GitHub workflow must remain the **only deployment mutation authority**: disable competing provider/webhook/Otta triggers, use one production concurrency group with `cancel-in-progress: false`, reuse build artifacts instead of rebuilding on the application host, and keep cleanup outside the deployment critical section. Otta needs GitHub Actions and PR permissions, not provider credentials.
+
+The workflow must expose the exact SHA input as a standalone `run-name` token, for example `run-name: deploy ${{ inputs.commit_sha }}`. Otta snapshots runs for the configured workflow/ref and correlates only unseen runs created after dispatch by the authenticated actor whose `display_title` carries that exact token. A matching `head_sha` is never sufficient because it identifies the workflow ref, not necessarily the SHA input received by that run; requiring the title marker remains correct when the dispatch ref advances. The local Otta lock only serializes processes sharing one ledger directory, so the workflow is also the cross-machine idempotency boundary: serialize all production deploys globally, then check the live commit at job start and exit successfully without mutation when it already equals the requested SHA. This makes a duplicate same-SHA dispatch harmless even across separate agents or hosts.
+
+Normal production approval is commit-bound:
+
+```bash
+bash scripts/otta-deploy-verify.sh <pr> --approved-head <pr-head-sha>
+```
+
+Retries resume the recorded run and never redispatch an uncertain request. Inspect evidence with `jq 'select(.source=="deploy")' ~/.otta/ledger/<owner-repo>.jsonl` and `gh run view <run-id> --log-failed`. If correlation is unknown, select a verified existing run explicitly with `--resolve-run-id <run-id>`; Otta requires the configured workflow and ref, the recorded actor and dispatch time, a `workflow_dispatch` event, and the requested SHA as an exact standalone `display_title` token. The run's ref head may have advanced and does not need to equal the requested SHA. Retry a recorded failed run only by explicit operator action with `--retry-failed-run`. For rollback, invoke the target repository's documented rollback workflow (for example, `gh workflow run rollback.yml -f sha=<known-good-sha>`); Otta does not invent or bypass repository rollback logic.
 
 ## How it connects to Otta Pulse
 

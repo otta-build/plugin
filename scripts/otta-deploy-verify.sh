@@ -26,6 +26,10 @@
 # the bottom) so that sourcing this file for its functions does not leak `set
 # -e` into the caller's shell.
 
+_deploy_verify_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/github-workflow-deploy.sh
+[ -f "$_deploy_verify_dir/github-workflow-deploy.sh" ] && . "$_deploy_verify_dir/github-workflow-deploy.sh"
+
 # ===========================================================================
 # Policy parsing (pure — reads a .otta.yml path, echoes the resolved value)
 # ===========================================================================
@@ -61,6 +65,14 @@ parse_deploy_auto() {
 parse_deploy_target()   { local v; v="$(_deploy_raw "${1:-.otta.yml}" target)";   echo "${v:-production}"; }
 parse_deploy_provider() { local v; v="$(_deploy_raw "${1:-.otta.yml}" provider)"; echo "${v:-none}"; }
 parse_deploy_verify()   { local v; v="$(_deploy_raw "${1:-.otta.yml}" verify)";   echo "${v:-sha-match}"; }
+parse_deploy_executor() { local v; v="$(_deploy_raw "${1:-.otta.yml}" executor)"; echo "${v:-none}"; }
+parse_deploy_workflow() { _deploy_raw "${1:-.otta.yml}" workflow; }
+parse_deploy_ref() { local v; v="$(_deploy_raw "${1:-.otta.yml}" ref)"; echo "${v:-main}"; }
+parse_deploy_sha_input() { local v; v="$(_deploy_raw "${1:-.otta.yml}" sha_input)"; echo "${v:-commit_sha}"; }
+parse_deploy_health_url() { _deploy_raw "${1:-.otta.yml}" health_url; }
+parse_deploy_health_commit_field() {
+  local v; v="$(_deploy_raw "${1:-.otta.yml}" health_commit_field)"; echo "${v:-commit}"
+}
 
 # AC5: production + merge-and-deploy requires explicit per-repo opt-in. The
 # opt-in key is `deploy.allow_production: true`. Without it, the policy is
@@ -96,6 +108,27 @@ decide_merge() {
     merge-on-green|merge-and-deploy) echo "merge"; return 0 ;;
     *) echo "no-merge"; return 1 ;;
   esac
+}
+
+# decide_delivery_action <auto> <pr-state> <executor> <approved-head> <head> <green>
+# Pure transition table for the workflow executor. Approval is commit-bound and
+# authorizes merge/dispatch; it is not inferred from a green gate.
+decide_delivery_action() {
+  local auto="$1" state="$2" executor="$3" approved="${4:-}" head="${5:-}" green="${6:-false}"
+  [ "$executor" = "github-workflow" ] || { echo "legacy"; return 0; }
+
+  if [ "$auto" = "human-approve" ]; then
+    [ -n "$approved" ] || { echo "wait-human"; return 1; }
+    [ "$approved" = "$head" ] || { echo "invalid-approval"; return 2; }
+    [ "$state" = "MERGED" ] && { echo "dispatch"; return 0; }
+    [ "$state" = "OPEN" ] && [ "$green" = "true" ] && { echo "merge-dispatch"; return 0; }
+    echo "wait-gate"; return 1
+  fi
+
+  [ "$green" = "true" ] || { echo "wait-gate"; return 1; }
+  [ "$auto" = "merge-on-green" ] && { echo "merge-only"; return 0; }
+  [ "$auto" = "merge-and-deploy" ] && { echo "merge-dispatch"; return 0; }
+  echo "legacy"
 }
 
 # ===========================================================================
@@ -324,31 +357,82 @@ verify_deploy() {
 # ===========================================================================
 
 _run() {
-  local pr="${1:-}" yml=".otta.yml"
+  local pr="${1:-}" yml=".otta.yml" approved_head="" retry_failed="false" resolve_run_id=""
   shift || true
   while [ $# -gt 0 ]; do
     case "$1" in
       --otta-yml) yml="$2"; shift 2 ;;
+      --approved-head) approved_head="$2"; shift 2 ;;
+      --retry-failed-run) retry_failed="true"; shift ;;
+      --resolve-run-id) resolve_run_id="$2"; shift 2 ;;
       *) echo "unknown arg: $1" >&2; return 1 ;;
     esac
   done
-  [ -n "$pr" ] || { echo "usage: otta-deploy-verify.sh <pr-number> [--otta-yml <path>]" >&2; return 1; }
+  [ -n "$pr" ] || { echo "usage: otta-deploy-verify.sh <pr-number> [--otta-yml <path>] [--approved-head <sha>] [--retry-failed-run] [--resolve-run-id <id>]" >&2; return 1; }
 
   local gh_repo
   gh_repo="$(git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]\(.*\)\.git$|\1|;s|.*github\.com[:/]\(.*\)$|\1|')"
   [ -n "$gh_repo" ] || { echo "deploy: cannot determine repo from git remote origin" >&2; return 1; }
 
-  local auto target provider verify allow_prod
+  local auto target provider verify allow_prod executor workflow workflow_ref sha_input health_url health_field
   auto="$(parse_deploy_auto "$yml")"
   target="$(parse_deploy_target "$yml")"
   provider="$(parse_deploy_provider "$yml")"
   verify="$(parse_deploy_verify "$yml")"
   allow_prod="$(parse_deploy_allow_production "$yml")"
+  executor="$(parse_deploy_executor "$yml")"
+  workflow="$(parse_deploy_workflow "$yml")"
+  workflow_ref="$(parse_deploy_ref "$yml")"
+  sha_input="$(parse_deploy_sha_input "$yml")"
+  health_url="$(parse_deploy_health_url "$yml")"
+  health_field="$(parse_deploy_health_commit_field "$yml")"
 
-  echo "deploy policy: auto=$auto target=$target provider=$provider verify=$verify"
+  echo "deploy policy: auto=$auto target=$target executor=$executor provider=$provider verify=$verify"
+
+  local pr_json pr_state pr_head merge_sha
+  if [ "$executor" = "github-workflow" ]; then
+    [ -n "$workflow" ] || { echo "deploy: github-workflow executor requires deploy.workflow" >&2; return 1; }
+    [ -n "$health_url" ] || { echo "deploy: github-workflow executor requires deploy.health_url" >&2; return 1; }
+    pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json state,headRefOid,mergeCommit 2>/dev/null)" || {
+      echo "deploy: cannot read PR #$pr state" >&2; return 1;
+    }
+    pr_state="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))')"
+    pr_head="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefOid", ""))')"
+    merge_sha="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("mergeCommit") or {}).get("oid", ""))')"
+
+    if [ "$auto" = "human-approve" ] && [ -z "$approved_head" ]; then
+      echo "deploy: production approval required — repo=$gh_repo PR=#$pr head=$pr_head target=$target workflow=$workflow ref=$workflow_ref health=${health_url:-<none>}" >&2
+      echo "deploy: rerun with --approved-head $pr_head after explicit human approval" >&2
+      return 1
+    fi
+    if [ "$auto" = "human-approve" ] && [ "$approved_head" != "$pr_head" ]; then
+      echo "deploy: invalid approval — approved head $approved_head does not match current head $pr_head" >&2
+      return 1
+    fi
+
+    # A previously merged PR can resume dispatch/verification without polling
+    # an open-PR gate or attempting a second merge.
+    if [ "$pr_state" = "MERGED" ]; then
+      local merged_action
+      merged_action="$(decide_delivery_action "$auto" "$pr_state" "$executor" "$approved_head" "$pr_head" true)" || true
+      if [ "$merged_action" = "merge-only" ]; then
+        echo "deploy: PR #$pr is already merged; auto=merge-on-green performs no deployment."
+        return 0
+      fi
+      [ "$merged_action" = "dispatch" ] || [ "$merged_action" = "merge-dispatch" ] || {
+        echo "deploy: policy does not authorize post-merge dispatch ($merged_action)" >&2; return 1;
+      }
+      [ -n "$merge_sha" ] || { echo "deploy: merged PR #$pr has no merge commit SHA" >&2; return 1; }
+      OTTA_DEPLOY_RETRY_FAILED_RUN="$retry_failed" OTTA_DEPLOY_RESOLVE_RUN_ID="$resolve_run_id" \
+        run_github_workflow_deploy "$gh_repo" "$gh_repo" "$target" "$workflow" \
+        "$workflow_ref" "$sha_input" "$merge_sha" "$health_url" "$health_field"
+      return $?
+    fi
+    [ "$pr_state" = "OPEN" ] || { echo "deploy: unsupported PR state '$pr_state'" >&2; return 1; }
+  fi
 
   # human-approve preserves today's behavior: stop at the green PR.
-  if [ "$auto" = "human-approve" ]; then
+  if [ "$auto" = "human-approve" ] && [ "$executor" != "github-workflow" ]; then
     echo "deploy: auto=human-approve → stopping at the open PR (human merges). No merge, no deploy."
     return 0
   fi
@@ -387,13 +471,51 @@ _run() {
   self_audit "$status_json" "$gh_repo" "$pr" || \
     echo "deploy: self-audit found issues (logged to ledger); merge proceeding per gate verdict."
 
+  if [ "$executor" = "github-workflow" ]; then
+    # Re-read the head immediately before mutation. Approval is invalidated by
+    # any push that happened while checks were being polled.
+    pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json state,headRefOid,mergeCommit 2>/dev/null)" || {
+      echo "deploy: cannot refresh PR #$pr before merge" >&2; return 1;
+    }
+    pr_state="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))')"
+    pr_head="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefOid", ""))')"
+    if [ "$auto" = "human-approve" ] && [ "$approved_head" != "$pr_head" ]; then
+      echo "deploy: invalid approval after gate — approved head $approved_head does not match current head $pr_head" >&2
+      return 1
+    fi
+
+    local workflow_action
+    workflow_action="$(decide_delivery_action "$auto" "$pr_state" "$executor" "$approved_head" "$pr_head" true)" || true
+    case "$workflow_action" in
+      merge-only|merge-dispatch)
+        gh pr merge "$pr" --repo "$gh_repo" --squash --delete-branch >&2 || {
+          echo "deploy: merge failed" >&2; return 1;
+        }
+        merge_sha="$(gh pr view "$pr" --repo "$gh_repo" --json mergeCommit -q '.mergeCommit.oid' 2>/dev/null || true)"
+        [ -n "$merge_sha" ] || { echo "deploy: merge succeeded but merge SHA is unavailable" >&2; return 1; }
+        echo "deploy: merged PR #$pr at $merge_sha."
+        ;;
+      dispatch)
+        merge_sha="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("mergeCommit") or {}).get("oid", ""))')"
+        ;;
+      *) echo "deploy: policy does not authorize workflow delivery ($workflow_action)" >&2; return 1 ;;
+    esac
+    if [ "$workflow_action" = "merge-only" ]; then
+      echo "deploy: auto=merge-on-green → merged without workflow dispatch."
+      return 0
+    fi
+    OTTA_DEPLOY_RETRY_FAILED_RUN="$retry_failed" OTTA_DEPLOY_RESOLVE_RUN_ID="$resolve_run_id" \
+      run_github_workflow_deploy "$gh_repo" "$gh_repo" "$target" "$workflow" \
+      "$workflow_ref" "$sha_input" "$merge_sha" "$health_url" "$health_field"
+    return $?
+  fi
+
   # Decide + merge.
   local decision; decision="$(decide_merge "$auto" "true" "$target" "$allow_prod")" || true
   if [ "$decision" != "merge" ]; then
     echo "deploy: policy does not authorize merge ($decision)." >&2
     return 1
   fi
-  local merge_sha
   gh pr merge "$pr" --repo "$gh_repo" --squash --delete-branch >&2 || { echo "deploy: merge failed" >&2; return 1; }
   merge_sha="$(gh pr view "$pr" --repo "$gh_repo" --json mergeCommit -q '.mergeCommit.oid' 2>/dev/null || true)"
   echo "deploy: merged PR #$pr at ${merge_sha:-<unknown sha>}."
