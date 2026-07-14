@@ -1,3 +1,9 @@
+## 1.4.3
+
+### Changed
+
+- docs(#148): specify implicit cross-harness routing (#150)
+
 ## 1.4.2
 
 ### Fixed
