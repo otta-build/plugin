@@ -7,7 +7,19 @@ Run the Otta shipping pipeline for issue **#$1** as a dynamic workflow.
 
 First make sure the workspace is seeded — if `.pr-body.md` doesn't exist yet, run `/otta:start $1` to seed the acceptance criteria.
 
-**Stage checklist (create before orchestration).** Before dispatching any workflow or subagent, create a task/todo checklist using the harness's native task tool (TaskCreate / TodoCreate if available). One item per pipeline stage: `Seed`, `Learn`, `Build`, `Review`, `QA`, `Ship`, `Deploy`. Mark `Seed` and `Learn` completed before build, then update the remaining items as the selected orchestrator reports stage transitions. If no native task tool is available, render the checklist as a markdown block in chat. Stage failures annotate the item with the failure reason (e.g. `✗ QA — gate failed: ...`).
+## Progress presentation
+
+Follow [the shared progress protocol](../docs/progress-protocol.md) with autonomous delivery. Append Deploy and Verify only when resolved policy performs deployment.
+
+### Claude Code adapter
+
+When Workflow is available, its native phase display is the primary progress surface. Map phases to the shared stages and do not create a second competing checklist or narrate routine phase activity. Without Workflow, use one native Task/Todo projection updated only at a meaningful transition.
+
+### Codex adapter
+
+When Workflow is unavailable, create one native plan with `update_plan` before builder dispatch and reuse it through the `builder → reviewer → qa → devops` chain. Keep exactly one stage `in_progress`, update only at a meaningful transition, and do not repeat plan, agent, polling, or tool activity in prose.
+
+Without native progress tooling, render the compact Markdown stages once. For either adapter, emit transcript messages only for decisions, failures or blockers, material risk changes, and completion. Mark a blocked stage with its concrete reason and next action.
 
 Then **learn before building** by resolving the same repo-native policy used by every delivery path:
 
