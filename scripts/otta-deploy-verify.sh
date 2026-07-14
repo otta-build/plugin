@@ -27,6 +27,8 @@
 # -e` into the caller's shell.
 
 _deploy_verify_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/otta-deploy-config.sh
+[ -f "$_deploy_verify_dir/otta-deploy-config.sh" ] && . "$_deploy_verify_dir/otta-deploy-config.sh"
 # shellcheck source=scripts/github-workflow-deploy.sh
 [ -f "$_deploy_verify_dir/github-workflow-deploy.sh" ] && . "$_deploy_verify_dir/github-workflow-deploy.sh"
 
@@ -37,9 +39,14 @@ _deploy_verify_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Read a scalar from the `deploy:` block of an .otta.yml file using awk (no yq
 # dependency — yq isn't universal). Returns empty string if absent.
 _deploy_raw() {
-  # $1 = yml path, $2 = key under deploy:
-  local yml="$1" key="$2"
+  # $1 = yml path, $2 = key under deploy:, $3 = resolved environment (optional)
+  local yml="$1" key="$2" environment="${3:-}" resolved
   [ -f "$yml" ] || { echo ""; return 0; }
+  if command -v resolve_deploy_environment >/dev/null 2>&1; then
+    resolved="$(resolve_deploy_environment "$yml" "$environment")" || return $?
+    deploy_config_value "$yml" "$resolved" "$key"
+    return
+  fi
   awk -v key="$key" '
     /^[^[:space:]#]/ { in_deploy = ($0 ~ /^deploy:/) }
     in_deploy && $0 ~ "^[[:space:]]+" key ":" {
@@ -55,30 +62,30 @@ _deploy_raw() {
 # deploy.auto — default human-approve when absent (back-compat: existing repos
 # with no deploy block are NEVER merged automatically).
 parse_deploy_auto() {
-  local v; v="$(_deploy_raw "${1:-.otta.yml}" auto)"
+  local v; v="$(_deploy_raw "${1:-.otta.yml}" auto "${2:-}")"
   case "$v" in
     merge-on-green|merge-and-deploy|human-approve) echo "$v" ;;
     *) echo "human-approve" ;;   # absent / unknown → safe default
   esac
 }
 
-parse_deploy_target()   { local v; v="$(_deploy_raw "${1:-.otta.yml}" target)";   echo "${v:-production}"; }
-parse_deploy_provider() { local v; v="$(_deploy_raw "${1:-.otta.yml}" provider)"; echo "${v:-none}"; }
-parse_deploy_verify()   { local v; v="$(_deploy_raw "${1:-.otta.yml}" verify)";   echo "${v:-sha-match}"; }
-parse_deploy_executor() { local v; v="$(_deploy_raw "${1:-.otta.yml}" executor)"; echo "${v:-none}"; }
-parse_deploy_workflow() { _deploy_raw "${1:-.otta.yml}" workflow; }
-parse_deploy_ref() { local v; v="$(_deploy_raw "${1:-.otta.yml}" ref)"; echo "${v:-main}"; }
-parse_deploy_sha_input() { local v; v="$(_deploy_raw "${1:-.otta.yml}" sha_input)"; echo "${v:-commit_sha}"; }
-parse_deploy_health_url() { _deploy_raw "${1:-.otta.yml}" health_url; }
+parse_deploy_target()   { local v; v="$(_deploy_raw "${1:-.otta.yml}" target "${2:-}")";   echo "${v:-production}"; }
+parse_deploy_provider() { local v; v="$(_deploy_raw "${1:-.otta.yml}" provider "${2:-}")"; echo "${v:-none}"; }
+parse_deploy_verify()   { local v; v="$(_deploy_raw "${1:-.otta.yml}" verify "${2:-}")";   echo "${v:-sha-match}"; }
+parse_deploy_executor() { local v; v="$(_deploy_raw "${1:-.otta.yml}" executor "${2:-}")"; echo "${v:-none}"; }
+parse_deploy_workflow() { _deploy_raw "${1:-.otta.yml}" workflow "${2:-}"; }
+parse_deploy_ref() { local v; v="$(_deploy_raw "${1:-.otta.yml}" ref "${2:-}")"; echo "${v:-main}"; }
+parse_deploy_sha_input() { local v; v="$(_deploy_raw "${1:-.otta.yml}" sha_input "${2:-}")"; echo "${v:-commit_sha}"; }
+parse_deploy_health_url() { _deploy_raw "${1:-.otta.yml}" health_url "${2:-}"; }
 parse_deploy_health_commit_field() {
-  local v; v="$(_deploy_raw "${1:-.otta.yml}" health_commit_field)"; echo "${v:-commit}"
+  local v; v="$(_deploy_raw "${1:-.otta.yml}" health_commit_field "${2:-}")"; echo "${v:-commit}"
 }
 
 # AC5: production + merge-and-deploy requires explicit per-repo opt-in. The
 # opt-in key is `deploy.allow_production: true`. Without it, the policy is
 # REJECTED so no one ships hands-off to prod by accident.
 parse_deploy_allow_production() {
-  local v; v="$(_deploy_raw "${1:-.otta.yml}" allow_production)"
+  local v; v="$(_deploy_raw "${1:-.otta.yml}" allow_production "${2:-}")"
   [ "$v" = "true" ] && echo "true" || echo "false"
 }
 
@@ -357,37 +364,39 @@ verify_deploy() {
 # ===========================================================================
 
 _run() {
-  local pr="${1:-}" yml=".otta.yml" approved_head="" retry_failed="false" resolve_run_id=""
+  local pr="${1:-}" yml=".otta.yml" requested_environment="" approved_head="" retry_failed="false" resolve_run_id=""
   shift || true
   while [ $# -gt 0 ]; do
     case "$1" in
       --otta-yml) yml="$2"; shift 2 ;;
+      --environment) requested_environment="$2"; shift 2 ;;
       --approved-head) approved_head="$2"; shift 2 ;;
       --retry-failed-run) retry_failed="true"; shift ;;
       --resolve-run-id) resolve_run_id="$2"; shift 2 ;;
       *) echo "unknown arg: $1" >&2; return 1 ;;
     esac
   done
-  [ -n "$pr" ] || { echo "usage: otta-deploy-verify.sh <pr-number> [--otta-yml <path>] [--approved-head <sha>] [--retry-failed-run] [--resolve-run-id <id>]" >&2; return 1; }
+  [ -n "$pr" ] || { echo "usage: otta-deploy-verify.sh <pr-number> [--environment <name>] [--otta-yml <path>] [--approved-head <sha>] [--retry-failed-run] [--resolve-run-id <id>]" >&2; return 1; }
 
   local gh_repo
   gh_repo="$(git remote get-url origin 2>/dev/null | sed 's|.*github\.com[:/]\(.*\)\.git$|\1|;s|.*github\.com[:/]\(.*\)$|\1|')"
   [ -n "$gh_repo" ] || { echo "deploy: cannot determine repo from git remote origin" >&2; return 1; }
 
-  local auto target provider verify allow_prod executor workflow workflow_ref sha_input health_url health_field
-  auto="$(parse_deploy_auto "$yml")"
-  target="$(parse_deploy_target "$yml")"
-  provider="$(parse_deploy_provider "$yml")"
-  verify="$(parse_deploy_verify "$yml")"
-  allow_prod="$(parse_deploy_allow_production "$yml")"
-  executor="$(parse_deploy_executor "$yml")"
-  workflow="$(parse_deploy_workflow "$yml")"
-  workflow_ref="$(parse_deploy_ref "$yml")"
-  sha_input="$(parse_deploy_sha_input "$yml")"
-  health_url="$(parse_deploy_health_url "$yml")"
-  health_field="$(parse_deploy_health_commit_field "$yml")"
+  local environment auto target provider verify allow_prod executor workflow workflow_ref sha_input health_url health_field
+  environment="$(resolve_deploy_environment "$yml" "$requested_environment")" || return $?
+  auto="$(parse_deploy_auto "$yml" "$environment")"
+  target="$(parse_deploy_target "$yml" "$environment")"
+  provider="$(parse_deploy_provider "$yml" "$environment")"
+  verify="$(parse_deploy_verify "$yml" "$environment")"
+  allow_prod="$(parse_deploy_allow_production "$yml" "$environment")"
+  executor="$(parse_deploy_executor "$yml" "$environment")"
+  workflow="$(parse_deploy_workflow "$yml" "$environment")"
+  workflow_ref="$(parse_deploy_ref "$yml" "$environment")"
+  sha_input="$(parse_deploy_sha_input "$yml" "$environment")"
+  health_url="$(parse_deploy_health_url "$yml" "$environment")"
+  health_field="$(parse_deploy_health_commit_field "$yml" "$environment")"
 
-  echo "deploy policy: auto=$auto target=$target executor=$executor provider=$provider verify=$verify"
+  echo "deploy policy: environment=$environment auto=$auto target=$target executor=$executor provider=$provider verify=$verify"
 
   local pr_json pr_state pr_head merge_sha
   if [ "$executor" = "github-workflow" ]; then

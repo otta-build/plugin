@@ -160,5 +160,20 @@ if bash "$SCRIPT" --deploy-executor unknown --deploy-workflow x.yml >/dev/null 2
 fi
 pass "workflow executor validation fails closed"
 
+# ── Test 14: named environments are additive and optional (#151 AC2) ─────────
+OUT="$TMP/t14.yml"
+bash "$SCRIPT" --output "$OUT" \
+  --deploy-default-environment production \
+  --deploy-staging-workflow deploy-staging.yml \
+  --deploy-production-workflow deploy-production.yml \
+  --deploy-sha-input sha --deploy-verify health-sha >/dev/null 2>&1
+grep -q '^  default: production$' "$OUT" || fail 'test 14: named default missing'
+grep -q '^  environments:$' "$OUT" || fail 'test 14: environments block missing'
+grep -q '^    staging:$' "$OUT" || fail 'test 14: staging missing'
+grep -q '^    production:$' "$OUT" || fail 'test 14: production missing'
+[ "$(bash -c "source '$VERIFY'; parse_deploy_workflow '$OUT' staging")" = deploy-staging.yml ] || fail 'test 14: staging workflow not parseable'
+[ "$(bash -c "source '$VERIFY'; parse_deploy_workflow '$OUT' production")" = deploy-production.yml ] || fail 'test 14: production workflow not parseable'
+pass 'named staging/production environments emitted only on explicit opt-in'
+
 echo ""
-echo "✓ write-otta-contract: all 13 checks passed"
+echo "✓ write-otta-contract: all 14 checks passed"
