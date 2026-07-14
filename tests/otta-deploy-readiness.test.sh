@@ -116,6 +116,44 @@ set -e
 printf '%s\n' "$output" | grep -Fq 'FAIL competing production trigger' || fail "competing trigger failure missing: $output"
 echo '  ✓ competing push-triggered production workflow fails closed'
 
+for trigger_form in scalar sequence quoted block; do
+  TRIGGER_REPO="$TMP/competing-$trigger_form"
+  make_repo "$TRIGGER_REPO"
+  case "$trigger_form" in
+    scalar) trigger='on: push' ;;
+    sequence) trigger='on: [push]' ;;
+    quoted) trigger='"on": push' ;;
+    block) trigger=$'on:\n  push:' ;;
+  esac
+  printf 'name: competing %s\n%s\njobs:\n  deploy:\n    environment: production\n    steps:\n      - run: ./deploy\n' \
+    "$trigger_form" "$trigger" > "$TRIGGER_REPO/.github/workflows/competing.yml"
+  set +e
+  output="$(bash "$SCRIPT" --otta-yml "$TRIGGER_REPO/.otta.yml" --environment production 2>&1)"; rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "$trigger_form push trigger should be detected"
+  printf '%s\n' "$output" | grep -Fq 'FAIL competing production trigger' \
+    || fail "$trigger_form push trigger lacked competing failure: $output"
+  echo "  ✓ competing $trigger_form push trigger detected"
+done
+
+SAFE_TRIGGER="$TMP/non-push-triggers"
+make_repo "$SAFE_TRIGGER"
+cat > "$SAFE_TRIGGER/.github/workflows/pr-only.yml" <<'YAML'
+name: PR-only production checks
+# on: push is documentation, not a trigger
+on: pull_request
+jobs:
+  check:
+    environment: production
+    steps:
+      - run: ./check-only
+YAML
+output="$(bash "$SCRIPT" --otta-yml "$SAFE_TRIGGER/.otta.yml" --environment production)" \
+  || fail "comments and pull_request must not be false positives: $output"
+printf '%s\n' "$output" | grep -Fq 'PASS competing production trigger' \
+  || fail "safe pull_request workflow did not pass competing-trigger check: $output"
+echo '  ✓ comments and pull_request do not trigger false positives'
+
 SHARED="$TMP/shared"
 make_repo "$SHARED"
 awk '{ print; if ($0 == "      target: production") print "      shared_host: true" }' \

@@ -21,6 +21,36 @@ pass() { echo "PASS $1 — $2"; }
 warn() { echo "WARN $1 — $2"; }
 fail() { echo "FAIL $1 — $2"; failures=$((failures + 1)); }
 
+_workflow_has_push_trigger() {
+  awk '
+    function clean(value) {
+      sub(/^[[:space:]]+/, "", value); sub(/[[:space:]]+$/, "", value)
+      sub(/[[:space:]]+#.*$/, "", value)
+      return value
+    }
+    /^[[:space:]]*#/ { next }
+    {
+      line=$0
+      if (line ~ /^["\047]?on["\047]?:/) {
+        value=line; sub(/^["\047]?on["\047]?:[[:space:]]*/, "", value); value=clean(value)
+        plain=value; gsub(/^"|"$/, "", plain); gsub(/^\047|\047$/, "", plain)
+        if (plain == "push") found=1
+        if (value ~ /^\[/) {
+          gsub(/^\[|\]$/, "", value); count=split(value, items, ",")
+          for (i=1; i<=count; i++) {
+            item=clean(items[i]); gsub(/^"|"$/, "", item); gsub(/^\047|\047$/, "", item)
+            if (item == "push") found=1
+          }
+        }
+        in_on=(value == ""); next
+      }
+      if (in_on && line ~ /^[^[:space:]]/) in_on=0
+      if (in_on && line ~ /^[[:space:]]{2,}["\047]?push["\047]?:/) found=1
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
+
 [ -f "$yml" ] || { echo "N/A deploy workflow — no .otta.yml"; exit 0; }
 environment="$(resolve_deploy_environment "$yml" "$requested_environment")" || exit $?
 executor="$(deploy_config_value "$yml" "$environment" executor)"
@@ -70,12 +100,7 @@ else
   fail 'environment run-name' "run-name must contain standalone $environment"
 fi
 
-if grep -Eq '^on:.*push' "$workflow_path" || awk '
-  /^on:[[:space:]]*($|#)/ { in_on=1; next }
-  /^[^ ]/ { if (in_on) exit }
-  in_on && /^  push:[[:space:]]*($|#)/ { found=1 }
-  END { exit(found ? 0 : 1) }
-' "$workflow_path"; then
+if _workflow_has_push_trigger "$workflow_path"; then
   fail 'configured workflow trigger' 'selected deployment workflow must not have an ordinary push trigger'
 else
   pass 'configured workflow trigger' 'selected deployment workflow dispatches explicitly only'
@@ -111,7 +136,7 @@ competing=""
 for candidate in "$repo_root/.github/workflows"/*.yml "$repo_root/.github/workflows"/*.yaml; do
   [ -f "$candidate" ] || continue
   [ "$candidate" = "$workflow_path" ] && continue
-  if grep -Eq '^[[:space:]]+push:[[:space:]]*($|#)' "$candidate" &&
+  if _workflow_has_push_trigger "$candidate" &&
      { grep -Eqi "environment:[[:space:]]*${environment}([[:space:]#]|$)" "$candidate" ||
        grep -Eqi "environment:[[:space:]]*${target}([[:space:]#]|$)" "$candidate"; }; then
     competing="$candidate"; break

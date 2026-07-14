@@ -70,8 +70,6 @@ _release_run_candidates() {
       (.displayTitle // "")
       | test("(^|[^A-Za-z0-9])" + $environment + "([^A-Za-z0-9]|$)");
     [.[] | .candidateSha=marked_sha | select(.candidateSha != "" and environment_marker)]
-    | group_by(.candidateSha)
-    | map(sort_by(.createdAt) | reverse | .[0])
     | sort_by(.createdAt) | reverse
     | .[] | [.databaseId,.status,(.conclusion // ""),.candidateSha,(.url // "")] | @tsv
   '
@@ -96,7 +94,7 @@ _runtime_sha_once() {
 find_eligible_successor() {
   local repo="$1" workflow="$2" ref="$3" environment="$4" older_sha="$5"
   local health_url="$6" health_field="$7" runs rows runtime_sha="" line
-  local run_id status conclusion candidate_sha url compare pending="" included="" included_count=0
+  local run_id status conclusion candidate_sha url compare pending="" included="" included_count=0 included_shas="|"
   runs="$(_list_workflow_runs "$repo" "$workflow" "$ref")" || {
     jq -cn --arg outcome blocked --arg reason workflow-evidence-unavailable '{outcome:$outcome,reason:$reason}'
     return 1
@@ -115,9 +113,15 @@ find_eligible_successor() {
         ;;
       completed:success)
         if [ -n "$runtime_sha" ] && _workflow_sha_match "$candidate_sha" "$runtime_sha"; then
-          included_count=$((included_count + 1))
-          included="$(jq -cn --arg sha "$candidate_sha" --arg run_id "$run_id" --arg env "$environment" --arg url "$url" --arg observed "$runtime_sha" \
-            '{outcome:"included",sha:$sha,run_id:($run_id|tonumber),environment:$env,url:$url,runtime_sha:$observed}')"
+          case "$included_shas" in
+            *"|$candidate_sha|"*) ;;
+            *)
+              included_shas="${included_shas}${candidate_sha}|"
+              included_count=$((included_count + 1))
+              included="$(jq -cn --arg sha "$candidate_sha" --arg run_id "$run_id" --arg env "$environment" --arg url "$url" --arg observed "$runtime_sha" \
+                '{outcome:"included",sha:$sha,run_id:($run_id|tonumber),environment:$env,url:$url,runtime_sha:$observed}')"
+              ;;
+          esac
         fi
         ;;
     esac
