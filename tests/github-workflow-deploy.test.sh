@@ -27,6 +27,21 @@ key3="$(workflow_deploy_key acme/widget deploy.yml staging abc123)"
 check "stable identity is deterministic" "$key1" "$key2"
 check "environment participates in identity" yes "$([ "$key1" != "$key3" ] && echo yes || echo no)"
 
+# A concurrent controller cannot enter the dispatch critical section.
+LOCK_LEDGER="$TMP/lock-ledger"; mkdir -p "$LOCK_LEDGER"
+export OTTA_LEDGER_DIR="$LOCK_LEDGER" OTTA_DEPLOY_LOCK_TIMEOUT=0
+locked_key="$(workflow_deploy_key acme/locked deploy.yml production abc123)"
+lock_dir="$(workflow_deploy_lock_dir acme/locked "$locked_key")"
+mkdir -p "$lock_dir"; printf '%s\n' "$$" > "$lock_dir/owner"
+LOCK_CALLS="$TMP/lock-calls"; : > "$LOCK_CALLS"
+gh() { printf '%s\n' "$*" >> "$LOCK_CALLS"; return 1; }
+ensure_workflow_dispatched acme/locked acme/locked production deploy.yml main sha abc123 >/dev/null 2>&1; rc=$?
+check "concurrent dispatch lock fails closed" 7 "$rc"
+check "concurrent controller performs no GitHub mutation" 0 "$(grep -c '^workflow run ' "$LOCK_CALLS" || true)"
+rm -f "$lock_dir/owner"; rmdir "$lock_dir"
+unset -f gh
+unset OTTA_DEPLOY_LOCK_TIMEOUT
+
 export OTTA_LEDGER_DIR="$TMP/ledger"
 export OTTA_DISPATCH_RECONCILE_ATTEMPTS=1 OTTA_DISPATCH_RECONCILE_INTERVAL=0
 CALLS="$TMP/calls"; : > "$CALLS"
@@ -120,8 +135,9 @@ check "explicit rerun returns to dispatched state" deploy_dispatched \
 export OTTA_LEDGER_DIR="$UNKNOWN_LEDGER"
 gh() {
   [ "$1 $2" = "run view" ] && {
-    printf '{"databaseId":55,"event":"workflow_dispatch","headSha":"def456","url":"https://example.test/runs/55"}\n'; return 0
+    printf '{"databaseId":55,"event":"workflow_dispatch","headSha":"def456","workflowDatabaseId":777,"url":"https://example.test/runs/55"}\n'; return 0
   }
+  [ "$1" = "api" ] && { printf '777\n'; return 0; }
   return 1
 }
 OTTA_DEPLOY_RESOLVE_RUN_ID=55 \
@@ -137,13 +153,64 @@ append_deploy_record acme/bad-resolve deploy_dispatch_unknown "$bad_resolve_key"
   '{"workflow":"deploy.yml","ref":"main","sha":"exact1","pre_run_ids":[]}' '{}' >/dev/null
 gh() {
   [ "$1 $2" = "run view" ] && {
-    printf '{"databaseId":56,"event":"workflow_dispatch","headSha":"wrong2","url":"https://example.test/runs/56"}\n'; return 0
+    printf '{"databaseId":56,"event":"workflow_dispatch","headSha":"wrong2","workflowDatabaseId":777,"url":"https://example.test/runs/56"}\n'; return 0
   }
+  [ "$1" = "api" ] && { printf '777\n'; return 0; }
   return 1
 }
 OTTA_DEPLOY_RESOLVE_RUN_ID=56 \
   ensure_workflow_dispatched acme/bad-resolve acme/bad-resolve production deploy.yml main sha exact1 >/dev/null 2>&1; rc=$?
 check "manual resolution rejects wrong run head" 6 "$rc"
+
+WRONG_WORKFLOW_LEDGER="$TMP/wrong-workflow-ledger"; mkdir -p "$WRONG_WORKFLOW_LEDGER"
+export OTTA_LEDGER_DIR="$WRONG_WORKFLOW_LEDGER"
+wrong_workflow_key="$(workflow_deploy_key acme/wrong-workflow deploy.yml production exact2)"
+append_deploy_record acme/wrong-workflow deploy_dispatch_unknown "$wrong_workflow_key" \
+  '{"workflow":"deploy.yml","ref":"main","sha":"exact2","pre_run_ids":[]}' '{}' >/dev/null
+gh() {
+  [ "$1 $2" = "run view" ] && {
+    printf '{"databaseId":57,"event":"workflow_dispatch","headSha":"exact2","workflowDatabaseId":999,"url":"https://example.test/runs/57"}\n'; return 0
+  }
+  [ "$1" = "api" ] && { printf '777\n'; return 0; }
+  return 1
+}
+OTTA_DEPLOY_RESOLVE_RUN_ID=57 \
+  ensure_workflow_dispatched acme/wrong-workflow acme/wrong-workflow production deploy.yml main sha exact2 >/dev/null 2>&1; rc=$?
+check "manual resolution rejects wrong workflow" 6 "$rc"
+
+# Local non-mutating integration fixture: dispatch → correlate → terminal
+# workflow success → health SHA → verified ledger, then an idempotent retry.
+INTEGRATION_LEDGER="$TMP/integration-ledger"; mkdir -p "$INTEGRATION_LEDGER"
+export OTTA_LEDGER_DIR="$INTEGRATION_LEDGER"
+INTEGRATION_CALLS="$TMP/integration-calls"; : > "$INTEGRATION_CALLS"
+INTEGRATION_DISPATCHED="$TMP/integration-dispatched"
+gh() {
+  printf '%s\n' "$*" >> "$INTEGRATION_CALLS"
+  case "$1 $2" in
+    "run list")
+      if [ -f "$INTEGRATION_DISPATCHED" ]; then
+        printf '[{"databaseId":88,"status":"completed","conclusion":"success","headSha":"ship123","url":"https://example.test/runs/88"}]\n'
+      else
+        printf '[]\n'
+      fi
+      ;;
+    "workflow run") : > "$INTEGRATION_DISPATCHED" ;;
+    "run view") printf '{"status":"completed","conclusion":"success","headSha":"ship123","url":"https://example.test/runs/88"}\n' ;;
+    *) return 1 ;;
+  esac
+}
+curl() { printf '{"commit":"ship123"}\n'; }
+run_github_workflow_deploy acme/integration acme/integration test deploy.yml main sha \
+  ship123 https://example.test/health commit >/dev/null 2>&1; rc=$?
+check "local integration fixture reaches runtime verification" 0 "$rc"
+integration_key="$(workflow_deploy_key acme/integration deploy.yml test ship123)"
+check "integration records runtime_verified only after both proofs" deploy_runtime_verified \
+  "$(deployment_last_record acme/integration "$integration_key" | jq -r .event)"
+run_github_workflow_deploy acme/integration acme/integration test deploy.yml main sha \
+  ship123 https://example.test/health commit >/dev/null 2>&1; rc=$?
+check "verified integration retry succeeds from ledger" 0 "$rc"
+check "verified integration dispatches exactly once" 1 "$(grep -c '^workflow run ' "$INTEGRATION_CALLS")"
+unset -f gh curl
 
 # Workflow completion is necessary but not sufficient for a shipped verdict.
 POLL_LEDGER="$TMP/poll-ledger"; mkdir -p "$POLL_LEDGER"

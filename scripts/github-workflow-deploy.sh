@@ -188,10 +188,14 @@ run_github_workflow_deploy() {
   echo "deploy: workflow and runtime verified for $merge_sha" >&2
 }
 
-# ensure_workflow_dispatched <repo> <project> <target> <workflow> <ref> <sha-input> <merge-sha>
-# At-most-once under uncertainty: once dispatching is recorded, retries only
-# reconcile/resume and never issue another workflow_dispatch implicitly.
-ensure_workflow_dispatched() {
+workflow_deploy_lock_dir() {
+  local project="$1" key="$2" base="${OTTA_LEDGER_DIR:-$HOME/.otta/ledger}"
+  local slug="${project//\//-}"
+  printf '%s/.deploy-lock-%s-%s\n' "$base" "$slug" "$key"
+}
+
+# Internal implementation; callers enter through the lock-taking wrapper below.
+_ensure_workflow_dispatched_unlocked() {
   local repo="$1" project="$2" target="$3" workflow="$4" ref="$5" sha_input="$6" merge_sha="$7"
   local key latest event run_id pre_runs pre_ids input
   key="$(workflow_deploy_key "$repo" "$workflow" "$target" "$merge_sha")"
@@ -222,16 +226,22 @@ ensure_workflow_dispatched() {
         input="$(jq -c '.input' <<<"$latest")"
         pre_ids="$(jq -c '.input.pre_run_ids // []' <<<"$latest")"
         if [ -n "${OTTA_DEPLOY_RESOLVE_RUN_ID:-}" ]; then
-          local resolved_json resolved_event resolved_head resolved_id
+          local resolved_json resolved_event resolved_head resolved_id resolved_workflow configured_workflow
           resolved_json="$(gh run view "$OTTA_DEPLOY_RESOLVE_RUN_ID" --repo "$repo" \
-            --json databaseId,event,headSha,url 2>/dev/null)" || {
+            --json databaseId,event,headSha,workflowDatabaseId,url 2>/dev/null)" || {
             echo "deploy: cannot inspect manually selected run $OTTA_DEPLOY_RESOLVE_RUN_ID" >&2; return 6;
+          }
+          configured_workflow="$(gh api "repos/$repo/actions/workflows/$workflow" --jq .id 2>/dev/null)" || {
+            echo "deploy: cannot resolve configured workflow $workflow" >&2; return 6;
           }
           resolved_event="$(jq -r '.event // ""' <<<"$resolved_json")"
           resolved_head="$(jq -r '.headSha // ""' <<<"$resolved_json")"
           resolved_id="$(jq -r '.databaseId // empty' <<<"$resolved_json")"
-          if [ "$resolved_event" != "workflow_dispatch" ] || ! _workflow_sha_match "$merge_sha" "$resolved_head"; then
-            echo "deploy: selected run $OTTA_DEPLOY_RESOLVE_RUN_ID does not match event=workflow_dispatch and sha=$merge_sha" >&2
+          resolved_workflow="$(jq -r '.workflowDatabaseId // empty' <<<"$resolved_json")"
+          if [ "$resolved_event" != "workflow_dispatch" ] || \
+             [ "$resolved_workflow" != "$configured_workflow" ] || \
+             ! _workflow_sha_match "$merge_sha" "$resolved_head"; then
+            echo "deploy: selected run $OTTA_DEPLOY_RESOLVE_RUN_ID does not match configured workflow, event=workflow_dispatch, and sha=$merge_sha" >&2
             return 6
           fi
           _record_correlated_run "$project" "$key" "$input" "$resolved_id"
@@ -278,6 +288,42 @@ ensure_workflow_dispatched() {
       return 3
       ;;
   esac
+}
+
+# ensure_workflow_dispatched <repo> <project> <target> <workflow> <ref> <sha-input> <merge-sha>
+# At-most-once under uncertainty and concurrency. The atomic directory lock
+# serializes local controller processes; once dispatching is recorded, retries
+# only reconcile/resume and never issue another workflow_dispatch implicitly.
+ensure_workflow_dispatched() {
+  local repo="$1" project="$2" target="$3" workflow="$4" merge_sha="$7"
+  local key lock timeout interval waited=0 owner output rc
+  key="$(workflow_deploy_key "$repo" "$workflow" "$target" "$merge_sha")"
+  lock="$(workflow_deploy_lock_dir "$project" "$key")"
+  mkdir -p "${lock%/*}"
+  timeout="${OTTA_DEPLOY_LOCK_TIMEOUT:-30}"
+  interval="${OTTA_DEPLOY_LOCK_INTERVAL:-1}"
+
+  while ! mkdir "$lock" 2>/dev/null; do
+    owner="$(sed -n '1p' "$lock/owner" 2>/dev/null || true)"
+    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+      rm -f "$lock/owner" 2>/dev/null || true
+      rmdir "$lock" 2>/dev/null || true
+      continue
+    fi
+    if [ "$waited" -ge "$timeout" ]; then
+      echo "deploy: another controller owns deployment key $key; no dispatch attempted" >&2
+      return 7
+    fi
+    sleep "$interval"
+    waited=$((waited + interval))
+  done
+  printf '%s\n' "$$" > "$lock/owner"
+
+  if output="$(_ensure_workflow_dispatched_unlocked "$@")"; then rc=0; else rc=$?; fi
+  rm -f "$lock/owner" 2>/dev/null || true
+  rmdir "$lock" 2>/dev/null || true
+  [ -z "$output" ] || printf '%s\n' "$output"
+  return "$rc"
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
