@@ -51,13 +51,20 @@ else
 fi
 
 if [ "$DERIVE" -eq 1 ]; then
-  command -v curl >/dev/null 2>&1 || { echo "ERROR: curl required for --derive." >&2; exit 1; }
   if [ "$PULSE" = "$HOSTED_DEFAULT" ]; then
-    if ! RESPONSE=$(curl -fsS -m 10 "${PULSE}/token?repo=${REPO}" 2>&1); then
-      echo "Error: could not derive a repo token from ${PULSE}/token (response body redacted)." >&2
+    PULSE_ENV_FILE="${OTTA_PULSE_ENV_FILE:-.otta/pulse.env}"
+    TOKEN=""
+    if [ -f "$PULSE_ENV_FILE" ]; then
+      TOKEN="$(sed -n 's/^OTTA_PULSE_TOKEN=//p' "$PULSE_ENV_FILE" | tail -1)"
+    fi
+    TOKEN="${TOKEN:-${OTTA_PULSE_TOKEN:-}}"
+    if [ -z "$TOKEN" ]; then
+      echo "Error: hosted Pulse requires the repo token written by pulse-install.sh in ${PULSE_ENV_FILE}." >&2
+      echo "Run otta setup/status to complete and verify the GitHub App installation first." >&2
       exit 1
     fi
   else
+    command -v curl >/dev/null 2>&1 || { echo "ERROR: curl required for self-hosted --derive." >&2; exit 1; }
     if [ -z "$WEBHOOK_SECRET" ]; then
       echo "Error: self-hosted Pulse requires a webhook secret for --derive." >&2
       usage
@@ -67,11 +74,11 @@ if [ "$DERIVE" -eq 1 ]; then
       echo "Error: could not derive a repo token from ${PULSE}/token (response body redacted)." >&2
       exit 1
     fi
-  fi
-  TOKEN=$(printf '%s' "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])" 2>/dev/null) || true
-  if [ -z "$TOKEN" ]; then
-    echo "Error: /token response did not contain a token field (response body redacted)." >&2
-    exit 1
+    TOKEN=$(printf '%s' "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])" 2>/dev/null) || true
+    if [ -z "$TOKEN" ]; then
+      echo "Error: /token response did not contain a token field (response body redacted)." >&2
+      exit 1
+    fi
   fi
 fi
 

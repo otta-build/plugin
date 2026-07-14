@@ -209,7 +209,12 @@ This is **CC-process-level**: once enabled, **every** Claude Code session in the
 - **Logs and metrics** (default) — event records, counters, and timing.
 - **Traces** (separate opt-in, **beta**) — spans; adds `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1`.
 
-Prefer `/otta:setup`. For non-interactive automation, supply the absolute root of the installed plugin yourself; hosted Pulse derives the repo token without a local webhook secret, while self-hosted Pulse requires its webhook secret only for token derivation:
+Prefer `/otta:setup`. It writes the repo-scoped token to `.otta/pulse.env` and
+verifies repository access plus `checks:write` through the customer-safe
+installation-status endpoint. For non-interactive automation, supply the
+absolute root of the installed plugin yourself; hosted telemetry reuses
+`.otta/pulse.env`, while self-hosted Pulse requires its operator webhook secret
+only for token derivation:
 
 ```bash
 OTTA_PLUGIN_ROOT=/absolute/path/to/installed/otta
@@ -245,9 +250,9 @@ OTTA_PULSE_URL=https://pulse.example.com bash "$OTTA_PLUGIN_ROOT/scripts/otta-te
 
 ### Codex
 
-Codex reads OTEL settings from `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`), not Claude's environment block. Run `$otta-setup` and choose Codex telemetry; the skill resolves its installed plugin directory and invokes the setup writer with the repo's Pulse token.
+Codex reads OTEL settings from `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`), not Claude's environment block. Run `$otta-setup` and choose Codex telemetry; the skill resolves its installed plugin directory and reuses the repo token from `.otta/pulse.env`.
 
-For non-interactive automation, use the same user-supplied absolute installed root. `--derive` obtains the token from hosted Pulse; self-hosted derivation reads `OTTA_PULSE_WEBHOOK_SECRET`. Direct mode reads an already-derived token from `OTTA_PULSE_TOKEN`, keeping both secrets out of argv and shell history:
+For non-interactive automation, use the same user-supplied absolute installed root. In hosted mode, `--derive` is retained for compatibility but reads `.otta/pulse.env` and never calls the admin `/token` endpoint. Self-hosted derivation reads `OTTA_PULSE_WEBHOOK_SECRET`. Direct mode reads an already-derived token from `OTTA_PULSE_TOKEN`, keeping both secrets out of argv and shell history:
 
 ```bash
 OTTA_PLUGIN_ROOT=/absolute/path/to/installed/otta

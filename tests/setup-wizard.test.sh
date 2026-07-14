@@ -182,10 +182,28 @@ grep -qi "update.*in.place\|idempotent.*re.run\|re.run.*idempotent\|not.*duplica
   || fail "AC(#70a): setup.md must describe idempotent re-run (no duplicate blocks)"
 
 # ---------------------------------------------------------------------------
-# AC (issue #70b): hosted Pulse token flow — no webhook secret for pulse.otta.build
+# Hosted Pulse token flow reuses pulse.env and verifies installation status.
 # ---------------------------------------------------------------------------
-grep -qi "no.*webhook.*secret\|without.*webhook.*secret\|no auth.*header\|GET /token\?repo\|/token?repo" "$SETUP" \
-  || fail "AC(#70b): setup.md B5 must describe the hosted /token?repo= no-auth path"
+grep -qi "pulse.env.*token\|token.*pulse.env" "$SETUP" \
+  || fail "setup.md must describe hosted repo-token reuse from .otta/pulse.env"
+grep -qi "installation-status\|repository access.*checks:write\|checks:write.*repository access" "$SETUP" \
+  || fail "setup.md must describe hosted installation-status verification"
+grep -q -- '--instructions-only' "$SETUP" \
+  || fail "setup.md must show browser instructions without starting the blocking verification poll"
+grep -q -- '--verify' "$SETUP" \
+  || fail "setup.md must run wiring/verification only after browser consent"
+INSTRUCTIONS_LINE="$(grep -n -- '--instructions-only' "$SETUP" | head -1 | cut -d: -f1)"
+CONFIRM_LINE="$(grep -n -E 'confirm.*install|install.*confirm|After the user confirms' "$SETUP" | head -1 | cut -d: -f1)"
+VERIFY_LINE="$(grep -n -- '--verify' "$SETUP" | head -1 | cut -d: -f1)"
+[ -n "$CONFIRM_LINE" ] && [ "$INSTRUCTIONS_LINE" -lt "$CONFIRM_LINE" ] && [ "$CONFIRM_LINE" -lt "$VERIFY_LINE" ] \
+  || fail "setup.md order must be instructions -> user confirmation -> blocking verification"
+PULSE_STEP="$(sed -n '/## 5\. Onboard/,/## 6\./p' "$SETUP")"
+printf '%s' "$PULSE_STEP" | grep -Eq 'pulse-install\.sh" --pulse-url .* --instructions-only' \
+  || fail "setup instructions must pass the recorded Pulse URL as a script argument"
+printf '%s' "$PULSE_STEP" | grep -Eq 'pulse-install\.sh" --pulse-url .* --verify' \
+  || fail "post-confirmation verify must pass the recorded Pulse URL as a script argument"
+! printf '%s' "$PULSE_STEP" | grep -q 'OTTA_PULSE_URL="\$PULSE_URL"' \
+  || fail "setup must not rely on a shell PULSE_URL variable across child processes"
 grep -qi "self.hosted.*secret\|secret.*self.hosted\|self.hosted.*webhook\|webhook.*self.hosted" "$SETUP" \
   || fail "AC(#70b): setup.md B5 must clarify that webhook secret is only for self-hosted instances"
 

@@ -18,6 +18,16 @@ make_gh_stub() {
   chmod +x "$bin/gh"
 }
 
+make_curl_status_stub() {
+  local bin="$1" state="$2" http_code="${3:-200}"
+  mkdir -p "$bin"
+  cat > "$bin/curl" <<SH
+#!/usr/bin/env bash
+printf '%s\\n${http_code}' '{"repo":"fake/repo","state":"${state}","repositoryAccess":true,"checksWrite":true}'
+SH
+  chmod +x "$bin/curl"
+}
+
 # =============================================================================
 # 1. Score 0/8 — bare git repo, no dimensions satisfied
 # =============================================================================
@@ -88,14 +98,23 @@ esac
 exit 0
 SH
 chmod +x "$FAKE_BIN_ALL/gh"
+make_curl_status_stub "$FAKE_BIN_ALL" ready
 
 OUTPUT="$(PATH="$FAKE_BIN_ALL:$PATH" bash "$SCRIPT" 2>&1)" || true
 echo "$OUTPUT" | grep -qE '8/8' \
   || fail "all-repo: expected '8/8' in output, got:\n$OUTPUT"
 echo "  ✓ 8/8 score correct"
 
+mkdir -p "$ALL_REPO/packages/example"
+OUTPUT="$(cd "$ALL_REPO/packages/example" && PATH="$FAKE_BIN_ALL:$PATH" bash "$SCRIPT" 2>&1)" || true
+echo "$OUTPUT" | grep -qE '8/8' \
+  || fail "subdirectory: expected root configuration to remain 8/8, got:\n$OUTPUT"
+echo "$OUTPUT" | grep -q 'Pulse connected (repository access + checks:write verified)' \
+  || fail "subdirectory: root pulse.env was not server-verified: $OUTPUT"
+echo "  ✓ repository root Pulse configuration works from a subdirectory"
+
 # =============================================================================
-# 3. Score 4/8 — partial: dims 1, 2, 5, 8 only
+# 3. Score 3/8 — partial: dims 1, 2, 8 only; pulse.env is unverified
 # =============================================================================
 PARTIAL_REPO="$TMP/partial"
 mkdir -p "$PARTIAL_REPO"
@@ -122,11 +141,12 @@ echo 'OTTA_PULSE_TOKEN=fake' > .otta/pulse.env
 # no dim 3 (gh fails), no dim 4, no dim 6, no dim 7
 FAKE_BIN_P="$TMP/bin-partial"
 make_gh_stub "$FAKE_BIN_P" 1 ""
+make_curl_status_stub "$FAKE_BIN_P" not_installed
 
 OUTPUT="$(PATH="$FAKE_BIN_P:$PATH" bash "$SCRIPT" 2>&1)" || true
-echo "$OUTPUT" | grep -qE '4/8' \
-  || fail "partial-repo: expected '4/8' in output, got:\n$OUTPUT"
-echo "  ✓ 4/8 score correct"
+echo "$OUTPUT" | grep -qE '3/8' \
+  || fail "partial-repo: expected '3/8' in output, got:\n$OUTPUT"
+echo "  ✓ 3/8 score correct (pulse.env alone is not connected)"
 
 # =============================================================================
 # 4. Read-only — running the script leaves no new files in the repo
@@ -148,4 +168,21 @@ echo "$OUTPUT" | grep -q "✓" || fail "partial output has no ✓ lines"
 echo "$OUTPUT" | grep -q "✗" || fail "partial output has no ✗ lines"
 echo "  ✓ per-dimension ✓/✗ list present"
 
-echo "✓ otta-readiness: all checks passed (0/8, 8/8, 4/8, read-only, per-dim list)"
+# Hosted status, not pulse.env existence, is connection truth.
+for state in not_installed permission_approval_required github_unavailable; do
+  STATUS_REPO="$TMP/status-$state"
+  cp -R "$PARTIAL_REPO" "$STATUS_REPO"
+  STATUS_BIN="$TMP/bin-$state"
+  make_gh_stub "$STATUS_BIN" 0 "fake/repo"
+  code=200
+  [ "$state" = github_unavailable ] && code=502
+  make_curl_status_stub "$STATUS_BIN" "$state" "$code"
+  OUTPUT="$(cd "$STATUS_REPO" && PATH="$STATUS_BIN:$PATH" bash "$SCRIPT" 2>&1)" || true
+  echo "$OUTPUT" | grep -Eq 'Pulse not connected|Pulse verification unavailable' \
+    || fail "$state: readiness lacks truthful hosted status: $OUTPUT"
+  ! echo "$OUTPUT" | grep -q 'Pulse connected (.otta/pulse.env present)' \
+    || fail "$state: file existence was falsely reported connected"
+done
+echo "  ✓ hosted Pulse status overrides pulse.env file existence"
+
+echo "✓ otta-readiness: all checks passed (0/8, 8/8, 3/8, read-only, hosted status, per-dim list)"

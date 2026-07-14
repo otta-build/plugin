@@ -461,8 +461,7 @@ SECOND="$(cat "$CONFIG")"
 pass "AC5: selector merge handles disabled selectors and quoted subtables without clobbering user config"
 
 # ---------------------------------------------------------------------------
-# 26. AC5: --derive hosted mode calls /token without auth and writes the
-#     derived repo token without printing it.
+# 26. AC5: --derive hosted mode reuses .otta/pulse.env and never calls /token.
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo26"
 mkdir -p "$RDIR" "$TMP/codex26" "$TMP/codex-derive-bin"
@@ -470,17 +469,18 @@ cd "$RDIR"
 cat > "$TMP/codex-derive-bin/curl" <<'CURL_STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$CURL_ARGS_FILE"
-printf '{"token":"hosted-derived-fixture"}'
+exit 99
 CURL_STUB
 chmod +x "$TMP/codex-derive-bin/curl"
+mkdir -p .otta
+printf 'OTTA_PULSE_URL=https://pulse.otta.build\nOTTA_PULSE_TOKEN=hosted-derived-fixture\n' > .otta/pulse.env
 OUT="$(CURL_ARGS_FILE="$TMP/codex26-curl.txt" PATH="$TMP/codex-derive-bin:$PATH" CODEX_HOME="$TMP/codex26" bash "$SCRIPT" --derive "$REPO_SLUG" 2>&1)" || \
   fail "AC5: hosted --derive run exited non-zero"
-grep -q '/token?repo=acme/widget' "$TMP/codex26-curl.txt" || fail "AC5: hosted --derive did not call the repo token endpoint"
-! grep -q 'x-pulse-token' "$TMP/codex26-curl.txt" || fail "AC5: hosted --derive must not send a webhook secret"
+[ ! -s "$TMP/codex26-curl.txt" ] || fail "AC5: hosted --derive called admin /token"
 grep -q 'x-pulse-token = "hosted-derived-fixture"' "$TMP/codex26/config.toml" || fail "AC5: derived token not written to config.toml"
 [ "$(grep -c 'x-pulse-repo = "acme/widget"' "$TMP/codex26/config.toml")" = "2" ] || fail "AC5: repo header must be written for logs and metrics"
 ! printf '%s' "$OUT" | grep -q 'hosted-derived-fixture' || fail "AC5: derived token printed to output"
-pass "AC5: hosted --derive obtains a repo token without auth and keeps it private"
+pass "AC5: hosted --derive reuses pulse.env and keeps the repo token private"
 
 # ---------------------------------------------------------------------------
 # 27. AC5: --derive self-hosted mode requires and sends the webhook secret,
@@ -489,6 +489,12 @@ pass "AC5: hosted --derive obtains a repo token without auth and keeps it privat
 RDIR="$TMP/repo27"
 mkdir -p "$RDIR" "$TMP/codex27"
 cd "$RDIR"
+cat > "$TMP/codex-derive-bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$CURL_ARGS_FILE"
+printf '{"token":"hosted-derived-fixture"}'
+CURL_STUB
+chmod +x "$TMP/codex-derive-bin/curl"
 SELFHOST_SECRET="selfhost-webhook-fixture"
 OUT="$(CURL_ARGS_FILE="$TMP/codex27-curl.txt" PATH="$TMP/codex-derive-bin:$PATH" CODEX_HOME="$TMP/codex27" OTTA_PULSE_URL="https://pulse.example.test/" bash "$SCRIPT" --derive "$REPO_SLUG" "$SELFHOST_SECRET" 2>&1)" || \
   fail "AC5: self-hosted --derive run exited non-zero"
@@ -514,7 +520,7 @@ printf '{"error":"denied","token_hint":"response-secret-fixture"}'
 CURL_STUB
 chmod +x "$TMP/codex-derive-bin/curl"
 set +e
-ERROR_OUT="$(PATH="$TMP/codex-derive-bin:$PATH" CODEX_HOME="$TMP/codex28" bash "$SCRIPT" --derive "$REPO_SLUG" 2>&1)"
+ERROR_OUT="$(OTTA_PULSE_URL=https://pulse.example.test OTTA_PULSE_WEBHOOK_SECRET=fixture-secret PATH="$TMP/codex-derive-bin:$PATH" CODEX_HOME="$TMP/codex28" bash "$SCRIPT" --derive "$REPO_SLUG" 2>&1)"
 ERROR_RC=$?
 set -e
 [ "$ERROR_RC" -ne 0 ] || fail "AC5: tokenless derivation response must fail"
