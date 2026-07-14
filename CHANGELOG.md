@@ -1,3 +1,9 @@
+## 1.5.0
+
+### Added
+
+- implement implicit delivery routing (#152)
+
 ## 1.4.3
 
 ### Changed
