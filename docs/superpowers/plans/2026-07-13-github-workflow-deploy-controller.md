@@ -186,7 +186,7 @@ Record run IDs before dispatch, append `deploy_dispatching`, then call:
 gh workflow run "$workflow" --repo "$repo" --ref "$ref" -f "$sha_input=$merge_sha"
 ```
 
-Poll `gh run list` for workflow-dispatch runs on that workflow/ref whose IDs were not in the recorded pre-dispatch set. Exactly one becomes `deploy_dispatched`; zero times out as unknown; multiple fail as ambiguous. Retries reconcile from the ledger and never call `workflow run` again while state is uncertain.
+Poll workflow-dispatch runs for the configured workflow/ref whose IDs were not in the recorded pre-dispatch set. Correlate only a post-dispatch run from the recorded actor whose `display_title` contains the requested SHA as an exact standalone token; `head_sha` must never substitute because it identifies the workflow ref rather than proving the input received by the run. Exactly one becomes `deploy_dispatched`; zero times out as unknown; multiple fail as ambiguous. Retries reconcile from the ledger and never call `workflow run` again while state is uncertain.
 
 - [ ] **Step 5: Run GREEN and commit**
 

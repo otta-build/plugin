@@ -118,6 +118,31 @@ drift_run="$(ensure_workflow_dispatched acme/drift acme/drift production deploy.
 check "ref drift correlates exact display-title SHA marker" 0 "$rc"
 check "unrelated concurrent unseen run is ignored" 102 "$drift_run"
 
+# A matching ref head is not proof that the workflow received this dispatch's
+# SHA input. The exact input must appear in the configured run-name marker.
+HEAD_ONLY_LEDGER="$TMP/head-only-ledger"; mkdir -p "$HEAD_ONLY_LEDGER"
+export OTTA_LEDGER_DIR="$HEAD_ONLY_LEDGER"
+HEAD_ONLY_COUNT="$TMP/head-only-count"; printf '0\n' > "$HEAD_ONLY_COUNT"
+head_only_key="$(workflow_deploy_key acme/head-only deploy.yml production race123)"
+gh() {
+  if [ "$1 $2" = "api user" ]; then printf 'alice\n'; return 0; fi
+  if [ "$1" = "api" ] && [[ "$2" == *'/runs?'* ]]; then
+    count="$(cat "$HEAD_ONLY_COUNT")"; count=$((count + 1)); printf '%s\n' "$count" > "$HEAD_ONLY_COUNT"
+    if [ "$count" -eq 1 ]; then
+      printf '[]\n'
+    else
+      printf '[{"databaseId":103,"headSha":"race123","displayTitle":"Deploy other456","actor":"alice","createdAt":"2999-01-01T00:00:01Z"}]\n'
+    fi
+    return 0
+  fi
+  [ "$1 $2" = "workflow run" ] && return 0
+  return 1
+}
+ensure_workflow_dispatched acme/head-only acme/head-only production deploy.yml main sha race123 >/dev/null 2>&1; rc=$?
+check "matching head without exact display-title marker stays unknown" 3 "$rc"
+check "matching head without exact display-title marker records dispatch_unknown" deploy_dispatch_unknown \
+  "$(deployment_last_record acme/head-only "$head_only_key" | jq -r .event)"
+
 # An uncertain dispatch reconciles, but zero matches remains unknown and never
 # initiates a second ordinary deployment.
 UNKNOWN_LEDGER="$TMP/unknown-ledger"; mkdir -p "$UNKNOWN_LEDGER"
@@ -178,7 +203,7 @@ check "explicit rerun returns to dispatched state" deploy_dispatched \
   "$(deployment_last_record acme/failed "$failed_key" | jq -r .event)"
 
 # An operator can resolve dispatch_unknown to an exact existing run, but the
-# adapter validates its event and immutable head before attaching it.
+# adapter validates its workflow/ref/actor/time and exact title marker first.
 export OTTA_LEDGER_DIR="$UNKNOWN_LEDGER"
 gh() {
   [ "$1 $2" = "run view" ] && {
@@ -260,6 +285,22 @@ gh() {
 OTTA_DEPLOY_RESOLVE_RUN_ID=59 \
   ensure_workflow_dispatched acme/wrong-ref acme/wrong-ref production deploy.yml main sha exact4 >/dev/null 2>&1; rc=$?
 check "manual resolution rejects wrong ref" 6 "$rc"
+
+HEAD_ONLY_RESOLVE_LEDGER="$TMP/head-only-resolve-ledger"; mkdir -p "$HEAD_ONLY_RESOLVE_LEDGER"
+export OTTA_LEDGER_DIR="$HEAD_ONLY_RESOLVE_LEDGER"
+head_only_resolve_key="$(workflow_deploy_key acme/head-only-resolve deploy.yml production exact5)"
+append_deploy_record acme/head-only-resolve deploy_dispatch_unknown "$head_only_resolve_key" \
+  '{"workflow":"deploy.yml","ref":"main","sha":"exact5","actor":"alice","dispatch_at":"2026-07-13T00:00:00Z","pre_run_ids":[]}' '{}' >/dev/null
+gh() {
+  if [ "$1" = "api" ] && [[ "$2" == *'/actions/runs/60' ]]; then
+    printf '{"id":60,"event":"workflow_dispatch","head_branch":"main","head_sha":"exact5","display_title":"Deploy other456","actor":{"login":"alice"},"created_at":"2999-01-01T00:00:00Z","workflow_id":777}\n'; return 0
+  fi
+  [ "$1" = "api" ] && { printf '777\n'; return 0; }
+  return 1
+}
+OTTA_DEPLOY_RESOLVE_RUN_ID=60 \
+  ensure_workflow_dispatched acme/head-only-resolve acme/head-only-resolve production deploy.yml main sha exact5 >/dev/null 2>&1; rc=$?
+check "manual resolution rejects matching head without exact display-title marker" 6 "$rc"
 
 # Local non-mutating integration fixture: dispatch → correlate → terminal
 # workflow success → health SHA → verified ledger, then an idempotent retry.

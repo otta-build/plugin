@@ -44,8 +44,7 @@ _run_matches_dispatch() {
   local json="$1" sha="$2" actor="$3" dispatch_at="$4" ref="$5"
   jq -e --arg sha "$sha" --arg actor "$actor" --arg at "$dispatch_at" --arg ref "$ref" '
     def exact_marker:
-      (.head_sha == $sha) or
-      ((.display_title // "") | test("(^|[^A-Za-z0-9])" + $sha + "([^A-Za-z0-9]|$)"));
+      (.display_title // "") | test("(^|[^A-Za-z0-9])" + $sha + "([^A-Za-z0-9]|$)");
     .event == "workflow_dispatch" and .head_branch == $ref and .actor.login == $actor and
     .created_at >= $at and exact_marker
   ' <<<"$json" >/dev/null
@@ -66,8 +65,7 @@ reconcile_workflow_dispatch() {
     runs="$(_list_workflow_runs "$repo" "$workflow" "$ref")" || return 3
     unseen="$(jq -c --argjson before "$pre_ids" --arg sha "$sha" --arg actor "$actor" --arg at "$dispatch_at" '
       def exact_marker:
-        (.headSha == $sha) or
-        ((.displayTitle // "") | test("(^|[^A-Za-z0-9])" + $sha + "([^A-Za-z0-9]|$)"));
+        (.displayTitle // "") | test("(^|[^A-Za-z0-9])" + $sha + "([^A-Za-z0-9]|$)");
       [.[] | select(
         ((.databaseId | tostring) as $id | ($before | index($id) | not)) and
         (.createdAt >= $at) and (.actor == $actor) and exact_marker
