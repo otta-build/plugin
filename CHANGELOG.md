@@ -1,3 +1,9 @@
+## 1.6.0
+
+### Added
+
+- adopt Claude Code native UX/DX primitives — goal+tasks, SendMessage loops, frontmatter hardening, OTel correlation, monitors (#156)
+
 ## 1.5.0
 
 ### Added
