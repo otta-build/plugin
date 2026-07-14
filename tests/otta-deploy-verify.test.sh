@@ -130,6 +130,8 @@ check "workflow approved open PR → merge-dispatch" "merge-dispatch" \
   "$(decide_delivery_action human-approve OPEN github-workflow abc123 abc123 true)"
 check "workflow changed head invalidates approval" "invalid-approval" \
   "$(decide_delivery_action human-approve OPEN github-workflow abc123 def456 true)"
+check "workflow approval never accepts a SHA prefix" "invalid-approval" \
+  "$(decide_delivery_action human-approve OPEN github-workflow a abc123 true)"
 check "workflow approved merged PR → dispatch only" "dispatch" \
   "$(decide_delivery_action human-approve MERGED github-workflow abc123 abc123 true)"
 check "workflow merged PR without approval → wait-human" "wait-human" \
@@ -243,6 +245,15 @@ if grep -Eq 'pr merge|workflow run' "$CALLS"; then
 else
   check "changed approval performs no mutation" yes yes
 fi
+
+: > "$CALLS"
+_prefix_out="$(_run 42 --otta-yml "$Y" --approved-head a 2>&1)"; _prefix_rc=$?
+check "prefix approval is rejected at initial boundary" 1 "$_prefix_rc"
+if grep -Eq 'pr merge|workflow run' "$CALLS"; then
+  check "prefix approval performs no mutation" yes no
+else
+  check "prefix approval performs no mutation" yes yes
+fi
 unset -f git gh
 
 # End-to-end orchestration routes only the configured workflow executor through
@@ -273,6 +284,29 @@ _orch_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _orch_rc=$?
 check "approved open PR workflow path succeeds" 0 "$_orch_rc"
 check "approved open PR merges once" 1 "$(grep -c '^gh pr merge ' "$ORCH_CALLS")"
 case "$(grep '^adapter ' "$ORCH_CALLS")" in *"merge123"*"https://example.test/health"*"commit"*) check "open PR dispatches adapter with merge SHA and health contract" yes yes ;; *) check "open PR dispatches adapter with merge SHA and health contract" yes no ;; esac
+
+# A push while checks are polling invalidates approval even when the refreshed
+# head only extends the approved text as a SHA prefix.
+REFRESH_COUNT="$TMP/refresh-count"; printf '0\n' > "$REFRESH_COUNT"
+gh() {
+  printf 'gh %s\n' "$*" >> "$ORCH_CALLS"
+  case "$1 $2" in
+    "pr view")
+      count="$(cat "$REFRESH_COUNT")"; count=$((count + 1)); printf '%s\n' "$count" > "$REFRESH_COUNT"
+      if [ "$count" -eq 1 ]; then
+        printf '{"state":"OPEN","headRefOid":"abc123","mergeCommit":null}\n'
+      else
+        printf '{"state":"OPEN","headRefOid":"abc1234","mergeCommit":null}\n'
+      fi
+      ;;
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr merge") return 0 ;;
+  esac
+}
+: > "$ORCH_CALLS"
+_refresh_out="$(_run 42 --otta-yml "$Y" --approved-head abc123 2>&1)"; _refresh_rc=$?
+check "prefix drift is rejected at refreshed boundary" 1 "$_refresh_rc"
+check "refreshed prefix drift performs no merge" 0 "$(grep -c '^gh pr merge ' "$ORCH_CALLS" || true)"
 
 gh() {
   printf 'gh %s\n' "$*" >> "$ORCH_CALLS"

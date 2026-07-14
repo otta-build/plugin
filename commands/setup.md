@@ -106,7 +106,7 @@ Collect:
 - provider label for evidence attribution;
 - health URL and top-level JSON commit field (`commit` by default).
 
-Before enabling it, require the target repository to disable competing deployment triggers, define one production concurrency group with cancellation disabled, reuse build artifacts where practical, and document a repository-owned rollback workflow. These answers map to `--deploy-executor github-workflow`, `--deploy-workflow`, `--deploy-ref`, `--deploy-sha-input`, `--deploy-provider`, `--deploy-verify health-sha`, `--deploy-health-url`, and `--deploy-health-commit-field`.
+Before enabling it, require the target repository to disable competing deployment triggers, define one production concurrency group with cancellation disabled, reuse build artifacts where practical, and document a repository-owned rollback workflow. The workflow must put the exact SHA input in `run-name` as a standalone token (for example, `deploy ${{ inputs.commit_sha }}`), because Otta uses that marker when the dispatch ref's `head_sha` has advanced. The workflow must also self-dedupe across machines: after entering the global production concurrency group, compare live health to the requested SHA and exit without mutation when it already matches. Otta's local ledger lock cannot serialize agents on different hosts. These answers map to `--deploy-executor github-workflow`, `--deploy-workflow`, `--deploy-ref`, `--deploy-sha-input`, `--deploy-provider`, `--deploy-verify health-sha`, `--deploy-health-url`, and `--deploy-health-commit-field`.
 
 ---
 

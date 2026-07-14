@@ -27,6 +27,22 @@ key3="$(workflow_deploy_key acme/widget deploy.yml staging abc123)"
 check "stable identity is deterministic" "$key1" "$key2"
 check "environment participates in identity" yes "$([ "$key1" != "$key3" ] && echo yes || echo no)"
 
+# Repo-local Pulse configuration must remain visible to ledger-append when the
+# caller did not explicitly set connector variables.
+PULSE_FIXTURE="$TMP/pulse-fixture"; mkdir -p "$PULSE_FIXTURE/.otta" "$PULSE_FIXTURE/bin"
+printf '%s\n' 'OTTA_PULSE_URL=https://pulse.fixture.test' 'OTTA_PULSE_TOKEN=fake-test-token' > "$PULSE_FIXTURE/.otta/pulse.env"
+PULSE_CAPTURE="$PULSE_FIXTURE/curl-calls"
+cat > "$PULSE_FIXTURE/bin/curl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$PULSE_CAPTURE"
+SH
+chmod +x "$PULSE_FIXTURE/bin/curl"
+(cd "$PULSE_FIXTURE" && unset OTTA_PULSE_URL OTTA_PULSE_TOKEN OTTA_NO_CAPTURE && \
+  PATH="$PULSE_FIXTURE/bin:$PATH" PULSE_CAPTURE="$PULSE_CAPTURE" \
+  OTTA_LEDGER_DIR="$PULSE_FIXTURE/ledger" \
+  append_deploy_record acme/pulse deploy_dispatching pulse-key '{}' '{}' >/dev/null 2>&1)
+check "repo-local Pulse config reaches ledger append" yes "$([ -s "$PULSE_CAPTURE" ] && echo yes || echo no)"
+
 # A concurrent controller cannot enter the dispatch critical section.
 LOCK_LEDGER="$TMP/lock-ledger"; mkdir -p "$LOCK_LEDGER"
 export OTTA_LEDGER_DIR="$LOCK_LEDGER" OTTA_DEPLOY_LOCK_TIMEOUT=0
@@ -48,16 +64,17 @@ CALLS="$TMP/calls"; : > "$CALLS"
 LIST_COUNT="$TMP/list-count"; printf '0\n' > "$LIST_COUNT"
 gh() {
   printf '%s\n' "$*" >> "$CALLS"
-  if [ "$1 $2" = "run list" ]; then
+  if [ "$1 $2" = "api user" ]; then printf 'alice\n'; return 0; fi
+  if [ "$1" = "api" ] && [[ "$2" == *'/runs?'* ]]; then
     count="$(cat "$LIST_COUNT")"; count=$((count + 1)); printf '%s\n' "$count" > "$LIST_COUNT"
     if [ "$count" -eq 1 ]; then
-      printf '[{"databaseId":10,"headSha":"abc123","createdAt":"2026-07-13T00:00:00Z"}]\n'
+      printf '[{"databaseId":10,"headSha":"old000","displayTitle":"Deploy old000","actor":"alice","createdAt":"2020-01-01T00:00:00Z"}]\n'
     else
-      printf '[{"databaseId":10,"headSha":"abc123","createdAt":"2026-07-13T00:00:00Z"},{"databaseId":11,"headSha":"abc123","createdAt":"2026-07-13T00:00:01Z"}]\n'
+      printf '[{"databaseId":10,"headSha":"old000","displayTitle":"Deploy old000","actor":"alice","createdAt":"2020-01-01T00:00:00Z"},{"databaseId":11,"headSha":"abc123","displayTitle":"Deploy abc123","actor":"alice","createdAt":"2999-01-01T00:00:01Z"}]\n'
     fi
     return 0
   fi
-  [ "$1 $2" = "workflow run" ] && return 0
+  [ "$1 $2" = "workflow run" ] && { printf '✓ Created workflow run\n'; return 0; }
   return 1
 }
 
@@ -65,12 +82,41 @@ run_id="$(ensure_workflow_dispatched acme/widget acme/widget production deploy.y
 check "first dispatch returns correlated run" 0 "$rc"
 check "first dispatch correlates unseen run" 11 "$run_id"
 check "first attempt dispatches exactly once" 1 "$(grep -c '^workflow run ' "$CALLS")"
-check "correlation filters the immutable commit" yes "$(grep -q -- '--commit abc123' "$CALLS" && echo yes || echo no)"
+check "correlation snapshots configured workflow and ref" yes "$(grep -q 'actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main' "$CALLS" && echo yes || echo no)"
+check "correlation does not assume run head equals input via commit filter" 0 "$(grep -c -- '--commit' "$CALLS" || true)"
+check "dispatch ledger records authenticated actor" alice \
+  "$(deployment_last_record acme/widget "$key1" | jq -r .input.actor)"
+check "dispatch ledger records timestamp" true \
+  "$(deployment_last_record acme/widget "$key1" | jq -r '.input.dispatch_at | length > 0')"
 
 run_id="$(ensure_workflow_dispatched acme/widget acme/widget production deploy.yml main sha abc123)"; rc=$?
 check "retry reuses recorded run" 0 "$rc"
 check "retry returns same run" 11 "$run_id"
 check "retry does not redispatch" 1 "$(grep -c '^workflow run ' "$CALLS")"
+
+# The workflow may run on a ref that has advanced beyond the deployment SHA.
+# Correlation uses the exact SHA marker in displayTitle plus actor/time, and
+# ignores unrelated unseen runs instead of assuming headSha == input SHA.
+DRIFT_LEDGER="$TMP/drift-ledger"; mkdir -p "$DRIFT_LEDGER"
+export OTTA_LEDGER_DIR="$DRIFT_LEDGER"
+DRIFT_COUNT="$TMP/drift-count"; printf '0\n' > "$DRIFT_COUNT"
+gh() {
+  if [ "$1 $2" = "api user" ]; then printf 'alice\n'; return 0; fi
+  if [ "$1 $2" = "run list" ] || { [ "$1" = "api" ] && [[ "$*" == *'/runs?'* ]]; }; then
+    count="$(cat "$DRIFT_COUNT")"; count=$((count + 1)); printf '%s\n' "$count" > "$DRIFT_COUNT"
+    if [ "$count" -eq 1 ]; then
+      printf '[]\n'
+    else
+      printf '[{"databaseId":99,"headSha":"ref999","displayTitle":"Deploy ship456","actor":"alice","createdAt":"2020-01-01T00:00:00Z"},{"databaseId":100,"headSha":"ref999","displayTitle":"Deploy ship4567","actor":"alice","createdAt":"2999-01-01T00:00:00Z"},{"databaseId":101,"headSha":"ref999","displayTitle":"Deploy other999","actor":"bob","createdAt":"2999-01-01T00:00:00Z"},{"databaseId":102,"headSha":"ref999","displayTitle":"Deploy ship456","actor":"alice","createdAt":"2999-01-01T00:00:01Z"}]\n'
+    fi
+    return 0
+  fi
+  [ "$1 $2" = "workflow run" ] && return 0
+  return 1
+}
+drift_run="$(ensure_workflow_dispatched acme/drift acme/drift production deploy.yml main sha ship456 2>/dev/null)"; rc=$?
+check "ref drift correlates exact display-title SHA marker" 0 "$rc"
+check "unrelated concurrent unseen run is ignored" 102 "$drift_run"
 
 # An uncertain dispatch reconciles, but zero matches remains unknown and never
 # initiates a second ordinary deployment.
@@ -78,11 +124,11 @@ UNKNOWN_LEDGER="$TMP/unknown-ledger"; mkdir -p "$UNKNOWN_LEDGER"
 export OTTA_LEDGER_DIR="$UNKNOWN_LEDGER"
 unknown_key="$(workflow_deploy_key acme/unknown deploy.yml production def456)"
 append_deploy_record acme/unknown deploy_dispatching "$unknown_key" \
-  '{"workflow":"deploy.yml","ref":"main","sha":"def456","pre_run_ids":[]}' '{}' >/dev/null
+  '{"workflow":"deploy.yml","ref":"main","sha":"def456","actor":"alice","dispatch_at":"2026-07-13T00:00:00Z","pre_run_ids":[]}' '{}' >/dev/null
 : > "$CALLS"
 gh() {
   printf '%s\n' "$*" >> "$CALLS"
-  [ "$1 $2" = "run list" ] && { printf '[]\n'; return 0; }
+  [ "$1" = "api" ] && [[ "$2" == *'/runs?'* ]] && { printf '[]\n'; return 0; }
   [ "$1 $2" = "workflow run" ] && return 0
   return 1
 }
@@ -98,10 +144,10 @@ AMBIG_LEDGER="$TMP/ambig-ledger"; mkdir -p "$AMBIG_LEDGER"
 export OTTA_LEDGER_DIR="$AMBIG_LEDGER"
 ambig_key="$(workflow_deploy_key acme/ambig deploy.yml production fedcba)"
 append_deploy_record acme/ambig deploy_dispatching "$ambig_key" \
-  '{"workflow":"deploy.yml","ref":"main","sha":"fedcba","pre_run_ids":[]}' '{}' >/dev/null
+  '{"workflow":"deploy.yml","ref":"main","sha":"fedcba","actor":"alice","dispatch_at":"2026-07-13T00:00:00Z","pre_run_ids":[]}' '{}' >/dev/null
 gh() {
-  [ "$1 $2" = "run list" ] && {
-    printf '[{"databaseId":21,"headSha":"fedcba"},{"databaseId":22,"headSha":"fedcba"}]\n'; return 0
+  [ "$1" = "api" ] && [[ "$2" == *'/runs?'* ]] && {
+    printf '[{"databaseId":21,"headSha":"fedcba","displayTitle":"Deploy fedcba","actor":"alice","createdAt":"2999-01-01T00:00:00Z"},{"databaseId":22,"headSha":"fedcba","displayTitle":"Deploy fedcba","actor":"alice","createdAt":"2999-01-01T00:00:01Z"}]\n'; return 0
   }
   return 1
 }
@@ -120,12 +166,13 @@ check "failed run refuses implicit retry" 5 "$rc"
 RECOVERY_CALLS="$TMP/recovery-calls"; : > "$RECOVERY_CALLS"
 gh() {
   printf '%s\n' "$*" >> "$RECOVERY_CALLS"
-  [ "$1 $2" = "run rerun" ] && return 0
+  [ "$1 $2" = "run rerun" ] && { printf '✓ Requested rerun\n'; return 0; }
   return 1
 }
-OTTA_DEPLOY_RETRY_FAILED_RUN=true \
-  ensure_workflow_dispatched acme/failed acme/failed production deploy.yml main sha bad123 >/dev/null 2>&1; rc=$?
+recovered_id="$(OTTA_DEPLOY_RETRY_FAILED_RUN=true \
+  ensure_workflow_dispatched acme/failed acme/failed production deploy.yml main sha bad123 2>/dev/null)"; rc=$?
 check "explicit failed-run recovery is accepted" 0 "$rc"
+check "rerun CLI stdout cannot corrupt captured run id" 31 "$recovered_id"
 check "explicit recovery reruns the recorded run only" 1 "$(grep -c '^run rerun 31 ' "$RECOVERY_CALLS")"
 check "explicit rerun returns to dispatched state" deploy_dispatched \
   "$(deployment_last_record acme/failed "$failed_key" | jq -r .event)"
@@ -135,8 +182,12 @@ check "explicit rerun returns to dispatched state" deploy_dispatched \
 export OTTA_LEDGER_DIR="$UNKNOWN_LEDGER"
 gh() {
   [ "$1 $2" = "run view" ] && {
-    printf '{"databaseId":55,"event":"workflow_dispatch","headSha":"def456","workflowDatabaseId":777,"url":"https://example.test/runs/55"}\n'; return 0
+    printf '{"databaseId":55,"event":"workflow_dispatch","headSha":"ref999","displayTitle":"Deploy def456","actor":"alice","createdAt":"2999-01-01T00:00:00Z","workflowDatabaseId":777,"url":"https://example.test/runs/55"}\n'; return 0
   }
+  [ "$1 $2" = "api user" ] && { printf 'alice\n'; return 0; }
+  if [ "$1" = "api" ] && [[ "$2" == *'/actions/runs/55' ]]; then
+    printf '{"id":55,"event":"workflow_dispatch","head_branch":"main","head_sha":"ref999","display_title":"Deploy def456","actor":{"login":"alice"},"created_at":"2999-01-01T00:00:00Z","workflow_id":777,"html_url":"https://example.test/runs/55"}\n'; return 0
+  fi
   [ "$1" = "api" ] && { printf '777\n'; return 0; }
   return 1
 }
@@ -150,11 +201,11 @@ BAD_RESOLVE_LEDGER="$TMP/bad-resolve-ledger"; mkdir -p "$BAD_RESOLVE_LEDGER"
 export OTTA_LEDGER_DIR="$BAD_RESOLVE_LEDGER"
 bad_resolve_key="$(workflow_deploy_key acme/bad-resolve deploy.yml production exact1)"
 append_deploy_record acme/bad-resolve deploy_dispatch_unknown "$bad_resolve_key" \
-  '{"workflow":"deploy.yml","ref":"main","sha":"exact1","pre_run_ids":[]}' '{}' >/dev/null
+  '{"workflow":"deploy.yml","ref":"main","sha":"exact1","actor":"alice","dispatch_at":"2026-07-13T00:00:00Z","pre_run_ids":[]}' '{}' >/dev/null
 gh() {
-  [ "$1 $2" = "run view" ] && {
-    printf '{"databaseId":56,"event":"workflow_dispatch","headSha":"wrong2","workflowDatabaseId":777,"url":"https://example.test/runs/56"}\n'; return 0
-  }
+  if [ "$1" = "api" ] && [[ "$2" == *'/actions/runs/56' ]]; then
+    printf '{"id":56,"event":"workflow_dispatch","head_branch":"main","head_sha":"wrong2","display_title":"Deploy wrong2","actor":{"login":"alice"},"created_at":"2999-01-01T00:00:00Z","workflow_id":777,"html_url":"https://example.test/runs/56"}\n'; return 0
+  fi
   [ "$1" = "api" ] && { printf '777\n'; return 0; }
   return 1
 }
@@ -166,17 +217,49 @@ WRONG_WORKFLOW_LEDGER="$TMP/wrong-workflow-ledger"; mkdir -p "$WRONG_WORKFLOW_LE
 export OTTA_LEDGER_DIR="$WRONG_WORKFLOW_LEDGER"
 wrong_workflow_key="$(workflow_deploy_key acme/wrong-workflow deploy.yml production exact2)"
 append_deploy_record acme/wrong-workflow deploy_dispatch_unknown "$wrong_workflow_key" \
-  '{"workflow":"deploy.yml","ref":"main","sha":"exact2","pre_run_ids":[]}' '{}' >/dev/null
+  '{"workflow":"deploy.yml","ref":"main","sha":"exact2","actor":"alice","dispatch_at":"2026-07-13T00:00:00Z","pre_run_ids":[]}' '{}' >/dev/null
 gh() {
-  [ "$1 $2" = "run view" ] && {
-    printf '{"databaseId":57,"event":"workflow_dispatch","headSha":"exact2","workflowDatabaseId":999,"url":"https://example.test/runs/57"}\n'; return 0
-  }
+  if [ "$1" = "api" ] && [[ "$2" == *'/actions/runs/57' ]]; then
+    printf '{"id":57,"event":"workflow_dispatch","head_branch":"main","head_sha":"ref999","display_title":"Deploy exact2","actor":{"login":"alice"},"created_at":"2999-01-01T00:00:00Z","workflow_id":999,"html_url":"https://example.test/runs/57"}\n'; return 0
+  fi
   [ "$1" = "api" ] && { printf '777\n'; return 0; }
   return 1
 }
 OTTA_DEPLOY_RESOLVE_RUN_ID=57 \
   ensure_workflow_dispatched acme/wrong-workflow acme/wrong-workflow production deploy.yml main sha exact2 >/dev/null 2>&1; rc=$?
 check "manual resolution rejects wrong workflow" 6 "$rc"
+
+WRONG_ACTOR_LEDGER="$TMP/wrong-actor-ledger"; mkdir -p "$WRONG_ACTOR_LEDGER"
+export OTTA_LEDGER_DIR="$WRONG_ACTOR_LEDGER"
+wrong_actor_key="$(workflow_deploy_key acme/wrong-actor deploy.yml production exact3)"
+append_deploy_record acme/wrong-actor deploy_dispatch_unknown "$wrong_actor_key" \
+  '{"workflow":"deploy.yml","ref":"main","sha":"exact3","actor":"alice","dispatch_at":"2026-07-13T00:00:00Z","pre_run_ids":[]}' '{}' >/dev/null
+gh() {
+  if [ "$1" = "api" ] && [[ "$2" == *'/actions/runs/58' ]]; then
+    printf '{"id":58,"event":"workflow_dispatch","head_branch":"main","head_sha":"ref999","display_title":"Deploy exact3","actor":{"login":"bob"},"created_at":"2999-01-01T00:00:00Z","workflow_id":777}\n'; return 0
+  fi
+  [ "$1" = "api" ] && { printf '777\n'; return 0; }
+  return 1
+}
+OTTA_DEPLOY_RESOLVE_RUN_ID=58 \
+  ensure_workflow_dispatched acme/wrong-actor acme/wrong-actor production deploy.yml main sha exact3 >/dev/null 2>&1; rc=$?
+check "manual resolution rejects wrong actor" 6 "$rc"
+
+WRONG_REF_LEDGER="$TMP/wrong-ref-ledger"; mkdir -p "$WRONG_REF_LEDGER"
+export OTTA_LEDGER_DIR="$WRONG_REF_LEDGER"
+wrong_ref_key="$(workflow_deploy_key acme/wrong-ref deploy.yml production exact4)"
+append_deploy_record acme/wrong-ref deploy_dispatch_unknown "$wrong_ref_key" \
+  '{"workflow":"deploy.yml","ref":"main","sha":"exact4","actor":"alice","dispatch_at":"2026-07-13T00:00:00Z","pre_run_ids":[]}' '{}' >/dev/null
+gh() {
+  if [ "$1" = "api" ] && [[ "$2" == *'/actions/runs/59' ]]; then
+    printf '{"id":59,"event":"workflow_dispatch","head_branch":"other","head_sha":"ref999","display_title":"Deploy exact4","actor":{"login":"alice"},"created_at":"2999-01-01T00:00:00Z","workflow_id":777}\n'; return 0
+  fi
+  [ "$1" = "api" ] && { printf '777\n'; return 0; }
+  return 1
+}
+OTTA_DEPLOY_RESOLVE_RUN_ID=59 \
+  ensure_workflow_dispatched acme/wrong-ref acme/wrong-ref production deploy.yml main sha exact4 >/dev/null 2>&1; rc=$?
+check "manual resolution rejects wrong ref" 6 "$rc"
 
 # Local non-mutating integration fixture: dispatch → correlate → terminal
 # workflow success → health SHA → verified ledger, then an idempotent retry.
@@ -186,16 +269,18 @@ INTEGRATION_CALLS="$TMP/integration-calls"; : > "$INTEGRATION_CALLS"
 INTEGRATION_DISPATCHED="$TMP/integration-dispatched"
 gh() {
   printf '%s\n' "$*" >> "$INTEGRATION_CALLS"
+  if [ "$1 $2" = "api user" ]; then printf 'alice\n'; return 0; fi
+  if [ "$1" = "api" ] && [[ "$2" == *'/runs?'* ]]; then
+    if [ -f "$INTEGRATION_DISPATCHED" ]; then
+      printf '[{"databaseId":88,"status":"completed","conclusion":"success","headSha":"ref999","displayTitle":"Deploy ship123","actor":"alice","createdAt":"2999-01-01T00:00:00Z","url":"https://example.test/runs/88"}]\n'
+    else
+      printf '[]\n'
+    fi
+    return 0
+  fi
   case "$1 $2" in
-    "run list")
-      if [ -f "$INTEGRATION_DISPATCHED" ]; then
-        printf '[{"databaseId":88,"status":"completed","conclusion":"success","headSha":"ship123","url":"https://example.test/runs/88"}]\n'
-      else
-        printf '[]\n'
-      fi
-      ;;
     "workflow run") : > "$INTEGRATION_DISPATCHED" ;;
-    "run view") printf '{"status":"completed","conclusion":"success","headSha":"ship123","url":"https://example.test/runs/88"}\n' ;;
+    "run view") printf '{"status":"completed","conclusion":"success","headSha":"ref999","url":"https://example.test/runs/88"}\n' ;;
     *) return 1 ;;
   esac
 }

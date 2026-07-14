@@ -22,34 +22,56 @@ append_deploy_record() {
   [ -n "$output" ] || output='{}'
   local enriched
   enriched="$(jq -cn --arg key "$key" --argjson input "$input" '$input + {idempotency_key:$key}')" || return 2
-  OTTA_PULSE_URL="${OTTA_PULSE_URL:-}" OTTA_PULSE_TOKEN="${OTTA_PULSE_TOKEN:-}" \
-    bash "$_workflow_script_dir/ledger-append.sh" \
-      --source deploy --event "$event" --score 0 --feedback "$event" \
-      --project "$project" --input "$enriched" --output "$output"
+  bash "$_workflow_script_dir/ledger-append.sh" \
+    --source deploy --event "$event" --score 0 --feedback "$event" \
+    --project "$project" --input "$enriched" --output "$output"
 }
 
 _list_workflow_runs() {
-  local repo="$1" workflow="$2" ref="$3" sha="$4"
-  gh run list --repo "$repo" --workflow "$workflow" --event workflow_dispatch \
-    --branch "$ref" --commit "$sha" \
-    --json databaseId,status,conclusion,createdAt,headSha,url
+  local repo="$1" workflow="$2" ref="$3"
+  gh api "repos/$repo/actions/workflows/$workflow/runs?event=workflow_dispatch&branch=$ref&per_page=100" \
+    --jq '[.workflow_runs[] | {databaseId:.id,status:.status,conclusion:.conclusion,
+      createdAt:.created_at,headSha:.head_sha,displayTitle:.display_title,
+      actor:(.actor.login // ""),url:.html_url,workflowDatabaseId:.workflow_id,event:.event}]'
+}
+
+_github_actor() { gh api user --jq .login; }
+_workflow_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+_get_workflow_run() { gh api "repos/$1/actions/runs/$2"; }
+
+_run_matches_dispatch() {
+  local json="$1" sha="$2" actor="$3" dispatch_at="$4" ref="$5"
+  jq -e --arg sha "$sha" --arg actor "$actor" --arg at "$dispatch_at" --arg ref "$ref" '
+    def exact_marker:
+      (.head_sha == $sha) or
+      ((.display_title // "") | test("(^|[^A-Za-z0-9])" + $sha + "([^A-Za-z0-9]|$)"));
+    .event == "workflow_dispatch" and .head_branch == $ref and .actor.login == $actor and
+    .created_at >= $at and exact_marker
+  ' <<<"$json" >/dev/null
 }
 
 _run_ids_json() {
   jq -c '[.[] | (.databaseId | tostring)]'
 }
 
-# reconcile_workflow_dispatch <repo> <workflow> <ref> <sha> <pre-run-ids-json>
+# reconcile_workflow_dispatch <repo> <workflow> <ref> <sha> <pre-ids> <actor> <dispatch-at>
 # Prints the unique unseen run id. Returns 3 when none appears, 4 if ambiguous.
 reconcile_workflow_dispatch() {
-  local repo="$1" workflow="$2" ref="$3" sha="$4" pre_ids="$5"
+  local repo="$1" workflow="$2" ref="$3" sha="$4" pre_ids="$5" actor="$6" dispatch_at="$7"
   local attempts="${OTTA_DISPATCH_RECONCILE_ATTEMPTS:-12}"
   local interval="${OTTA_DISPATCH_RECONCILE_INTERVAL:-5}"
   local attempt=1 runs unseen count
   while [ "$attempt" -le "$attempts" ]; do
-    runs="$(_list_workflow_runs "$repo" "$workflow" "$ref" "$sha")" || return 3
-    unseen="$(jq -c --argjson before "$pre_ids" \
-      '[.[] | select((.databaseId | tostring) as $id | ($before | index($id) | not))]' <<<"$runs")" || return 3
+    runs="$(_list_workflow_runs "$repo" "$workflow" "$ref")" || return 3
+    unseen="$(jq -c --argjson before "$pre_ids" --arg sha "$sha" --arg actor "$actor" --arg at "$dispatch_at" '
+      def exact_marker:
+        (.headSha == $sha) or
+        ((.displayTitle // "") | test("(^|[^A-Za-z0-9])" + $sha + "([^A-Za-z0-9]|$)"));
+      [.[] | select(
+        ((.databaseId | tostring) as $id | ($before | index($id) | not)) and
+        (.createdAt >= $at) and (.actor == $actor) and exact_marker
+      )]' <<<"$runs")" || return 3
     count="$(jq 'length' <<<"$unseen")"
     if [ "$count" -eq 1 ]; then
       jq -r '.[0].databaseId' <<<"$unseen"
@@ -84,7 +106,8 @@ _workflow_sha_match() {
 
 # wait_for_workflow_terminal <repo> <project> <key> <input-json> <run-id> <expected-sha>
 wait_for_workflow_terminal() {
-  local repo="$1" project="$2" key="$3" input="$4" run_id="$5" expected_sha="$6"
+  local repo="$1" project="$2" key="$3" input="$4" run_id="$5"
+  : "$6" # deployment SHA was already proven during run correlation
   local timeout="${OTTA_WORKFLOW_POLL_TIMEOUT:-1800}"
   local interval="${OTTA_WORKFLOW_POLL_INTERVAL:-10}"
   local waited=0 last_print=-60 json status conclusion url head output
@@ -103,17 +126,13 @@ wait_for_workflow_terminal() {
       output="$(jq -cn --arg run_id "$run_id" --arg conclusion "$conclusion" \
         --arg url "$url" --arg head "$head" \
         '{run_id:($run_id|tonumber),conclusion:$conclusion,url:$url,head_sha:$head}')"
-      if [ "$conclusion" = "success" ] && _workflow_sha_match "$expected_sha" "$head"; then
+      if [ "$conclusion" = "success" ]; then
         append_deploy_record "$project" deploy_workflow_succeeded "$key" "$input" "$output" >/dev/null
         echo "deploy: workflow run $run_id succeeded ($url)" >&2
         return 0
       fi
       append_deploy_record "$project" deploy_workflow_failed "$key" "$input" "$output" >/dev/null
-      if [ "$conclusion" = "success" ]; then
-        echo "deploy: workflow run $run_id head mismatch — expected $expected_sha, observed ${head:-<none>}" >&2
-      else
-        echo "deploy: workflow run $run_id completed with ${conclusion:-unknown} ($url)" >&2
-      fi
+      echo "deploy: workflow run $run_id completed with ${conclusion:-unknown} ($url)" >&2
       return 1
     fi
 
@@ -197,7 +216,7 @@ workflow_deploy_lock_dir() {
 # Internal implementation; callers enter through the lock-taking wrapper below.
 _ensure_workflow_dispatched_unlocked() {
   local repo="$1" project="$2" target="$3" workflow="$4" ref="$5" sha_input="$6" merge_sha="$7"
-  local key latest event run_id pre_runs pre_ids input
+  local key latest event run_id pre_runs pre_ids input actor dispatch_at
   key="$(workflow_deploy_key "$repo" "$workflow" "$target" "$merge_sha")"
 
   latest="$(deployment_last_record "$project" "$key" 2>/dev/null || true)"
@@ -212,7 +231,7 @@ _ensure_workflow_dispatched_unlocked() {
         if [ "${OTTA_DEPLOY_RETRY_FAILED_RUN:-false}" = "true" ]; then
           run_id="$(jq -r '.output.run_id // empty' <<<"$latest")"
           [ -n "$run_id" ] || { echo "deploy: failed record has no run id to retry" >&2; return 6; }
-          gh run rerun "$run_id" --repo "$repo" --failed || {
+          gh run rerun "$run_id" --repo "$repo" --failed >&2 || {
             echo "deploy: explicit rerun request failed for workflow run $run_id" >&2; return 6;
           }
           input="$(jq -c '.input' <<<"$latest")"
@@ -225,29 +244,33 @@ _ensure_workflow_dispatched_unlocked() {
       deploy_dispatching|deploy_dispatch_unknown)
         input="$(jq -c '.input' <<<"$latest")"
         pre_ids="$(jq -c '.input.pre_run_ids // []' <<<"$latest")"
+        actor="$(jq -r '.input.actor // empty' <<<"$latest")"
+        dispatch_at="$(jq -r '.input.dispatch_at // empty' <<<"$latest")"
+        [ -n "$actor" ] && [ -n "$dispatch_at" ] || {
+          echo "deploy: uncertain dispatch record lacks actor/timestamp correlation evidence" >&2; return 6;
+        }
         if [ -n "${OTTA_DEPLOY_RESOLVE_RUN_ID:-}" ]; then
-          local resolved_json resolved_event resolved_head resolved_id resolved_workflow configured_workflow
-          resolved_json="$(gh run view "$OTTA_DEPLOY_RESOLVE_RUN_ID" --repo "$repo" \
-            --json databaseId,event,headSha,workflowDatabaseId,url 2>/dev/null)" || {
+          local resolved_json resolved_id resolved_workflow configured_workflow recorded_actor dispatch_at
+          resolved_json="$(_get_workflow_run "$repo" "$OTTA_DEPLOY_RESOLVE_RUN_ID" 2>/dev/null)" || {
             echo "deploy: cannot inspect manually selected run $OTTA_DEPLOY_RESOLVE_RUN_ID" >&2; return 6;
           }
           configured_workflow="$(gh api "repos/$repo/actions/workflows/$workflow" --jq .id 2>/dev/null)" || {
             echo "deploy: cannot resolve configured workflow $workflow" >&2; return 6;
           }
-          resolved_event="$(jq -r '.event // ""' <<<"$resolved_json")"
-          resolved_head="$(jq -r '.headSha // ""' <<<"$resolved_json")"
-          resolved_id="$(jq -r '.databaseId // empty' <<<"$resolved_json")"
-          resolved_workflow="$(jq -r '.workflowDatabaseId // empty' <<<"$resolved_json")"
-          if [ "$resolved_event" != "workflow_dispatch" ] || \
-             [ "$resolved_workflow" != "$configured_workflow" ] || \
-             ! _workflow_sha_match "$merge_sha" "$resolved_head"; then
-            echo "deploy: selected run $OTTA_DEPLOY_RESOLVE_RUN_ID does not match configured workflow, event=workflow_dispatch, and sha=$merge_sha" >&2
+          resolved_id="$(jq -r '.id // empty' <<<"$resolved_json")"
+          resolved_workflow="$(jq -r '.workflow_id // empty' <<<"$resolved_json")"
+          recorded_actor="$(jq -r '.actor // empty' <<<"$input")"
+          dispatch_at="$(jq -r '.dispatch_at // empty' <<<"$input")"
+          if [ "$resolved_workflow" != "$configured_workflow" ] || \
+             [ -z "$recorded_actor" ] || [ -z "$dispatch_at" ] || \
+             ! _run_matches_dispatch "$resolved_json" "$merge_sha" "$recorded_actor" "$dispatch_at" "$ref"; then
+            echo "deploy: selected run $OTTA_DEPLOY_RESOLVE_RUN_ID does not match configured workflow, ref, actor, dispatch time, and exact SHA marker" >&2
             return 6
           fi
           _record_correlated_run "$project" "$key" "$input" "$resolved_id"
           return $?
         fi
-        run_id="$(reconcile_workflow_dispatch "$repo" "$workflow" "$ref" "$merge_sha" "$pre_ids")"
+        run_id="$(reconcile_workflow_dispatch "$repo" "$workflow" "$ref" "$merge_sha" "$pre_ids" "$actor" "$dispatch_at")"
         case $? in
           0) _record_correlated_run "$project" "$key" "$input" "$run_id" ; return $? ;;
           4) return 4 ;;
@@ -264,22 +287,29 @@ _ensure_workflow_dispatched_unlocked() {
     esac
   fi
 
-  pre_runs="$(_list_workflow_runs "$repo" "$workflow" "$ref" "$merge_sha")" || {
+  actor="$(_github_actor 2>/dev/null)" || {
+    echo "deploy: cannot determine authenticated GitHub actor" >&2; return 2;
+  }
+  [ -n "$actor" ] || { echo "deploy: authenticated GitHub actor is empty" >&2; return 2; }
+  pre_runs="$(_list_workflow_runs "$repo" "$workflow" "$ref")" || {
     echo "deploy: cannot snapshot workflow runs before dispatch" >&2; return 2;
   }
   pre_ids="$(printf '%s' "$pre_runs" | _run_ids_json)" || return 2
+  dispatch_at="$(_workflow_now)"
   input="$(jq -cn --arg workflow "$workflow" --arg ref "$ref" --arg sha "$merge_sha" \
-    --arg sha_input "$sha_input" --arg target "$target" --argjson pre "$pre_ids" \
-    '{workflow:$workflow,ref:$ref,sha:$sha,sha_input:$sha_input,target:$target,pre_run_ids:$pre}')"
+    --arg sha_input "$sha_input" --arg target "$target" --arg actor "$actor" \
+    --arg dispatch_at "$dispatch_at" --argjson pre "$pre_ids" \
+    '{workflow:$workflow,ref:$ref,sha:$sha,sha_input:$sha_input,target:$target,
+      actor:$actor,dispatch_at:$dispatch_at,pre_run_ids:$pre}')"
   append_deploy_record "$project" deploy_dispatching "$key" "$input" '{}' >/dev/null || return 2
 
-  if ! gh workflow run "$workflow" --repo "$repo" --ref "$ref" -f "$sha_input=$merge_sha"; then
+  if ! gh workflow run "$workflow" --repo "$repo" --ref "$ref" -f "$sha_input=$merge_sha" >&2; then
     append_deploy_record "$project" deploy_dispatch_unknown "$key" "$input" '{}' >/dev/null
     echo "deploy: workflow dispatch returned an error; reconciliation is required before retry" >&2
     return 3
   fi
 
-  run_id="$(reconcile_workflow_dispatch "$repo" "$workflow" "$ref" "$merge_sha" "$pre_ids")"
+  run_id="$(reconcile_workflow_dispatch "$repo" "$workflow" "$ref" "$merge_sha" "$pre_ids" "$actor" "$dispatch_at")"
   case $? in
     0) _record_correlated_run "$project" "$key" "$input" "$run_id" ;;
     4) return 4 ;;

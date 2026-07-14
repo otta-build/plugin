@@ -122,7 +122,9 @@ This is at-most-once by default during uncertainty. Avoiding duplicate productio
 
 GitHub's workflow-dispatch response does not reliably return a run ID. Otta therefore records a dispatch timestamp and correlates the resulting run using the configured workflow, repository, event type, ref, expected SHA/input, actor, and a bounded creation-time window.
 
-The production workflow should expose the requested commit SHA in its run metadata and deploy that exact SHA. If the workflow cannot accept a SHA input, Otta dispatches the immutable post-merge ref and verifies the resolved run head before accepting it. Multiple plausible runs are an error, not a reason to guess.
+The production workflow must expose the requested commit SHA as a standalone `run-name` token (for example, `deploy ${{ inputs.commit_sha }}`) and deploy that exact SHA. Otta snapshots the configured workflow/ref before dispatch, records the dispatch timestamp and authenticated actor, and correlates only unseen runs created afterward by that actor whose `head_sha` or `display_title` carries the exact SHA marker. This does not assume the ref head remains equal to the deployment input. Multiple plausible runs are an error, not a reason to guess.
+
+Otta's filesystem lock coordinates only controllers sharing one ledger directory. The repository workflow is therefore the cross-machine idempotency boundary: all production jobs share one non-cancelling concurrency group, and after entering it each job compares the live commit to the requested SHA and exits successfully without mutation when that SHA is already deployed.
 
 ## Verification and failure handling
 

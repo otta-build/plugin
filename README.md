@@ -181,6 +181,8 @@ The three modes:
 
 With `executor: github-workflow`, Otta owns approval, merge, dispatch identity, polling, and runtime verification. The configured GitHub workflow must remain the **only deployment mutation authority**: disable competing provider/webhook/Otta triggers, use one production concurrency group with `cancel-in-progress: false`, reuse build artifacts instead of rebuilding on the application host, and keep cleanup outside the deployment critical section. Otta needs GitHub Actions and PR permissions, not provider credentials.
 
+The workflow must expose the exact SHA input as a standalone `run-name` token, for example `run-name: deploy ${{ inputs.commit_sha }}`. Otta snapshots runs for the configured workflow/ref and correlates only unseen runs created after dispatch by the authenticated actor whose `head_sha` or `display_title` carries that exact token; this remains correct when the dispatch ref advances. The local Otta lock only serializes processes sharing one ledger directory, so the workflow is also the cross-machine idempotency boundary: serialize all production deploys globally, then check the live commit at job start and exit successfully without mutation when it already equals the requested SHA. This makes a duplicate same-SHA dispatch harmless even across separate agents or hosts.
+
 Normal production approval is commit-bound:
 
 ```bash

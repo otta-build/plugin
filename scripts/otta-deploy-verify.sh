@@ -119,7 +119,7 @@ decide_delivery_action() {
 
   if [ "$auto" = "human-approve" ]; then
     [ -n "$approved" ] || { echo "wait-human"; return 1; }
-    sha_match "$approved" "$head" || { echo "invalid-approval"; return 2; }
+    [ "$approved" = "$head" ] || { echo "invalid-approval"; return 2; }
     [ "$state" = "MERGED" ] && { echo "dispatch"; return 0; }
     [ "$state" = "OPEN" ] && [ "$green" = "true" ] && { echo "merge-dispatch"; return 0; }
     echo "wait-gate"; return 1
@@ -405,7 +405,7 @@ _run() {
       echo "deploy: rerun with --approved-head $pr_head after explicit human approval" >&2
       return 1
     fi
-    if [ "$auto" = "human-approve" ] && ! sha_match "$approved_head" "$pr_head"; then
+    if [ "$auto" = "human-approve" ] && [ "$approved_head" != "$pr_head" ]; then
       echo "deploy: invalid approval — approved head $approved_head does not match current head $pr_head" >&2
       return 1
     fi
@@ -479,7 +479,7 @@ _run() {
     }
     pr_state="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))')"
     pr_head="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefOid", ""))')"
-    if [ "$auto" = "human-approve" ] && ! sha_match "$approved_head" "$pr_head"; then
+    if [ "$auto" = "human-approve" ] && [ "$approved_head" != "$pr_head" ]; then
       echo "deploy: invalid approval after gate — approved head $approved_head does not match current head $pr_head" >&2
       return 1
     fi
