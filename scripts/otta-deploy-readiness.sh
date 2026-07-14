@@ -51,6 +51,45 @@ _workflow_has_push_trigger() {
   ' "$1"
 }
 
+_workflow_targets_environment() {
+  local workflow_file="$1" wanted_environment="$2"
+  awk -v wanted="$wanted_environment" '
+    function trim(value) {
+      sub(/^[[:space:]]+/, "", value); sub(/[[:space:]]+$/, "", value)
+      return value
+    }
+    function unquote(value) {
+      value=trim(value); gsub(/^"|"$/, "", value); gsub(/^\047|\047$/, "", value)
+      return value
+    }
+    function exact(value) { return unquote(value) == wanted }
+    /^[[:space:]]*#/ { next }
+    {
+      line=$0; sub(/[[:space:]]+#.*$/, "", line)
+      indent=match(line, /[^ ]/) - 1
+      if (in_environment && indent <= environment_indent && line !~ /^[[:space:]]*$/) in_environment=0
+      if (in_environment && line ~ /^[[:space:]]+["\047]?name["\047]?:/) {
+        value=line; sub(/^[[:space:]]+["\047]?name["\047]?:[[:space:]]*/, "", value)
+        if (exact(value)) found=1
+      }
+      if (line ~ /^[[:space:]]+["\047]?environment["\047]?:/) {
+        environment_indent=indent
+        value=line; sub(/^[[:space:]]+["\047]?environment["\047]?:[[:space:]]*/, "", value); value=trim(value)
+        if (value == "") { in_environment=1; next }
+        if (value ~ /^\{/) {
+          gsub(/^\{|\}$/, "", value); count=split(value, fields, ",")
+          for (i=1; i<=count; i++) {
+            field=fields[i]; key=field; sub(/:.*/, "", key)
+            field_value=field; sub(/^[^:]+:[[:space:]]*/, "", field_value)
+            if (unquote(key) == "name" && exact(field_value)) found=1
+          }
+        } else if (exact(value)) found=1
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$workflow_file"
+}
+
 [ -f "$yml" ] || { echo "N/A deploy workflow — no .otta.yml"; exit 0; }
 environment="$(resolve_deploy_environment "$yml" "$requested_environment")" || exit $?
 executor="$(deploy_config_value "$yml" "$environment" executor)"
@@ -107,7 +146,12 @@ else
 fi
 
 group_line="$(grep -E '^[[:space:]]+group:' "$workflow_path" | head -1 || true)"
-if [ -n "$group_line" ] && { printf '%s' "$group_line" | grep -Fqi "$environment" || printf '%s' "$group_line" | grep -Fqi "$target"; }; then
+group_value="$(printf '%s\n' "$group_line" | sed 's/^[[:space:]]*group:[[:space:]]*//;s/[[:space:]]*#.*$//;s/^"//;s/"$//;s/^'"'"'//;s/'"'"'$//')"
+if [ -n "$group_value" ] && {
+     printf '%s\n' "$group_value" | grep -Eqi "(^|[^A-Za-z0-9])${environment}([^A-Za-z0-9]|$)" ||
+     printf '%s\n' "$group_value" | grep -Eqi "(^|[^A-Za-z0-9])${target}([^A-Za-z0-9]|$)" ||
+     printf '%s\n' "$group_value" | grep -Eq '(^|[^A-Za-z0-9])\$\{\{[[:space:]]*inputs\.environment[[:space:]]*\}\}([^A-Za-z0-9]|$)';
+   }; then
   pass 'per-environment concurrency' "group isolates $environment"
 else
   fail 'per-environment concurrency' "concurrency.group must identify $environment"
@@ -137,8 +181,8 @@ for candidate in "$repo_root/.github/workflows"/*.yml "$repo_root/.github/workfl
   [ -f "$candidate" ] || continue
   [ "$candidate" = "$workflow_path" ] && continue
   if _workflow_has_push_trigger "$candidate" &&
-     { grep -Eqi "environment:[[:space:]]*${environment}([[:space:]#]|$)" "$candidate" ||
-       grep -Eqi "environment:[[:space:]]*${target}([[:space:]#]|$)" "$candidate"; }; then
+     { _workflow_targets_environment "$candidate" "$environment" ||
+       _workflow_targets_environment "$candidate" "$target"; }; then
     competing="$candidate"; break
   fi
 done

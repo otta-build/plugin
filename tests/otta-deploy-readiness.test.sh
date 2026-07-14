@@ -82,6 +82,7 @@ remove_environment_marker() { sed -i.bak 's/run-name: deploy production/run-name
 add_push_trigger() { awk '{ print; if ($0 == "on:") print "  push:" }' "$1" > "$1.tmp"; mv "$1.tmp" "$1"; }
 enable_cancellation() { sed -i.bak 's/cancel-in-progress: false/cancel-in-progress: true/' "$1"; rm -f "$1.bak"; }
 wrong_concurrency() { sed -i.bak 's/group: deploy-production/group: deploy-global/' "$1"; rm -f "$1.bak"; }
+substring_concurrency() { sed -i.bak 's/group: deploy-production/group: deploy-notproduction/' "$1"; rm -f "$1.bak"; }
 remove_noop() { sed -i.bak '/otta: same-sha-noop/d' "$1"; rm -f "$1.bak"; }
 remove_health() { sed -i.bak '/otta: health-sha-verify/d' "$1"; rm -f "$1.bak"; }
 
@@ -93,8 +94,18 @@ assert_failure missing-environment-run-name 'FAIL environment run-name' remove_e
 assert_failure configured-workflow-push-trigger 'FAIL configured workflow trigger' add_push_trigger
 assert_failure cancellation-enabled 'FAIL non-cancelling concurrency' enable_cancellation
 assert_failure environment-independent-concurrency 'FAIL per-environment concurrency' wrong_concurrency
+assert_failure substring-environment-concurrency 'FAIL per-environment concurrency' substring_concurrency
 assert_failure missing-same-sha-noop 'FAIL same-SHA no-op' remove_noop
 assert_failure missing-health-verification 'FAIL runtime health verification' remove_health
+
+EXPRESSION_GROUP="$TMP/expression-group"
+make_repo "$EXPRESSION_GROUP"
+sed -i.bak 's/group: deploy-production/group: deploy-${{ inputs.environment }}/' "$EXPRESSION_GROUP/.github/workflows/deploy-production.yml"; rm -f "$EXPRESSION_GROUP/.github/workflows/deploy-production.yml.bak"
+output="$(bash "$SCRIPT" --otta-yml "$EXPRESSION_GROUP/.otta.yml" --environment production)" \
+  || fail "environment expression concurrency group should pass: $output"
+printf '%s\n' "$output" | grep -Fq 'PASS per-environment concurrency' \
+  || fail "environment expression concurrency group lacked PASS: $output"
+echo '  ✓ exact inputs.environment concurrency expression accepted'
 
 COMPETING="$TMP/competing"
 make_repo "$COMPETING"
@@ -153,6 +164,44 @@ output="$(bash "$SCRIPT" --otta-yml "$SAFE_TRIGGER/.otta.yml" --environment prod
 printf '%s\n' "$output" | grep -Fq 'PASS competing production trigger' \
   || fail "safe pull_request workflow did not pass competing-trigger check: $output"
 echo '  ✓ comments and pull_request do not trigger false positives'
+
+for environment_form in double-quoted single-quoted inline-object spaced-comment; do
+  QUOTED_ENV_REPO="$TMP/competing-env-$environment_form"
+  make_repo "$QUOTED_ENV_REPO"
+  case "$environment_form" in
+    double-quoted) environment_line='    environment: "production"' ;;
+    single-quoted) environment_line="    environment: 'production'" ;;
+    inline-object) environment_line='    environment: { name: "production" }' ;;
+    spaced-comment) environment_line='    environment:    production    # deploy target' ;;
+  esac
+  printf 'name: quoted environment deploy\non: push\njobs:\n  deploy:\n%s\n    steps:\n      - run: ./deploy\n' \
+    "$environment_line" > "$QUOTED_ENV_REPO/.github/workflows/competing.yml"
+  set +e
+  output="$(bash "$SCRIPT" --otta-yml "$QUOTED_ENV_REPO/.otta.yml" --environment production 2>&1)"; rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "$environment_form production environment should be detected"
+  printf '%s\n' "$output" | grep -Fq 'FAIL competing production trigger' \
+    || fail "$environment_form environment lacked competing failure: $output"
+  echo "  ✓ competing $environment_form production environment detected"
+done
+
+NON_PROD_ENV="$TMP/non-production-environment"
+make_repo "$NON_PROD_ENV"
+cat > "$NON_PROD_ENV/.github/workflows/non-production.yml" <<'YAML'
+name: non-production push
+on: push
+jobs:
+  deploy:
+    # environment: production is documentation only
+    environment: "production-preview"
+    steps:
+      - run: ./deploy
+YAML
+output="$(bash "$SCRIPT" --otta-yml "$NON_PROD_ENV/.otta.yml" --environment production)" \
+  || fail "non-production environment/comment must not be a false positive: $output"
+printf '%s\n' "$output" | grep -Fq 'PASS competing production trigger' \
+  || fail "non-production environment did not pass: $output"
+echo '  ✓ quoted non-production environment and comments remain false-positive safe'
 
 SHARED="$TMP/shared"
 make_repo "$SHARED"
