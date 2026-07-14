@@ -189,7 +189,7 @@ Normal production approval is commit-bound:
 bash scripts/otta-deploy-verify.sh <pr> --approved-head <pr-head-sha>
 ```
 
-Retries resume the recorded run and never redispatch an uncertain request. Inspect evidence with `jq 'select(.source=="deploy")' ~/.otta/ledger/<owner-repo>.jsonl` and `gh run view <run-id> --log-failed`. If correlation is unknown, select a verified existing workflow-dispatch run explicitly with `--resolve-run-id <run-id>`; Otta rejects the wrong event or head SHA. Retry a recorded failed run only by explicit operator action with `--retry-failed-run`. For rollback, invoke the target repository's documented rollback workflow (for example, `gh workflow run rollback.yml -f sha=<known-good-sha>`); Otta does not invent or bypass repository rollback logic.
+Retries resume the recorded run and never redispatch an uncertain request. Inspect evidence with `jq 'select(.source=="deploy")' ~/.otta/ledger/<owner-repo>.jsonl` and `gh run view <run-id> --log-failed`. If correlation is unknown, select a verified existing run explicitly with `--resolve-run-id <run-id>`; Otta requires the configured workflow and ref, the recorded actor and dispatch time, a `workflow_dispatch` event, and the requested SHA as an exact standalone `display_title` token. The run's ref head may have advanced and does not need to equal the requested SHA. Retry a recorded failed run only by explicit operator action with `--retry-failed-run`. For rollback, invoke the target repository's documented rollback workflow (for example, `gh workflow run rollback.yml -f sha=<known-good-sha>`); Otta does not invent or bypass repository rollback logic.
 
 ## How it connects to Otta Pulse
 
