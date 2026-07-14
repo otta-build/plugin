@@ -1,3 +1,9 @@
+## 1.4.1
+
+### Changed
+
+- chore(otta): add Engine v1 contract marker (#147)
+
 ## 1.4.0
 
 ### Added
