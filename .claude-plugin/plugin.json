@@ -7,7 +7,7 @@
   },
   "homepage": "https://otta.build",
   "repository": "https://github.com/otta-build/plugin",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "dora",
     "shipping",

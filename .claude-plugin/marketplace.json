@@ -12,7 +12,8 @@
       "source": "./",
       "author": {
         "name": "Sam Petrenko"
-      }
+      },
+      "license": "Apache-2.0"
     }
   ]
 }
