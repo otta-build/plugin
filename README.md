@@ -94,9 +94,19 @@ On a harness with a native task tool, each stage updates task state. Otherwise t
 
 `/otta:schedule` sets up a **cloud routine** (runs on Anthropic infra, laptop-off) that nightly picks a ready issue and runs the pipeline to a PR. Add GitHub (`pull_request.opened` → review) or API (`/fire` → Sentry-alert→fix) triggers from claude.ai/code/routines.
 
-## LEARN-layer capture (free)
+## LEARN consultation and capture
 
-Every gate run appends a `{score, feedback}` record to a local ledger at `~/.otta/ledger/<repo>.jsonl` — a file write, **zero LM tokens**. With the plugin installed at user scope this accrues across **every project you push from**, building the trainset for future GEPA prompt optimization (ADR-0004) with no extra work. Opt out per-run with `OTTA_NO_CAPTURE=1`; relocate with `OTTA_LEDGER_DIR`.
+Otta keeps these as independent controls under `.otta.yml`'s `learn:` block:
+
+```yaml
+learn:
+  enabled: true       # legacy fallback for repositories not yet using both keys
+  consult: true       # read active, non-expired repo LEARNINGS.md rules before work
+  capture: true       # append gate/reviewer/QA verdicts to the local ledger
+  expiry_days: 180
+```
+
+Override either decision for one run with `OTTA_LEARN_CONSULT=true|false` or `OTTA_LEARN_CAPTURE=true|false`; changing one never changes the other. `OTTA_NO_CAPTURE=1` remains a legacy capture opt-out. Each prepare attempt writes `.otta/run/learning-receipt.json` with decisions, provenance, rule IDs/count, and a consulted/skipped reason; it never copies session text or secrets. Otta adds `/.otta/run/` to Git's repository-local `info/exclude`, including from linked worktrees, so these inspectable artifacts do not become commit candidates and no tracked `.gitignore` is changed. That run-start receipt remains authoritative for later gate, reviewer, and QA capture even if config or environment overrides change; `capture --policy-receipt <path>` selects a non-default receipt, while a run without a prepare receipt safely resolves the current policy for backward compatibility. Capture-disabled verdicts stay out of `~/.otta/ledger/<repo>.jsonl` and produce only a metadata skip receipt under `.otta/run/`. `LEARNINGS.md` is the reviewable rule truth; the ledger is raw evidence and Pulse is the optional remote event spine—personal Brain, Mem0, and ChatGPT memory are not runtime dependencies.
 
 ## What the gate checks (local mirror of the Pulse merge gates)
 

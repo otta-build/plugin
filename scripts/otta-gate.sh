@@ -39,15 +39,14 @@ out="$(bash "$HERE/check-ac-layers.sh" "${1:-.pr-body.md}" 2>&1)" || { ok=1; rea
 ${out}"; }
 [ -z "${OTTA_GATE_QUIET:-}" ] && printf '%s\n' "$out"
 
-# Capture the verdict to the LEARN ledger (free — a write, no LM call). Never
-# let a capture failure affect the gate result. Opt out with OTTA_NO_CAPTURE=1.
-if [ -z "${OTTA_NO_CAPTURE:-}" ]; then
-  fb="$([ "$ok" -eq 0 ] && echo "all gates passed" || printf '%s' "$reasons" | tr '\n' ' ' | sed 's/  */ /g')"
-  bash "$HERE/ledger-append.sh" --source gate --event gate_run \
-    --score "$([ "$ok" -eq 0 ] && echo 1 || echo 0)" --feedback "$fb" \
-    --input "{\"branch\":\"$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')\"}" \
-    >/dev/null 2>&1 || true
-fi
+# Route the verdict through the resolved per-run LEARN policy. Disabled capture
+# writes only a metadata skip receipt; it never writes the verdict to the ledger.
+# Capture failure remains non-blocking for the deterministic gate result.
+fb="$([ "$ok" -eq 0 ] && echo "all gates passed" || printf '%s' "$reasons" | tr '\n' ' ' | sed 's/  */ /g')"
+bash "$HERE/otta-learning-policy.sh" capture --source gate --event gate_run \
+  --score "$([ "$ok" -eq 0 ] && echo 1 || echo 0)" --feedback "$fb" \
+  --input "{\"branch\":\"$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')\"}" \
+  >/dev/null 2>&1 || true
 
 if [ "$ok" -ne 0 ]; then
   echo "" >&2

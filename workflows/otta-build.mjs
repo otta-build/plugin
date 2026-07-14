@@ -18,6 +18,7 @@ const root = (args && args.pluginRoot) || '${CLAUDE_PLUGIN_ROOT}'
 const SEED = `bash "${root}/scripts/seed-pr-body.sh"`
 const GATE = `bash "${root}/scripts/otta-gate.sh"`
 const WT = `bash "${root}/scripts/otta-worktree.sh"`
+const PREPARE_LEARNING = `bash "${root}/scripts/otta-learning-policy.sh" prepare`
 // Each stage runs fresh in the session cwd, so it re-derives the SAME isolated
 // worktree via the deterministic helper and cd's in before doing anything.
 const ENTER = `Enter the run's isolated worktree first: cd "$(${WT} ${issue})". `
@@ -64,6 +65,9 @@ const built = await agent(
     `  WT="$(${WT} ${issue})" && cd "$WT"\n` +
     `(pass a base arg to the helper if .otta.yml names a staging branch). Confirm "git log --oneline @{u}..HEAD" is empty. ` +
     `Do NOT build in the session's current checkout.\n` +
+    `Resolve the shared per-run learning policy before writing code: ${PREPARE_LEARNING}. ` +
+    `Read .otta/run/learning-receipt.json and, when consulted, include .otta/run/consulted-learnings.md as repo rule context. ` +
+    `A skipped consultation is non-blocking and keeps its explicit reason.\n` +
     `THEN: if .pr-body.md does not exist, seed it from the issue's acceptance criteria by running:\n` +
     `  ${SEED} ${issue}\n` +
     `Then read .pr-body.md — each "- [ ] AC" is what you must satisfy. ` +

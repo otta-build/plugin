@@ -232,11 +232,15 @@ fi
   if $LEARN_ENABLED; then
     printf '%s\n' "learn:"
     printf '  enabled: true\n'
+    printf '  consult: true\n'
+    printf '  capture: true\n'
     printf '  expiry_days: %s\n' "$LEARN_EXPIRY_DAYS"
     printf '  cadence: %s\n' "$LEARN_CADENCE"
   else
     printf '%s\n' "# learn: (self-learning opt-in — uncomment and set enabled: true to activate)"
     printf '%s\n' "#   enabled: false"
+    printf '%s\n' "#   consult: false  # independently overridable per run"
+    printf '%s\n' "#   capture: false  # independently overridable per run"
     printf '%s\n' "#   expiry_days: 180"
     printf '%s\n' "#   cadence: weekly  # or daily"
   fi

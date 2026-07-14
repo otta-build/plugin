@@ -9,7 +9,13 @@ First make sure the workspace is seeded — if `.pr-body.md` doesn't exist yet, 
 
 **Stage checklist (create before orchestration).** Before dispatching any workflow or subagent, create a task/todo checklist using the harness's native task tool (TaskCreate / TodoCreate if available). One item per pipeline stage: `Seed`, `Learn`, `Build`, `Review`, `QA`, `Ship`, `Deploy`. Mark `Seed` and `Learn` completed before build, then update the remaining items as the selected orchestrator reports stage transitions. If no native task tool is available, render the checklist as a markdown block in chat. Stage failures annotate the item with the failure reason (e.g. `✗ QA — gate failed: ...`).
 
-Then **learn before building**: run the `learn-from-pulse` skill (the `idea_ref` now exists in `.pr-body.md`). It consults Pulse for this idea's prior shipped work, escaped defects, and loop verdicts so the pipeline doesn't repeat a failure the factory already caught. If Pulse isn't configured it no-ops. Fold anything it surfaces into `.pr-body.md` as a guarding AC before the workflow runs.
+Then **learn before building** by resolving the same repo-native policy used by every delivery path:
+
+```bash
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-learning-policy.sh" prepare
+```
+
+Read `.otta/run/learning-receipt.json`; when consulted, supply `.otta/run/consulted-learnings.md` to the builder. Consultation skips fail open with their explicit reason. `OTTA_LEARN_CONSULT=true|false` and `OTTA_LEARN_CAPTURE=true|false` independently override repo defaults for this run. Pulse history is optional context; `LEARNINGS.md` remains rule truth.
 
 ## Orchestration compatibility
 

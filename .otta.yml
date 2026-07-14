@@ -15,5 +15,7 @@ pulse:
 
 learn:
   enabled: true
+  consult: true
+  capture: true
   expiry_days: 180
   cadence: weekly

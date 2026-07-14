@@ -75,9 +75,11 @@ OUT="$TMP/t9.yml"
 bash "$SCRIPT" --output "$OUT" --learn >/dev/null 2>&1
 grep -q '^learn:' "$OUT" || fail "test 9: learn: block not emitted with --learn"
 grep -q 'enabled: true' "$OUT" || fail "test 9: learn.enabled: true not emitted"
+grep -q 'consult: true' "$OUT" || fail "test 9: learn.consult: true not emitted"
+grep -q 'capture: true' "$OUT" || fail "test 9: learn.capture: true not emitted"
 grep -q 'expiry_days: 180' "$OUT" || fail "test 9: learn.expiry_days: 180 (default) not emitted"
 grep -q 'cadence: weekly' "$OUT" || fail "test 9: learn.cadence: weekly (default) not emitted"
-pass "--learn: active learn: block with enabled/expiry_days/cadence"
+pass "--learn: active learn block with independent consult/capture defaults"
 
 # ── Test 10: --learn-expiry-days and --learn-cadence customization ────────────
 OUT="$TMP/t10.yml"

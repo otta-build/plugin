@@ -106,10 +106,11 @@ Ask via AskUserQuestion — header "LEARN layer", question "Enable the self-lear
 - "Skip" — no LEARN; gate still runs, but no self-improvement; you can opt in later by editing `.otta.yml`
 
 Only if the developer chooses "Enable":
+- Explain that `.otta.yml` records independent `learn.consult` and `learn.capture` defaults. Either can be overridden for one run with `OTTA_LEARN_CONSULT=true|false` or `OTTA_LEARN_CAPTURE=true|false` without changing the other.
 - Ask for expiry days (optional, default 180): how many days of verdict history the LEARN run uses
 - Ask for cadence (optional, default `weekly`): `daily` or `weekly` — how often the LEARN run proposes new rules
 
-If the developer enables LEARN, pass `--learn` (and optionally `--learn-expiry-days <N>` and `--learn-cadence <daily|weekly>`) to `write-otta-contract.sh`. On "Skip", omit these flags — the contract will include a commented-out `learn:` block as a reminder.
+If the developer enables LEARN, pass `--learn` (and optionally `--learn-expiry-days <N>` and `--learn-cadence <daily|weekly>`) to `write-otta-contract.sh`. This writes both independent defaults as enabled; the developer can later change either key without coupling them. On "Skip", omit these flags — the contract will include a commented-out `learn:` block as a reminder.
 
 Record the choice.
 

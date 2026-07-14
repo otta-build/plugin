@@ -15,9 +15,9 @@ Steps:
 2. **Run the tests** the Builder added — confirm they actually exercise the new behavior, not a tautology.
 3. **Adversarially verify each AC.** For every `- [ ] AC` in `.pr-body.md`, find concrete evidence it holds (a passing test that would fail without the change, a command output, an observation). If you cannot produce that evidence, the AC is **FAILED** — do not give it the benefit of the doubt.
 4. **Real-sample dry-run (heuristic ACs only).** For any AC that involves a heuristic, classifier, or parser of real-world data: run that code against a real sample from the project — not only the author's fixture. Include the dry-run output in the verdict so the human can judge real-world quality. Skip this step for pure-logic ACs (deterministic, fixture-sufficient).
-5. **Capture your verdict to the LEARN ledger** (free, 0 LM tokens — it builds the GEPA trainset). After verifying, run exactly once:
+5. **Honor the resolved capture policy.** After verifying, run exactly once. The helper appends the verdict only when capture is enabled; otherwise it records a metadata-only skip receipt with the resolved reason:
    ```bash
-   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/ledger-append.sh" \
+   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-learning-policy.sh" capture \
      --source qa --event verify \
      --score <1 if gate passed AND every AC passed else 0> \
      --feedback "<gate result + each FAILED AC with why; 'all ACs verified' if clean>"

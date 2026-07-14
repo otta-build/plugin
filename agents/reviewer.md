@@ -16,9 +16,9 @@ Method:
 
 Be strict. "Close enough" is a gap. Do not approve if any AC is unimplemented or if there's unrequested scope.
 
-4. **Capture your verdict to the LEARN ledger** (free, 0 LM tokens — it builds the GEPA trainset). After you decide, run exactly once:
+4. **Honor the resolved capture policy.** After you decide, run exactly once. The helper appends the verdict only when capture is enabled; otherwise it records a metadata-only skip receipt with the resolved reason:
    ```bash
-   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/ledger-append.sh" \
+   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-learning-policy.sh" capture \
      --source reviewer --event spec_review \
      --score <1 if COMPLIANT else 0> \
      --feedback "<COMPLIANT, or the concrete gaps/extras with file:line>"
