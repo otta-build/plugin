@@ -1,3 +1,4 @@
+version: "1"
 # Otta delivery contract — plugin repo (no service deployment, merge-on-green policy)
 base: "main"
 staging: null
