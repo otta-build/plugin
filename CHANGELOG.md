@@ -1,3 +1,9 @@
+## 1.2.1
+
+### Fixed
+
+- preserve cwd for stop hooks (#142) (#143)
+
 ## 1.2.0
 
 ### Added
