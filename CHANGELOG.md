@@ -1,3 +1,9 @@
+## 1.4.2
+
+### Fixed
+
+- align plugin license metadata with Apache-2.0 (#128) (#149)
+
 ## 1.4.1
 
 ### Changed
