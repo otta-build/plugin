@@ -20,9 +20,17 @@ Run the Otta **fast path** for issue **#$1** — a tiny, surgical change that sk
 
 ## Steps
 
-1. **Make the surgical edit** directly — touch ≤2 files, change no public interfaces, add no new behavior. If you find the change is larger, switch to `/otta:dev` or `/otta:build`.
+1. **Resolve the run learning policy** before editing, using the same contract as dev/build:
 
-2. **Seed a minimal `.pr-body.md`** (or update if it already exists). It must contain:
+   ```bash
+   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-learning-policy.sh" prepare
+   ```
+
+   Read `.otta/run/learning-receipt.json`; if consulted, apply `.otta/run/consulted-learnings.md`. Skips are non-blocking and retain an explicit reason. Per-run `OTTA_LEARN_CONSULT` and `OTTA_LEARN_CAPTURE` overrides are independent.
+
+2. **Make the surgical edit** directly — touch ≤2 files, change no public interfaces, add no new behavior. If you find the change is larger, switch to `/otta:dev` or `/otta:build`.
+
+3. **Seed a minimal `.pr-body.md`** (or update if it already exists). It must contain:
    - `idea_ref:` pointing to the real origin (e.g. `issue:#$1`, `intercom:...`, `sentry:...`)
    - `Fixes #$1` GitHub linkage
    - Either a test (file + command), or `[test-impractical: <reason>]` with a real reason
@@ -34,7 +42,7 @@ Run the Otta **fast path** for issue **#$1** — a tiny, surgical change that sk
 
    Then edit the seeded file: set `idea_ref` to the real origin, confirm `Fixes #$1` is present, add your verification line.
 
-3. **Run the gate** (mandatory — never skip):
+4. **Run the gate** (mandatory — never skip):
 
    ```bash
    bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-gate.sh"
@@ -42,7 +50,7 @@ Run the Otta **fast path** for issue **#$1** — a tiny, surgical change that sk
 
    If it fails, fix what it reports and re-run. A direct-to-main commit is forbidden — the gate and PR are what make the change traceable and safe.
 
-4. **Open the PR** using the seeded body verbatim:
+5. **Open the PR** using the seeded body verbatim:
 
    ```bash
    gh pr create --body-file .pr-body.md --title "<conventional-commit title>"

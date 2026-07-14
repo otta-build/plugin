@@ -33,7 +33,13 @@ Update each item to `in_progress` when starting it and `completed` when done. Al
    `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/seed-pr-body.sh" $1`
    Read it. If the issue has no acceptance criteria, ask the developer to add them before continuing.
 
-2. **Learn.** Run the `learn-from-pulse` skill now — after `.pr-body.md` is seeded (so the `idea_ref` exists) and **before** the builder writes code. It consults Pulse for this idea's prior shipped work, escaped defects, and loop verdicts, so the build doesn't repeat a failure the factory already caught. If Pulse isn't configured it no-ops and the loop continues.
+2. **Learn.** Resolve the run's independent consult/capture policy and consult active, non-expired repo rules **before** the builder writes code:
+
+   ```bash
+   bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-learning-policy.sh" prepare
+   ```
+
+   Read `.otta/run/learning-receipt.json`. When its consultation status is `consulted`, read `.otta/run/consulted-learnings.md` and include those rules in the builder dispatch. A skipped/unavailable consultation is non-blocking; preserve its explicit reason in the checklist. `OTTA_LEARN_CONSULT=true|false` and `OTTA_LEARN_CAPTURE=true|false` are per-run overrides and resolve independently. The receipt contains policy/provenance/identifiers only, never raw session content. Pulse may still provide issue history when configured, but it does not replace `LEARNINGS.md` as rule truth.
 
 3. **Build.** Dispatch the `otta:builder` subagent (`name: "otta-builder-#$1"`) to implement test-first against the ACs. **If the builder returns a question, NEEDS_CONTEXT, or a real design decision, surface it to the developer, get the answer, then re-dispatch the builder with it.** Do not guess on the developer's behalf for genuine decisions.
 
@@ -41,7 +47,7 @@ Update each item to `in_progress` when starting it and `completed` when done. Al
 
 4. **Spec Review.** Dispatch `otta:reviewer` (`name: "otta-reviewer-#$1"`). If it reports gaps, send them to the builder (ask the developer first if a gap is ambiguous), then re-review.
 
-5. **Verify.** Dispatch `otta:qa` (`name: "otta-qa-#$1"`) to run `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-gate.sh"` (this also captures the verdict to the LEARN ledger) and adversarially verify each AC. If a gate or AC fails, surface it — fix with the builder, or ask the developer how to proceed.
+5. **Verify.** Dispatch `otta:qa` (`name: "otta-qa-#$1"`) to run `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-gate.sh"` (this routes the verdict through the resolved capture policy) and adversarially verify each AC. If a gate or AC fails, surface it — fix with the builder, or ask the developer how to proceed.
 
 6. **Ship.** Only when the gate passed and every AC passed: dispatch `otta:devops` (`name: "otta-devops-#$1"`) to commit and `gh pr create --body-file .pr-body.md`. Confirm the PR target (staging vs main) with the developer if unsure.
 
