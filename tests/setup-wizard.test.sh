@@ -197,6 +197,11 @@ CONFIRM_LINE="$(grep -n -E 'confirm.*install|install.*confirm|After the user con
 VERIFY_LINE="$(grep -n -- '--verify' "$SETUP" | head -1 | cut -d: -f1)"
 [ -n "$CONFIRM_LINE" ] && [ "$INSTRUCTIONS_LINE" -lt "$CONFIRM_LINE" ] && [ "$CONFIRM_LINE" -lt "$VERIFY_LINE" ] \
   || fail "setup.md order must be instructions -> user confirmation -> blocking verification"
+PULSE_STEP="$(sed -n '/## 5\. Onboard/,/## 6\./p' "$SETUP")"
+printf '%s' "$PULSE_STEP" | grep -Eq 'OTTA_PULSE_URL="\$PULSE_URL" bash .*pulse-install\.sh" --instructions-only' \
+  || fail "self-hosted setup must inline the recorded Pulse URL on instructions-only"
+printf '%s' "$PULSE_STEP" | grep -Eq 'OTTA_PULSE_URL="\$PULSE_URL" bash .*pulse-install\.sh" --verify' \
+  || fail "self-hosted setup must preserve the recorded Pulse URL on post-confirmation verify"
 grep -qi "self.hosted.*secret\|secret.*self.hosted\|self.hosted.*webhook\|webhook.*self.hosted" "$SETUP" \
   || fail "AC(#70b): setup.md B5 must clarify that webhook secret is only for self-hosted instances"
 
