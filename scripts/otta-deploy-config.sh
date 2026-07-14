@@ -73,7 +73,11 @@ resolve_deploy_environment() {
   selected="$requested"
   [ -n "$selected" ] || selected="$(parse_deploy_default_environment "$yml")" || return $?
   awk -v wanted="$selected" '
-    /^    [A-Za-z0-9_-]+:[[:space:]]*(#.*)?$/ {
+    /^deploy:[[:space:]]*(#.*)?$/ { in_deploy=1; next }
+    /^[^ #]/ { if (in_deploy) { in_deploy=0; in_environments=0 } }
+    in_deploy && /^  environments:[[:space:]]*(#.*)?$/ { in_environments=1; next }
+    in_deploy && in_environments && /^  [^ ]/ { in_environments=0 }
+    in_environments && /^    [A-Za-z0-9_-]+:[[:space:]]*(#.*)?$/ {
       name=$0; sub(/^    /, "", name); sub(/:.*/, "", name); if (name == wanted) found=1
     }
     END { exit(found ? 0 : 1) }
@@ -98,7 +102,11 @@ deploy_config_value() {
   fi
   resolve_deploy_environment "$yml" "$environment" >/dev/null || return $?
   awk -v env="$environment" -v wanted="$key" '
-    /^    [A-Za-z0-9_-]+:[[:space:]]*(#.*)?$/ {
+    /^deploy:[[:space:]]*(#.*)?$/ { in_deploy=1; next }
+    /^[^ #]/ { if (in_deploy) { in_deploy=0; in_environments=0; in_env=0 } }
+    in_deploy && /^  environments:[[:space:]]*(#.*)?$/ { in_environments=1; next }
+    in_deploy && in_environments && /^  [^ ]/ { in_environments=0; in_env=0 }
+    in_environments && /^    [A-Za-z0-9_-]+:[[:space:]]*(#.*)?$/ {
       name=$0; sub(/^    /, "", name); sub(/:.*/, "", name); in_env=(name == env); next
     }
     in_env && $0 ~ "^      " wanted ":[[:space:]]*" {

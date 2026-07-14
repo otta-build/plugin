@@ -42,7 +42,9 @@ If `$1` is empty/absent, don't require an issue number — instead enumerate ope
 
 4. **Gate + CI stages.** `gh pr checks <pr-number> --repo "$REPO" --json name,state,bucket` (or `gh pr checks <pr-number>` if `--json` isn't supported by the installed `gh` version — fall back to parsing the plain-text table). Map the check named `Otta Gate` (or its sub-checks) to the **Gate** stage, and the CI workflow check (e.g. `CI` / `ci.yml`) to the **CI** stage. `bucket`/state `pass`→pass, `fail`→fail, anything in-progress/queued→pending. This is the gh-only detail text (e.g. `"Otta Gate: 2/3 sub-checks failing"`); step 6 below enriches it with Pulse feedback when configured.
 
-5. **Release/Deploy stage.** From the PR JSON: `mergedAt` unset → `pending`. For `executor: github-workflow`, inspect `source:"deploy"` records for the merge SHA in `~/.otta/ledger/<repo-slug>.jsonl`: `deploy_dispatching`/`deploy_dispatched`/`deploy_workflow_succeeded` are pending, `deploy_dispatch_unknown`/`deploy_workflow_failed` are fail, and only `deploy_runtime_verified` is pass. Include the recorded run ID/URL and verified SHA when present. For legacy contracts, check `gh release list --repo "$REPO" -L 5` or fall back to the `deploy.auto` policy text. A merge or successful dispatch alone is never deployment proof.
+5. **Release/Deploy stage.** From the PR JSON: `mergedAt` unset → `pending`. Resolve the requested or default environment first. **GitHub evidence first:** inspect the configured workflow run/ref, exact standalone SHA title marker, GitHub compare ancestry, and current live health SHA. Treat local `source:"deploy"` records in `~/.otta/ledger/<repo-slug>.jsonl` only as corroboration. Render `deploy_runtime_verified` as `runtime_verified` (pass), `deploy_included` as `included` (pass), and `deploy_superseded` as `superseded` (pass only when its durable eligibility proof is present). Render `deploy_dispatching`/`deploy_dispatched`/`deploy_workflow_succeeded` as pending, `deploy_workflow_failed` as `failed`, `deploy_dispatch_unknown` as `dispatch_unknown`, and contradictory, ambiguous, divergent, rollback, or stale evidence as `blocked`. Include environment, run ID/URL, requested SHA, descendant SHA, and live SHA when present. For legacy contracts, check `gh release list --repo "$REPO" -L 5` or fall back to the `deploy.auto` policy text. A merge or successful dispatch alone is never deployment proof.
+
+   Queued/running dispatch evidence is non-terminal and preemptive supersession is disabled unless a durable policy-eligibility source is explicitly configured. GitHub concurrency may coalesce B-I while J is pending, but older requests remain blocked/failed until a verified descendant makes them `included`. If exact-SHA GitHub, ancestry, runtime, and local evidence conflict, render `blocked`; never choose optimistic success.
 
 6. **Pulse `/grade` + `/lifecycle` (opt-in).** Only if both `OTTA_PULSE_URL` and `OTTA_PULSE_TOKEN` are set (check env, then `./.otta/pulse.env`). If unset, skip this step entirely and note in the Gate stage detail: `"Pulse not configured — gate status from gh checks only"`. Never treat "not configured" as an error, and a failed/timed-out call must never block rendering — swallow it and fall through to the gh-only detail text from steps 4/5.
 
@@ -95,7 +97,7 @@ Check the LEARN ledger (`~/.otta/ledger/<repo-slug>.jsonl`) for recent `deploy_a
 | Build in-progress | PR not yet open (no cross-reference in issue timeline) |
 | Gate/CI in-progress | PR open, gate checks queued or in-progress |
 | Deploy in-progress | PR merged, deploy-verify not yet confirmed |
-| Done | PR merged + deploy confirmed; workflow executor requires `deploy_runtime_verified` |
+| Done | PR merged + deploy confirmed; workflow executor requires `deploy_runtime_verified`, verified `deploy_included`, or durably proven `deploy_superseded` |
 
 Render the stage checklist as a compact list alongside the standard 5-stage view:
 

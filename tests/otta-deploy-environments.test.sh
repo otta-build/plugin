@@ -52,6 +52,17 @@ check 'deploy parser selects staging workflow' deploy-staging.yml "$(parse_deplo
 check 'deploy parser selects default auto' human-approve "$(parse_deploy_auto "$NAMED" production)"
 if resolve_deploy_environment "$NAMED" preview >/dev/null 2>&1; then fail 'unknown environment must fail'; fi
 
+OUTSIDE="$TMP/outside.yml"
+cp "$NAMED" "$OUTSIDE"
+cat >> "$OUTSIDE" <<'YAML'
+other:
+  nested:
+    preview:
+      workflow: evil.yml
+YAML
+if resolve_deploy_environment "$OUTSIDE" preview >/dev/null 2>&1; then fail 'environment names outside deploy.environments must be ignored'; fi
+echo '  ✓ environment lookup stays inside deploy.environments'
+
 LEGACY="$TMP/legacy.yml"
 cat > "$LEGACY" <<'YAML'
 deploy:
