@@ -1,3 +1,9 @@
+## 1.3.0
+
+### Added
+
+- adaptive quiet progress for Claude Code and Codex (#139) (#144)
+
 ## 1.2.1
 
 ### Fixed
