@@ -1,9 +1,15 @@
 name: CI
+run-name: ${{ inputs.otta_sha && format('CI {0}', inputs.otta_sha) || 'CI' }}
 on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      otta_sha:
+        description: Exact SHA marker for non-mutating Otta controller dogfood
+        required: false
+        type: string
 
 jobs:
   test:
