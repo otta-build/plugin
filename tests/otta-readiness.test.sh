@@ -185,4 +185,92 @@ for state in not_installed permission_approval_required github_unavailable; do
 done
 echo "  ✓ hosted Pulse status overrides pulse.env file existence"
 
+# Deploy readiness is invoked only for configured GitHub Workflow executors.
+OUTPUT="$(cd "$ZERO_REPO" && PATH="$FAKE_BIN_ZERO:$PATH" bash "$SCRIPT" 2>&1)" || true
+echo "$OUTPUT" | grep -Fq 'Deploy workflow safety: not applicable' \
+  || fail "no-runtime repo should report deploy safety not applicable: $OUTPUT"
+echo "  ✓ no-runtime repository reports deploy safety not applicable"
+
+DEPLOY_REPO="$TMP/deploy-unsafe"
+mkdir -p "$DEPLOY_REPO/.github/workflows"
+cd "$DEPLOY_REPO"
+git init -q
+git config user.email t@t.t
+git config user.name t
+echo base > f; git add f; git commit -qm base
+cat > .otta.yml <<'YAML'
+deploy:
+  auto: human-approve
+  target: production
+  executor: github-workflow
+  workflow: deploy.yml
+  sha_input: sha
+YAML
+echo 'name: unsafe' > .github/workflows/deploy.yml
+set +e
+OUTPUT="$(PATH="$FAKE_BIN_ZERO:$PATH" bash "$SCRIPT" 2>&1)"; DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail 'unsafe configured workflow should make general readiness fail'
+echo "$OUTPUT" | grep -Fq 'FAIL workflow_dispatch' \
+  || fail "general readiness did not invoke deploy validation: $OUTPUT"
+echo "  ✓ configured unsafe workflow fails general readiness"
+
+NAMED_REPO="$TMP/deploy-named"
+mkdir -p "$NAMED_REPO/.github/workflows"
+cd "$NAMED_REPO"
+git init -q
+git config user.email t@t.t
+git config user.name t
+echo base > f; git add f; git commit -qm base
+cat > .otta.yml <<'YAML'
+deploy:
+  default: production
+  environments:
+    staging:
+      target: staging
+      executor: github-workflow
+      workflow: deploy-staging.yml
+      sha_input: sha
+      health_url: https://staging.example.test/health
+      health_commit_field: commit
+    production:
+      target: production
+      executor: github-workflow
+      workflow: deploy-production.yml
+      sha_input: sha
+      health_url: https://app.example.test/health
+      health_commit_field: commit
+YAML
+cat > .github/workflows/deploy-production.yml <<'YAML'
+run-name: deploy production ${{ inputs.sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        required: true
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    environment: production
+    steps:
+      - name: Noop
+        # otta: same-sha-noop
+        run: test "$(curl -fsS /health | jq -r .commit)" != "${{ inputs.sha }}" || exit 0
+      - name: Verify
+        # otta: health-sha-verify
+        run: test "$(curl -fsS /health | jq -r .commit)" = "${{ inputs.sha }}"
+YAML
+echo 'name: unsafe staging' > .github/workflows/deploy-staging.yml
+set +e
+OUTPUT="$(PATH="$FAKE_BIN_ZERO:$PATH" bash "$SCRIPT" 2>&1)"; NAMED_RC=$?
+set -e
+[ "$NAMED_RC" -ne 0 ] || fail 'unsafe non-default staging profile should make general readiness fail'
+echo "$OUTPUT" | grep -Fq 'environment=staging' \
+  || fail "general readiness did not validate the non-default staging environment: $OUTPUT"
+echo "$OUTPUT" | grep -Fq 'FAIL workflow_dispatch' \
+  || fail "non-default staging workflow failure missing: $OUTPUT"
+echo "  ✓ every named deployment environment is validated"
+
 echo "✓ otta-readiness: all checks passed (0/8, 8/8, 3/8, read-only, hosted status, per-dim list)"

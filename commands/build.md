@@ -65,7 +65,7 @@ early when the same normalized blockers repeat twice:
 
 When it finishes, report the result: shipped (PR URL) or blocked (which AC/gate failed). The pipeline never opens a PR for work that didn't pass verify.
 
-**Deploy+verify (per policy).** After the PR is open, run `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-deploy-verify.sh" <pr-number>`. Legacy contracts keep their existing policy. With `executor: github-workflow`, `human-approve` requires a second, explicit `--approved-head <exact-pr-head>` invocation, then Otta merges once, dispatches one repository-owned workflow for the merge SHA, polls terminal success, and verifies the live health SHA. The workflow is the sole infrastructure mutation authority; see `/otta:ship` for recovery, rollback, and serialization requirements.
+**Deploy+verify (per policy).** Resolve natural target intent or `deploy.default`, then pass the resolved deployment environment identically in every harness: `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-deploy-verify.sh" <pr-number> --environment <name>`. Legacy flat contracts omit the flag and keep their existing policy. With `executor: github-workflow`, `human-approve` requires a second, explicit `--approved-head <exact-pr-head> --environment <name>` invocation, then Otta merges once, dispatches one repository-owned workflow for the merge SHA, polls terminal success, and verifies the live health SHA. The workflow is the sole infrastructure mutation authority; see `/otta:ship` for recovery, rollback, and serialization requirements.
 
 > **Tier rule:** for tiny (≤2-file, no new public behavior) changes use `/otta:fix` (gated, light review) instead of this full pipeline.
 

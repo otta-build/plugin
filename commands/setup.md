@@ -106,7 +106,15 @@ Collect:
 - provider label for evidence attribution;
 - health URL and top-level JSON commit field (`commit` by default).
 
-Before enabling it, require the target repository to disable competing deployment triggers, define one production concurrency group with cancellation disabled, reuse build artifacts where practical, and document a repository-owned rollback workflow. The workflow must put the exact SHA input in `run-name` as a standalone token (for example, `deploy ${{ inputs.commit_sha }}`). Otta requires that exact `display_title` marker for correlation; `head_sha` is never a substitute because it identifies the workflow ref rather than proving which SHA input the run received. The workflow must also self-dedupe across machines: after entering the global production concurrency group, compare live health to the requested SHA and exit without mutation when it already matches. Otta's local ledger lock cannot serialize agents on different hosts. These answers map to `--deploy-executor github-workflow`, `--deploy-workflow`, `--deploy-ref`, `--deploy-sha-input`, `--deploy-provider`, `--deploy-verify health-sha`, `--deploy-health-url`, and `--deploy-health-commit-field`.
+Before enabling it, require the target repository to disable competing deployment triggers, define one production concurrency group with cancellation disabled, reuse build artifacts where practical, and document a repository-owned rollback workflow. The workflow must put both the environment and exact SHA input in `run-name` as standalone tokens (for example, `deploy production ${{ inputs.commit_sha }}`). Otta requires both exact `display_title` markers for successor correlation; `head_sha` is never a substitute because it identifies the workflow ref rather than proving which environment and SHA input the run received. The workflow must also self-dedupe across machines: after entering the global production concurrency group, compare live health to the requested SHA and exit without mutation when it already matches. Otta's local ledger lock cannot serialize agents on different hosts. These answers map to `--deploy-executor github-workflow`, `--deploy-workflow`, `--deploy-ref`, `--deploy-sha-input`, `--deploy-provider`, `--deploy-verify health-sha`, `--deploy-health-url`, and `--deploy-health-commit-field`.
+
+Mark the concrete no-op and verification steps with `# otta: same-sha-noop` and `# otta: health-sha-verify`, then run the read-only safety validator before calling setup complete:
+
+```bash
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-deploy-readiness.sh" --environment <selected-environment>
+```
+
+Queued or running workflow dispatches are not approval proof. Unless a future durable eligibility source is explicitly configured, preemptive supersession stays disabled: GitHub concurrency coalesces pending work, while Otta marks an older request included only after a descendant workflow succeeds and the live runtime reports that descendant SHA. For `shared_host: true`, the validator warns that repository-local concurrency is insufficient; use a single-capacity shared runner or an external host semaphore rather than adding a broker to Otta.
 
 ---
 
@@ -322,8 +330,8 @@ Show a complete summary of what will be written based on all choices above:
 > - `$CODEX_HOME/config.toml` (active Codex telemetry, mode 0600): `{yes/no — normally ~/.codex/config.toml}`
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
 > - `.gitattributes` — `.pr-body.md merge=ours` entry (always written, idempotent)
-> - `CLAUDE.md` (if absent): always written — CC is the primary harness being configured
-> - Additional harness context files (if absent): `AGENTS.md` (Codex), `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected non-CC harnesses
+> - `CLAUDE.md` and `AGENTS.md` — idempotent Otta intent-routing policy blocks (always written without changing surrounding content)
+> - Additional harness context files (if absent): `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected non-CC harnesses
 > - `docs/runner-setup.md` (self-hosted runner instructions): `{yes/no — only for private repos where runner was chosen}`
 >
 > Confirm to proceed, or go back to change any answer."
@@ -354,6 +362,11 @@ Pass the collected answers as flags (omit flags for fields that were left as def
 #   --deploy-verify health-sha
 #   --deploy-health-url <https-url>
 #   --deploy-health-commit-field <json-field>   (default commit)
+#   --deploy-default-environment staging|production
+#   --deploy-staging-workflow <file-or-id>
+#   --deploy-staging-health-url <https-url>
+#   --deploy-production-workflow <file-or-id>
+#   --deploy-production-health-url <https-url>
 #   --allow-production         (only if developer explicitly opted in during step 3)
 #   --learn                    (if developer enabled LEARN in step 4)
 #   --learn-expiry-days <N>    (if developer provided a custom expiry; default 180)
@@ -377,6 +390,15 @@ git commit -m "chore: add .otta.yml delivery contract (Otta setup v2)"
 Tell the developer this file is the v2 delivery contract — keep it in git so all agents and CI jobs see it. Fields marked `# FILL IN` should be reviewed and updated before the commit if the values are known.
 
 ### B1b. Write additional harness context files (OTTA.md mapper)
+
+First install the canonical natural-language intent policy for both supported harnesses. This replaces only the delimited Otta policy block and preserves all existing repository instructions:
+
+```bash
+OTTA_PLUGIN_ROOT="${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}" \
+  bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/install-otta-intent-policy.sh" "$(git rev-parse --show-toplevel)"
+```
+
+Natural language is the normal interface; explicit Claude commands and Codex skills remain deterministic recovery and API surfaces.
 
 For each additional harness detected in step 9b (i.e. non-CC harnesses only), inject an Otta gate notice into the corresponding context file. Use the delimiter block pattern — **never clobber existing content**:
 

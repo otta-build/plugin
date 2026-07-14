@@ -73,6 +73,24 @@ if [ "${1:-}" = "format-release-detail" ]; then
   exit 0
 fi
 
+if [ "${1:-}" = "format-deploy-outcome" ]; then
+  EVENT="${2:?deploy event required}"
+  case "$EVENT" in
+    deploy_runtime_verified) STATUS=pass; OUTCOME=runtime_verified ;;
+    deploy_included) STATUS=pass; OUTCOME=included ;;
+    deploy_superseded) STATUS=pass; OUTCOME=superseded ;;
+    deploy_workflow_failed) STATUS=fail; OUTCOME=failed ;;
+    deploy_dispatch_unknown) STATUS=fail; OUTCOME=dispatch_unknown ;;
+    deploy_blocked) STATUS=fail; OUTCOME=blocked ;;
+    deploy_dispatching|deploy_dispatched|deploy_workflow_succeeded|deploy_successor_pending)
+      STATUS=pending; OUTCOME=pending ;;
+    *) STATUS=fail; OUTCOME=blocked ;;
+  esac
+  jq -cn --arg status "$STATUS" --arg outcome "$OUTCOME" \
+    '{status:$status,outcome:$outcome,detail:("deploy " + $outcome)}'
+  exit 0
+fi
+
 INPUT="$(cat)"
 echo "$INPUT" | jq -e . >/dev/null 2>&1 || { echo "ERROR: invalid JSON input" >&2; exit 2; }
 

@@ -29,6 +29,8 @@ Then, once per repo:
 
 This runs a **guided wizard** that teaches why each step exists (pain → benefit), asks each question via structured chips (recommended default first), and writes `.otta.yml` + installs the pre-push gate hook and the **Otta Pulse** GitHub App. See [docs/why-otta-setup.md](docs/why-otta-setup.md) for the full pain→benefit table.
 
+After setup, natural language is the normal interface in both Claude Code and Codex: ask to start an issue, fix a bug, check status, stage, or release, and the repository policy routes the matching canonical Otta lifecycle. Explicit `/otta:*` commands and `$otta-*` skills always win when supplied and remain the deterministic recovery/API surface. Read-only or status intent never authorizes writes; ambiguous production targets and rollbacks pause for clarification.
+
 Claude Code invokes Otta through `/otta:*` commands, such as `/otta:start 131` and `/otta:ship`.
 
 ### Codex
@@ -181,7 +183,7 @@ The three modes:
 
 With `executor: github-workflow`, Otta owns approval, merge, dispatch identity, polling, and runtime verification. The configured GitHub workflow must remain the **only deployment mutation authority**: disable competing provider/webhook/Otta triggers, use one production concurrency group with `cancel-in-progress: false`, reuse build artifacts instead of rebuilding on the application host, and keep cleanup outside the deployment critical section. Otta needs GitHub Actions and PR permissions, not provider credentials.
 
-The workflow must expose the exact SHA input as a standalone `run-name` token, for example `run-name: deploy ${{ inputs.commit_sha }}`. Otta snapshots runs for the configured workflow/ref and correlates only unseen runs created after dispatch by the authenticated actor whose `display_title` carries that exact token. A matching `head_sha` is never sufficient because it identifies the workflow ref, not necessarily the SHA input received by that run; requiring the title marker remains correct when the dispatch ref advances. The local Otta lock only serializes processes sharing one ledger directory, so the workflow is also the cross-machine idempotency boundary: serialize all production deploys globally, then check the live commit at job start and exit successfully without mutation when it already equals the requested SHA. This makes a duplicate same-SHA dispatch harmless even across separate agents or hosts.
+The workflow must expose the resolved environment and exact SHA input as standalone `run-name` tokens, for example `run-name: deploy production ${{ inputs.commit_sha }}`. Otta snapshots runs for the configured workflow/ref and correlates only unseen runs created after dispatch by the authenticated actor whose `display_title` carries both exact tokens. A matching `head_sha` is never sufficient because it identifies the workflow ref, not necessarily the environment or SHA input received by that run; requiring both title markers remains correct when the dispatch ref advances. The local Otta lock only serializes processes sharing one ledger directory, so the workflow is also the cross-machine idempotency boundary: serialize all production deploys globally, then check the live commit at job start and exit successfully without mutation when it already equals the requested SHA. This makes a duplicate same-SHA dispatch harmless even across separate agents or hosts.
 
 Normal production approval is commit-bound:
 

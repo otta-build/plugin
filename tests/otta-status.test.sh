@@ -235,4 +235,22 @@ OUT="$(printf '%s' "$LIFECYCLE_JSON" | bash "$SCRIPT" format-release-detail "999
 [ -z "$OUT" ] || fail "expected empty output when no lifecycle item matches the issue, got: $OUT"
 echo "  ✓ format-release-detail returns empty string when no lifecycle item matches the issue"
 
+# =============================================================================
+# 12. format-deploy-outcome: release evidence states are explicit and safe.
+# =============================================================================
+for pair in \
+  'deploy_runtime_verified:pass:runtime_verified' \
+  'deploy_included:pass:included' \
+  'deploy_superseded:pass:superseded' \
+  'deploy_workflow_failed:fail:failed' \
+  'deploy_dispatch_unknown:fail:dispatch_unknown' \
+  'deploy_blocked:fail:blocked' \
+  'deploy_dispatched:pending:pending'; do
+  event="${pair%%:*}"; rest="${pair#*:}"; expected_status="${rest%%:*}"; expected_outcome="${rest#*:}"
+  OUT="$(bash "$SCRIPT" format-deploy-outcome "$event")" || fail "format-deploy-outcome failed for $event"
+  [ "$(printf '%s' "$OUT" | jq -r .status)" = "$expected_status" ] || fail "$event status mismatch: $OUT"
+  [ "$(printf '%s' "$OUT" | jq -r .outcome)" = "$expected_outcome" ] || fail "$event outcome mismatch: $OUT"
+done
+echo "  ✓ deploy outcomes render runtime_verified, included, superseded, failed, dispatch_unknown, blocked, and pending"
+
 echo "✓ otta-status: all checks passed (all-pass render, mixed markers, detail text, header, invalid-input guard, dashboard mode, empty dashboard, dashboard sort + tiebreak, Pulse grade/lifecycle detail formatting)"

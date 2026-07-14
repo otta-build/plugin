@@ -45,6 +45,11 @@ DEPLOY_PROVIDER="none"
 DEPLOY_VERIFY="sha-match"
 DEPLOY_HEALTH_URL=""
 DEPLOY_HEALTH_COMMIT_FIELD="commit"
+DEPLOY_DEFAULT_ENVIRONMENT=""
+DEPLOY_STAGING_WORKFLOW=""
+DEPLOY_PRODUCTION_WORKFLOW=""
+DEPLOY_STAGING_HEALTH_URL=""
+DEPLOY_PRODUCTION_HEALTH_URL=""
 ALLOW_PRODUCTION=false
 PULSE=false
 OTEL_ENDPOINT="null"
@@ -67,6 +72,11 @@ while [[ $# -gt 0 ]]; do
     --deploy-verify)       DEPLOY_VERIFY="$2"; shift 2 ;;
     --deploy-health-url)   DEPLOY_HEALTH_URL="$2"; shift 2 ;;
     --deploy-health-commit-field) DEPLOY_HEALTH_COMMIT_FIELD="$2"; shift 2 ;;
+    --deploy-default-environment) DEPLOY_DEFAULT_ENVIRONMENT="$2"; shift 2 ;;
+    --deploy-staging-workflow) DEPLOY_STAGING_WORKFLOW="$2"; shift 2 ;;
+    --deploy-production-workflow) DEPLOY_PRODUCTION_WORKFLOW="$2"; shift 2 ;;
+    --deploy-staging-health-url) DEPLOY_STAGING_HEALTH_URL="$2"; shift 2 ;;
+    --deploy-production-health-url) DEPLOY_PRODUCTION_HEALTH_URL="$2"; shift 2 ;;
     --allow-production)    ALLOW_PRODUCTION=true; shift ;;
     --pulse)               PULSE=true; shift ;;
     --otel)                OTEL_ENDPOINT="$2"; shift 2 ;;
@@ -82,6 +92,25 @@ case "$DEPLOY_AUTO" in
   human-approve|merge-on-green|merge-and-deploy) ;;
   *) echo "unknown --deploy-auto value: $DEPLOY_AUTO (must be human-approve|merge-on-green|merge-and-deploy)" >&2; exit 1 ;;
 esac
+
+if [ -n "$DEPLOY_DEFAULT_ENVIRONMENT" ]; then
+  case "$DEPLOY_DEFAULT_ENVIRONMENT" in
+    staging) [ -n "$DEPLOY_STAGING_WORKFLOW" ] || { echo "default staging environment requires --deploy-staging-workflow" >&2; exit 1; } ;;
+    production) [ -n "$DEPLOY_PRODUCTION_WORKFLOW" ] || { echo "default production environment requires --deploy-production-workflow" >&2; exit 1; } ;;
+    *) echo "unknown --deploy-default-environment value: $DEPLOY_DEFAULT_ENVIRONMENT (must be staging|production)" >&2; exit 1 ;;
+  esac
+  if [ -n "$DEPLOY_STAGING_WORKFLOW" ] && [ -z "$DEPLOY_STAGING_HEALTH_URL" ]; then
+    echo "named staging environment requires --deploy-staging-health-url" >&2
+    exit 1
+  fi
+  if [ -n "$DEPLOY_PRODUCTION_WORKFLOW" ] && [ -z "$DEPLOY_PRODUCTION_HEALTH_URL" ]; then
+    echo "named production environment requires --deploy-production-health-url" >&2
+    exit 1
+  fi
+elif [ -n "$DEPLOY_STAGING_WORKFLOW" ] || [ -n "$DEPLOY_PRODUCTION_WORKFLOW" ]; then
+  echo "named deployment workflows require --deploy-default-environment" >&2
+  exit 1
+fi
 
 case "$DEPLOY_EXECUTOR" in
   none) ;;
@@ -246,21 +275,52 @@ fi
   printf 'tracker: %s\n' "$TRACKER_YAML"
   printf 'autonomy: %s\n' "$AUTONOMY"
   printf '%s\n' "deploy:"
-  printf '  target:  %s\n' "$DEPLOY_TARGET_YAML"
-  printf '  project: %s\n' "$DEPLOY_PROJECT_YAML"
-  printf '  auto: %s\n' "$DEPLOY_AUTO_YAML"
-  if [ -n "$ALLOW_PRODUCTION_YAML" ]; then
-    printf '  allow_production: %s\n' "$ALLOW_PRODUCTION_YAML"
-  fi
-  if [ "$DEPLOY_EXECUTOR" != "none" ]; then
-    printf '  executor: %s\n' "$DEPLOY_EXECUTOR"
-    printf '  workflow: %s\n' "$DEPLOY_WORKFLOW"
-    printf '  ref: %s\n' "$DEPLOY_REF"
-    printf '  sha_input: %s\n' "$DEPLOY_SHA_INPUT"
-    printf '  provider: %s\n' "$DEPLOY_PROVIDER"
-    printf '  verify: %s\n' "$DEPLOY_VERIFY"
-    printf '  health_url: %s\n' "$DEPLOY_HEALTH_URL"
-    printf '  health_commit_field: %s\n' "$DEPLOY_HEALTH_COMMIT_FIELD"
+  if [ -n "$DEPLOY_DEFAULT_ENVIRONMENT" ]; then
+    printf '  default: %s\n' "$DEPLOY_DEFAULT_ENVIRONMENT"
+    printf '%s\n' '  environments:'
+    if [ -n "$DEPLOY_STAGING_WORKFLOW" ]; then
+      printf '%s\n' '    staging:'
+      printf '%s\n' '      auto: merge-and-deploy'
+      printf '%s\n' '      target: staging'
+      printf '%s\n' '      executor: github-workflow'
+      printf '      workflow: %s\n' "$DEPLOY_STAGING_WORKFLOW"
+      printf '%s\n' '      ref: staging'
+      printf '      sha_input: %s\n' "$DEPLOY_SHA_INPUT"
+      printf '      provider: %s\n' "$DEPLOY_PROVIDER"
+      printf '      verify: %s\n' "$DEPLOY_VERIFY"
+      printf '      health_url: %s\n' "$DEPLOY_STAGING_HEALTH_URL"
+      printf '      health_commit_field: %s\n' "$DEPLOY_HEALTH_COMMIT_FIELD"
+    fi
+    if [ -n "$DEPLOY_PRODUCTION_WORKFLOW" ]; then
+      printf '%s\n' '    production:'
+      printf '%s\n' '      auto: human-approve'
+      printf '%s\n' '      target: production'
+      printf '%s\n' '      executor: github-workflow'
+      printf '      workflow: %s\n' "$DEPLOY_PRODUCTION_WORKFLOW"
+      printf '      ref: %s\n' "$DEPLOY_REF"
+      printf '      sha_input: %s\n' "$DEPLOY_SHA_INPUT"
+      printf '      provider: %s\n' "$DEPLOY_PROVIDER"
+      printf '      verify: %s\n' "$DEPLOY_VERIFY"
+      printf '      health_url: %s\n' "$DEPLOY_PRODUCTION_HEALTH_URL"
+      printf '      health_commit_field: %s\n' "$DEPLOY_HEALTH_COMMIT_FIELD"
+    fi
+  else
+    printf '  target:  %s\n' "$DEPLOY_TARGET_YAML"
+    printf '  project: %s\n' "$DEPLOY_PROJECT_YAML"
+    printf '  auto: %s\n' "$DEPLOY_AUTO_YAML"
+    if [ -n "$ALLOW_PRODUCTION_YAML" ]; then
+      printf '  allow_production: %s\n' "$ALLOW_PRODUCTION_YAML"
+    fi
+    if [ "$DEPLOY_EXECUTOR" != "none" ]; then
+      printf '  executor: %s\n' "$DEPLOY_EXECUTOR"
+      printf '  workflow: %s\n' "$DEPLOY_WORKFLOW"
+      printf '  ref: %s\n' "$DEPLOY_REF"
+      printf '  sha_input: %s\n' "$DEPLOY_SHA_INPUT"
+      printf '  provider: %s\n' "$DEPLOY_PROVIDER"
+      printf '  verify: %s\n' "$DEPLOY_VERIFY"
+      printf '  health_url: %s\n' "$DEPLOY_HEALTH_URL"
+      printf '  health_commit_field: %s\n' "$DEPLOY_HEALTH_COMMIT_FIELD"
+    fi
   fi
   printf 'gates: %s\n' "$GATES_YAML"
   printf '%s\n' "telemetry:"

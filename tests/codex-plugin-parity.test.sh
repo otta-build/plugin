@@ -209,6 +209,26 @@ else
   fail "setup must map AskUserQuestion to available interactive input or direct questions without losing --derive"
 fi
 
+for lifecycle_doc in ship dev build; do
+  if grep -Fq -- '--environment <name>' "$REPO/commands/$lifecycle_doc.md" &&
+     grep -Fq 'resolved deployment environment' "$REPO/commands/$lifecycle_doc.md"; then
+    pass "$lifecycle_doc passes the resolved deployment environment"
+  else
+    fail "$lifecycle_doc must pass --environment <name> identically across Claude and Codex"
+  fi
+done
+
+STATUS_COMMAND="$REPO/commands/status.md"
+if grep -Fq 'GitHub evidence first' "$STATUS_COMMAND" &&
+   grep -Fq 'preemptive supersession is disabled' "$STATUS_COMMAND"; then
+  for outcome in runtime_verified included superseded failed dispatch_unknown blocked; do
+    grep -Fq "$outcome" "$STATUS_COMMAND" || fail "status must document deploy outcome $outcome"
+  done
+  pass "status documents GitHub-first environment-aware deploy outcomes"
+else
+  fail "status must prefer GitHub evidence and document disabled preemptive supersession"
+fi
+
 expected_command() {
   case "$1" in
     PreToolUse) echo 'bash "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}/hooks/pre-push-guard.sh"' ;;
