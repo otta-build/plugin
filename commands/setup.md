@@ -269,6 +269,8 @@ Ask via AskUserQuestion — header "Telemetry", question "Stream this repo's Cla
 
 Record the choice — telemetry setup is wired after confirmation in step 10.
 
+**Pulse correlation attrs.** Claude Code natively emits `workflow.run_id` and `workflow.name` on workflow-spawned-agent telemetry, and `agent_id`/`agent_type` on hook events. Once telemetry streams to Pulse, these four attributes let Pulse join a run's spans/logs back to the specific pipeline stage and agent that produced them — no extra instrumentation needed on the Otta side; the harness emits them automatically when present.
+
 ---
 
 ## 9b. Additional harness adapters

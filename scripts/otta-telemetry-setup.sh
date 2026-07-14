@@ -19,6 +19,11 @@
 # from the caller (e.g. `gh repo view --json nameWithOwner -q .nameWithOwner`);
 # the interactive /otta:setup step passes it here, so this writer stays
 # unit-testable on its own.
+#
+# Pulse correlation: once wired, Claude Code natively emits workflow.run_id
+# and workflow.name on workflow-spawned-agent telemetry, and agent_id /
+# agent_type on hook events. Pulse joins runs to pipeline stages on these four
+# attributes — this script does not need to set them itself.
 set -euo pipefail
 
 REPO="${1:-}"
