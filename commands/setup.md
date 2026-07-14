@@ -127,21 +127,19 @@ Ask via AskUserQuestion — header "Otta Pulse", question "Install the Otta Puls
 
 Only if the developer chooses "Install":
 
-Record the chosen endpoint as `PULSE_URL` in the workflow context (hosted
-default or the self-hosted URL). Inline that recorded value on **every** script
-invocation below; do not rely on an `export` surviving the user-confirmation
-pause or a separate Bash child process.
+Record the chosen endpoint in the workflow context (hosted default or the
+self-hosted URL). Substitute that concrete value into `--pulse-url` on **every**
+script invocation below; do not emit a shell `$PULSE_URL` reference or rely on
+an `export` surviving the user-confirmation pause / separate Bash child process.
 
 ```bash
-PULSE_URL="${OTTA_PULSE_URL:-https://pulse.otta.build}"
-OTTA_PULSE_URL="$PULSE_URL" bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --instructions-only
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --pulse-url "https://pulse.otta.build" --instructions-only
 ```
 
 **Self-hosting Pulse?** By default this wires to the hosted Otta Pulse at `https://pulse.otta.build`. A team running its own Pulse instance sets `OTTA_PULSE_URL` first:
 
 ```bash
-PULSE_URL="https://pulse.your-team.example"
-OTTA_PULSE_URL="$PULSE_URL" bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --instructions-only
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --pulse-url "https://pulse.your-team.example" --instructions-only
 ```
 
 Print the installation URL from the instructions-only call and ask the user to
@@ -149,14 +147,14 @@ open it, pick their account/org, and click Install. If they want it opened on
 this machine, run the same instructions-only call with `--open`:
 
 ```bash
-OTTA_PULSE_URL="$PULSE_URL" bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --open --instructions-only
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --pulse-url "<recorded Pulse URL>" --open --instructions-only
 ```
 
 After the user confirms installation is complete, start repo wiring and the
 blocking verification poll:
 
 ```bash
-OTTA_PULSE_URL="$PULSE_URL" bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --verify
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/pulse-install.sh" --pulse-url "<recorded Pulse URL>" --verify
 ```
 
 The verify call polls Pulse's customer-safe `installation-status` endpoint

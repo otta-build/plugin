@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pulse-install.sh [--open] [--instructions-only|--verify] — onboard Pulse
+# pulse-install.sh [--pulse-url URL] [--open] [--instructions-only|--verify]
 # the repo's Pulse credentials into .otta/pulse.env.
 #
 # Install is interactive browser consent (GitHub never lets a tool install an
@@ -11,12 +11,21 @@ set -euo pipefail
 OPEN=0
 INSTRUCTIONS_ONLY=0
 VERIFY_ONLY=0
-for _arg in "$@"; do
-  case "$_arg" in
-    --open) OPEN=1 ;;
-    --instructions-only) INSTRUCTIONS_ONLY=1 ;;
-    --verify) VERIFY_ONLY=1 ;;
-    *) echo "usage: pulse-install.sh [--open] [--instructions-only|--verify]" >&2; exit 2 ;;
+PULSE_URL_OVERRIDE=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --pulse-url)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || {
+        echo "ERROR: --pulse-url requires a URL." >&2
+        exit 2
+      }
+      PULSE_URL_OVERRIDE="$2"
+      shift 2
+      ;;
+    --open) OPEN=1; shift ;;
+    --instructions-only) INSTRUCTIONS_ONLY=1; shift ;;
+    --verify) VERIFY_ONLY=1; shift ;;
+    *) echo "usage: pulse-install.sh [--pulse-url URL] [--open] [--instructions-only|--verify]" >&2; exit 2 ;;
   esac
 done
 if [ "$INSTRUCTIONS_ONLY" -eq 1 ] && [ "$VERIFY_ONLY" -eq 1 ]; then
@@ -26,6 +35,7 @@ fi
 
 APP_SLUG="otta-pulse"
 INSTALL_URL="https://github.com/apps/${APP_SLUG}/installations/new"
+PULSE_URL="${PULSE_URL_OVERRIDE:-${OTTA_PULSE_URL:-https://pulse.otta.build}}"
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo '<your repo>')"
 
 if [ "$VERIFY_ONLY" -eq 0 ]; then
@@ -61,7 +71,6 @@ if ! gh auth token >/dev/null 2>&1; then
   exit 0
 fi
 
-PULSE_URL="${OTTA_PULSE_URL:-https://pulse.otta.build}"
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo '')"
 if [ -z "$REPO" ]; then
   echo "(skipped Pulse wiring — could not determine repo name)"

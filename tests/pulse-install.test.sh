@@ -100,4 +100,40 @@ printf '%s' "$OUT" | grep -qi 'verification unavailable' || fail "outage warning
 [ -f "$R/.otta/pulse.env" ] || fail "fail-open path did not preserve pulse.env"
 pass "temporary status outage fails open without a false connected claim"
 
+# A self-hosted endpoint must survive the human-confirmation boundary. Execute
+# instructions/open and verify in separate clean shells with no inherited
+# OTTA_PULSE_URL/PULSE_URL, passing only the explicit script option.
+SELF_HOSTED_URL="https://pulse.customer.example"
+write_curl <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CURL_LOG"
+case "$*" in
+  *'/connect'*) printf '%s\n200' '{"url":"https://pulse.customer.example","token":"repo-token"}' ;;
+  *'/installation-status'*) printf '%s\n200' '{"repo":"acme/widget","state":"ready","repositoryAccess":true,"checksWrite":true}' ;;
+  *) exit 8 ;;
+esac
+SH
+cat > "$BIN/open" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$OPEN_LOG"
+SH
+chmod +x "$BIN/open"
+R="$(make_repo self-hosted-boundary)"
+env -i PATH="$BIN:$PATH" HOME="$HOME" OPEN_LOG="$TMP/open.log" \
+  bash -c 'cd "$1" && bash "$2" --pulse-url "$3" --open --instructions-only' \
+  _ "$R" "$SCRIPT" "$SELF_HOSTED_URL" >/dev/null 2>&1 \
+  || fail "self-hosted instructions call failed"
+env -i PATH="$BIN:$PATH" HOME="$HOME" CURL_LOG="$TMP/self-hosted.log" \
+  OTTA_PULSE_STATUS_ATTEMPTS=1 \
+  bash -c 'cd "$1" && bash "$2" --pulse-url "$3" --verify' \
+  _ "$R" "$SCRIPT" "$SELF_HOSTED_URL" >/dev/null 2>&1 \
+  || fail "self-hosted verify call failed"
+grep -q "${SELF_HOSTED_URL}/connect" "$TMP/self-hosted.log" \
+  || fail "verify did not use the explicit self-hosted connect URL"
+grep -q "${SELF_HOSTED_URL}/installation-status" "$TMP/self-hosted.log" \
+  || fail "status polling did not stay on the explicit self-hosted URL"
+! grep -q 'pulse.otta.build' "$TMP/self-hosted.log" \
+  || fail "separate-shell self-hosted flow silently fell back to hosted Pulse"
+pass "self-hosted URL survives instructions -> confirmation -> verify across clean shells"
+
 echo "All pulse-install tests passed."
