@@ -40,6 +40,93 @@ _workflow_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 _get_workflow_run() { gh api "repos/$1/actions/runs/$2"; }
 
+# Pure fail-closed decision for whether a newer release safely accounts for an
+# older request. Queued/running descendants supersede work; only runtime proof
+# can include it.
+classify_release_successor() {
+  local older_sha="$1" older_environment="$2" candidate_sha="$3" candidate_environment="$4"
+  local eligible="$5" state="$6" compare_status="$7"
+  [ "$older_environment" = "$candidate_environment" ] || { echo blocked; return 1; }
+  [ "$eligible" = true ] || { echo blocked; return 1; }
+  case "$state" in rollback|cancelled) echo blocked; return 1 ;; esac
+  if [ "$older_sha" = "$candidate_sha" ] && [ "$state" = runtime_verified ]; then
+    echo included; return 0
+  fi
+  [ "$compare_status" = ahead ] || { echo blocked; return 1; }
+  case "$state" in
+    queued|running) echo superseded ;;
+    runtime_verified) echo included ;;
+    *) echo blocked; return 1 ;;
+  esac
+}
+
+_release_run_candidates() {
+  jq -r '
+    def marked_sha:
+      try ((.displayTitle // "") |
+        capture("(?:^|[^A-Za-z0-9])(?<sha>[0-9a-fA-F]{40})(?:[^A-Za-z0-9]|$)").sha) catch "";
+    [.[] | .candidateSha=marked_sha | select(.candidateSha != "")]
+    | sort_by(.createdAt) | reverse
+    | .[] | [.databaseId,.status,(.conclusion // ""),.candidateSha,(.url // "")] | @tsv
+  '
+}
+
+_release_compare_status() {
+  local repo="$1" older_sha="$2" candidate_sha="$3"
+  [ "$older_sha" = "$candidate_sha" ] && { echo identical; return 0; }
+  gh api "repos/$repo/compare/$older_sha...$candidate_sha" --jq .status 2>/dev/null || echo unknown
+}
+
+_runtime_sha_once() {
+  local url="$1" field="$2" body
+  body="$(curl -fsS --max-time 10 "$url" 2>/dev/null)" || return 1
+  printf '%s' "$body" | jq -r --arg field "$field" '.[$field] // empty' 2>/dev/null
+}
+
+# Default successor discovery is deliberately narrower than the pure
+# classifier. Dispatch state is not approval evidence. Only a successful run,
+# descendant ancestry, and current live runtime SHA can include an older
+# release. Queued/running candidates are non-terminal successor_pending.
+find_eligible_successor() {
+  local repo="$1" workflow="$2" ref="$3" environment="$4" older_sha="$5"
+  local health_url="$6" health_field="$7" runs rows runtime_sha="" line
+  local run_id status conclusion candidate_sha url compare pending="" included="" included_count=0
+  runs="$(_list_workflow_runs "$repo" "$workflow" "$ref")" || {
+    jq -cn --arg outcome blocked --arg reason workflow-evidence-unavailable '{outcome:$outcome,reason:$reason}'
+    return 1
+  }
+  rows="$(printf '%s' "$runs" | _release_run_candidates)" || return 1
+  [ -n "$health_url" ] && runtime_sha="$(_runtime_sha_once "$health_url" "$health_field" 2>/dev/null || true)"
+
+  while IFS=$'\t' read -r run_id status conclusion candidate_sha url; do
+    [ -n "$run_id" ] || continue
+    compare="$(_release_compare_status "$repo" "$older_sha" "$candidate_sha")"
+    [ "$compare" = ahead ] || [ "$compare" = identical ] || continue
+    case "$status:$conclusion" in
+      queued:*|in_progress:*)
+        [ -n "$pending" ] || pending="$(jq -cn --arg sha "$candidate_sha" --arg run_id "$run_id" --arg env "$environment" --arg url "$url" \
+          '{outcome:"successor_pending",sha:$sha,run_id:($run_id|tonumber),environment:$env,url:$url}')"
+        ;;
+      completed:success)
+        if [ -n "$runtime_sha" ] && _workflow_sha_match "$candidate_sha" "$runtime_sha"; then
+          included_count=$((included_count + 1))
+          included="$(jq -cn --arg sha "$candidate_sha" --arg run_id "$run_id" --arg env "$environment" --arg url "$url" --arg observed "$runtime_sha" \
+            '{outcome:"included",sha:$sha,run_id:($run_id|tonumber),environment:$env,url:$url,runtime_sha:$observed}')"
+        fi
+        ;;
+    esac
+  done <<< "$rows"
+
+  if [ "$included_count" -eq 1 ]; then printf '%s\n' "$included"; return 0; fi
+  if [ "$included_count" -gt 1 ]; then
+    jq -cn '{outcome:"blocked",reason:"ambiguous-verified-successors"}'
+    return 1
+  fi
+  if [ -n "$pending" ]; then printf '%s\n' "$pending"; return 1; fi
+  jq -cn --arg observed "$runtime_sha" '{outcome:"blocked",reason:"no-verified-descendant",runtime_sha:$observed}'
+  return 1
+}
+
 _run_matches_dispatch() {
   local json="$1" sha="$2" actor="$3" dispatch_at="$4" ref="$5"
   jq -e --arg sha "$sha" --arg actor "$actor" --arg at "$dispatch_at" --arg ref "$ref" '
@@ -178,6 +265,19 @@ verify_health_sha() {
   done
 }
 
+resolve_cancelled_release_successor() {
+  local repo="$1" project="$2" environment="$3" workflow="$4" ref="$5" older_sha="$6"
+  local health_url="$7" health_field="$8" key="$9" input="${10}" proof outcome
+  proof="$(find_eligible_successor "$repo" "$workflow" "$ref" "$environment" "$older_sha" "$health_url" "$health_field")" || {
+    outcome="$(printf '%s' "$proof" | jq -r '.outcome // "blocked"' 2>/dev/null || echo blocked)"
+    echo "deploy: cancelled release remains blocked ($outcome); no verified descendant proof" >&2
+    return 1
+  }
+  [ "$(printf '%s' "$proof" | jq -r '.outcome // empty')" = included ] || return 1
+  append_deploy_record "$project" deploy_included "$key" "$input" "$proof" >/dev/null || return 1
+  echo "deploy: cancelled release $older_sha is included by verified descendant $(printf '%s' "$proof" | jq -r .sha)" >&2
+}
+
 # run_github_workflow_deploy <repo> <project> <target> <workflow> <ref>
 #   <sha-input> <merge-sha> <health-url> <health-field>
 run_github_workflow_deploy() {
@@ -186,16 +286,34 @@ run_github_workflow_deploy() {
   local key latest run_id input output
   key="$(workflow_deploy_key "$repo" "$workflow" "$target" "$merge_sha")"
   latest="$(deployment_last_record "$project" "$key" 2>/dev/null || true)"
-  if [ -n "$latest" ] && [ "$(jq -r '.event' <<<"$latest")" = "deploy_runtime_verified" ]; then
-    echo "deploy: runtime already verified for $merge_sha" >&2
-    return 0
+  if [ -n "$latest" ]; then
+    case "$(jq -r '.event' <<<"$latest")" in
+      deploy_runtime_verified|deploy_included)
+        echo "deploy: runtime already accounted for $merge_sha" >&2
+        return 0
+        ;;
+      deploy_workflow_failed)
+        if [ "$(jq -r '.output.conclusion // empty' <<<"$latest")" = cancelled ]; then
+          input="$(jq -c '.input' <<<"$latest")"
+          resolve_cancelled_release_successor "$repo" "$project" "$target" "$workflow" "$ref" \
+            "$merge_sha" "$health_url" "$health_field" "$key" "$input" && return 0
+        fi
+        ;;
+    esac
   fi
 
   run_id="$(ensure_workflow_dispatched "$repo" "$project" "$target" "$workflow" "$ref" "$sha_input" "$merge_sha")" || return $?
   latest="$(deployment_last_record "$project" "$key")" || return 1
   input="$(jq -c '.input' <<<"$latest")"
   if [ "$(jq -r '.event' <<<"$latest")" != "deploy_workflow_succeeded" ]; then
-    wait_for_workflow_terminal "$repo" "$project" "$key" "$input" "$run_id" "$merge_sha" || return $?
+    if ! wait_for_workflow_terminal "$repo" "$project" "$key" "$input" "$run_id" "$merge_sha"; then
+      latest="$(deployment_last_record "$project" "$key" 2>/dev/null || true)"
+      if [ -n "$latest" ] && [ "$(jq -r '.output.conclusion // empty' <<<"$latest")" = cancelled ]; then
+        resolve_cancelled_release_successor "$repo" "$project" "$target" "$workflow" "$ref" \
+          "$merge_sha" "$health_url" "$health_field" "$key" "$input" && return 0
+      fi
+      return 1
+    fi
   fi
   [ -n "$health_url" ] || { echo "deploy: github-workflow executor requires deploy.health_url" >&2; return 1; }
   verify_health_sha "$health_url" "$health_field" "$merge_sha" || return $?

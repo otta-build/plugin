@@ -171,7 +171,9 @@ Expected: all pass, including every legacy assertion.
 
 Commit: `feat(#151): add named deployment environments`
 
-### Task 3: Add latest-eligible-wins successor classification
+### Task 3: Add fail-closed latest-eligible-wins successor classification
+
+> **Safety correction (approved during implementation):** A raw queued or running `workflow_dispatch`, even with an exact SHA title marker, is not durable proof that the candidate is policy-eligible. The default controller therefore reports such a candidate as non-terminal `successor_pending`/blocked and never skips or cancels the active approved release. Automatic `included` classification requires a same-environment descendant, successful repository workflow, ancestry proof, and current runtime SHA proof. The pure `superseded` path remains available only when a future integration explicitly supplies durable `candidate_policy_eligible=true`; Otta does not infer that proof from dispatch state or a local-only ledger. Without such a source, preemptive supersession is disabled and the repository's non-cancelling concurrency still coalesces pending B-I while keeping at most one active plus one pending request.
 
 **Files:**
 - Modify: `scripts/github-workflow-deploy.sh`
@@ -215,15 +217,15 @@ Add:
 find_eligible_successor <repo> <workflow> <ref> <environment> <older-sha>
 ```
 
-List `workflow_dispatch` runs for the configured workflow/ref, require an exact standalone SHA marker in the display title, require queued/in-progress/success or a local `deploy_runtime_verified` record, and use GitHub's compare API to prove same-SHA or descendant ancestry. Never classify from `main` advancement alone. Multiple plausible incomparable successors return blocked/ambiguous.
+List `workflow_dispatch` runs for the configured workflow/ref and require an exact standalone SHA marker in the display title. Queued/in-progress candidates return non-terminal `successor_pending`; they are never considered policy-eligible by default. An included successor requires successful workflow evidence, a live runtime SHA match, and GitHub compare proof of same-SHA or descendant ancestry. Never classify from `main` advancement or a local-only ledger alone. Multiple plausible incomparable successors return blocked/ambiguous.
 
 - [ ] **Step 4: Integrate outcomes without unsafe redispatch**
 
-When a recorded run is cancelled or replaced, consult the successor resolver before returning failure. Append one of `deploy_superseded` or `deploy_included` only with proof. Keep `deploy_dispatch_unknown`, failed-run recovery, and at-most-once dispatch behavior unchanged. The same repository/environment lock key remains the local optimization; repository workflow concurrency remains the cross-machine serialization boundary.
+When a recorded run is cancelled or replaced, consult the successor resolver before returning failure. Append `deploy_included` only with workflow, ancestry, and live runtime proof. Append `deploy_superseded` only when an explicitly configured durable eligibility source supplies proof; no such source is inferred by default. Keep `deploy_dispatch_unknown`, failed-run recovery, and at-most-once dispatch behavior unchanged. The same repository/environment lock key remains the local optimization; repository workflow concurrency remains the cross-machine serialization boundary.
 
 - [ ] **Step 5: Prove the 10-request and recovery matrix**
 
-The test simulates A through J, with GitHub retaining one active and one pending run. Assert B-I never become runtime-verified individually, A and J never overlap provider mutation, and each older request is either included/superseded with descendant evidence or blocked. Add restart fixtures using pre-existing ledger records and cancelled pending runs.
+The test simulates A through J, with GitHub retaining one active and one pending run. Assert B-I never become runtime-verified individually, A and J never overlap provider mutation, queued/running J never causes optimistic supersession, and every older request remains blocked until J is included with descendant plus live runtime evidence. Add restart fixtures using pre-existing ledger records and cancelled pending runs.
 
 - [ ] **Step 6: Run focused tests and commit**
 
@@ -338,4 +340,3 @@ Expected: every command passes and the diff contains no whitespace errors.
 - [ ] **Step 6: Commit final integration**
 
 Commit: `feat(#151): complete implicit delivery routing`
-
