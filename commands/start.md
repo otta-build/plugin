@@ -15,4 +15,6 @@ Start the Otta shipping loop for issue **#$1**.
 
 3. Confirm the plan with the user in one or two lines: what you'll build, and which acceptance criteria it satisfies.
 
+4. **Task protocol (harness-native).** If `TaskCreate` is available, create one task per pipeline stage — `build`, `spec-review`, `verify`, `ship` — via `TaskCreate`, then advance each task's status with `TaskUpdate` at every stage transition (`pending` → `in_progress` → `completed`/`blocked`), keeping `activeForm` aligned with the active stage. If `/goal` is available, set the session goal from the issue's acceptance criteria (`/goal <acceptance-criteria summary>`) so the run has an explicit, harness-tracked completion condition. Where `TaskCreate`/`TaskUpdate`/`/goal` are unavailable, fall back to the documented markdown checklist instead — this degrades gracefully on any harness without native task tools.
+
 Then begin implementing — write the smallest failing test first (TDD), implement, keep the `.pr-body.md` Verification section honest as you go. When ready to push, use `/otta:ship`.

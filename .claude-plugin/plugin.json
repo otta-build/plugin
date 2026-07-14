@@ -15,5 +15,15 @@
     "github-app",
     "acceptance-criteria",
     "ci-gates"
-  ]
+  ],
+  "experimental": {
+    "monitors": [
+      {
+        "name": "otta-post-ship-gate-watch",
+        "command": "gh pr checks --watch",
+        "description": "Opt-in: after /otta:ship opens a PR, watches the Otta Gate / CI checks on it to terminal status. scripts/otta-deploy-verify.sh polling remains the fallback on harnesses without Monitor support.",
+        "when": "on-skill-invoke:otta-ship"
+      }
+    ]
+  }
 }
