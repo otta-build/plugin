@@ -49,7 +49,7 @@ Run the detection script to inspect the repo and surface branch/deploy signals.
 bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/detect-delivery-context.sh"
 ```
 
-Show the developer the detection output. It will contain detected CI workflow names and `paths:` filters, any `deploy` signal found in the workflow files, and Linear/tracker signals. `deploy.mode` is diagnostic input; the committed contract uses `deploy.auto` plus the optional GitHub workflow executor fields collected below.
+Show the developer the detection output. It will contain detected CI workflow names and `paths:` filters, any `deploy` signal found in the workflow files, and Linear/tracker signals. `deploy.mode` is one of `"auto-on-merge"`, `"tag"`, `"manual"`, or `"none"`; it is diagnostic input, while the committed contract uses `deploy.auto` plus the optional GitHub workflow executor fields collected below.
 
 > **Preview vs. v2 contract:** `detect-delivery-context.sh` is diagnostic, not a draft. The top-level v2 contract remains six keys, while `deploy:` can add `executor`, `workflow`, `ref`, `sha_input`, `provider`, `verify`, `health_url`, and `health_commit_field` when GitHub workflow execution is selected.
 
