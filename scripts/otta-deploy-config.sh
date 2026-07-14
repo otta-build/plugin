@@ -47,6 +47,21 @@ deploy_has_named_environments() {
   [ "$shape" = named ] && echo true || echo false
 }
 
+list_deploy_environments() {
+  local yml="$1" shape
+  shape="$(_deploy_config_shape "$yml")" || return $?
+  [ "$shape" = named ] || { echo legacy; return 0; }
+  awk '
+    /^deploy:[[:space:]]*(#.*)?$/ { in_deploy=1; next }
+    /^[^ #]/ { if (in_deploy) { in_deploy=0; in_environments=0 } }
+    in_deploy && /^  environments:[[:space:]]*(#.*)?$/ { in_environments=1; next }
+    in_deploy && in_environments && /^  [^ ]/ { in_environments=0 }
+    in_environments && /^    [A-Za-z0-9_-]+:[[:space:]]*(#.*)?$/ {
+      name=$0; sub(/^    /, "", name); sub(/:.*/, "", name); print name
+    }
+  ' "$yml"
+}
+
 parse_deploy_default_environment() {
   local yml="$1" shape
   shape="$(_deploy_config_shape "$yml")" || return $?

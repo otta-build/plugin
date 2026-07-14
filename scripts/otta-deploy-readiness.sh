@@ -58,10 +58,27 @@ else
   fail 'SHA input' "workflow_dispatch input $sha_input is missing"
 fi
 
-if grep -E '^run-name:' "$workflow_path" | grep -Fq "\${{ inputs.$sha_input }}"; then
+run_name="$(grep -E '^run-name:' "$workflow_path" | head -1 | sed 's/^run-name:[[:space:]]*//' || true)"
+if printf '%s\n' "$run_name" | grep -Eq "(^|[^A-Za-z0-9])\\\$\\{\\{[[:space:]]*inputs\\.${sha_input}[[:space:]]*\\}\\}([^A-Za-z0-9]|$)"; then
   pass 'exact-SHA run-name' "inputs.$sha_input is a display-title marker"
 else
-  fail 'exact-SHA run-name' "run-name must contain \${{ inputs.$sha_input }}"
+  fail 'exact-SHA run-name' "run-name must contain standalone \${{ inputs.$sha_input }}"
+fi
+if printf '%s\n' "$run_name" | grep -Eq "(^|[^A-Za-z0-9])${environment}([^A-Za-z0-9]|$)"; then
+  pass 'environment run-name' "$environment is a standalone display-title marker"
+else
+  fail 'environment run-name' "run-name must contain standalone $environment"
+fi
+
+if grep -Eq '^on:.*push' "$workflow_path" || awk '
+  /^on:[[:space:]]*($|#)/ { in_on=1; next }
+  /^[^ ]/ { if (in_on) exit }
+  in_on && /^  push:[[:space:]]*($|#)/ { found=1 }
+  END { exit(found ? 0 : 1) }
+' "$workflow_path"; then
+  fail 'configured workflow trigger' 'selected deployment workflow must not have an ordinary push trigger'
+else
+  pass 'configured workflow trigger' 'selected deployment workflow dispatches explicitly only'
 fi
 
 group_line="$(grep -E '^[[:space:]]+group:' "$workflow_path" | head -1 || true)"

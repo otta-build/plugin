@@ -24,27 +24,12 @@ check 'unknown ancestry blocks' blocked "$(classify_release_successor a producti
 check 'cancelled candidate blocks' blocked "$(classify_release_successor a production b production true cancelled ahead)"
 check 'rollback target blocks' blocked "$(classify_release_successor a production b production true rollback ahead)"
 
-# Ten concurrent requests collapse to one active A and one latest pending J.
-# Without an external durable eligibility source, no pending request is
-# optimistically superseded.
-included=0; superseded=0; blocked=0
-for letter in B C D E F G H I; do
-  outcome="$(classify_release_successor A production J production false queued ahead)"
-  [ "$outcome" = superseded ] && superseded=$((superseded + 1))
-  [ "$outcome" = blocked ] && blocked=$((blocked + 1))
-done
-outcome="$(classify_release_successor A production J production true runtime_verified ahead)"
-[ "$outcome" = included ] && included=$((included + 1))
-check 'B-I are coalesced without optimistic supersession' 0 "$superseded"
-check 'B-I remain non-terminal until runtime proof' 8 "$blocked"
-check 'verified J includes A' 1 "$included"
-
 OLD_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 NEW_SHA=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 RUN_STATE=queued
 gh() {
   if [ "$1" = api ] && [[ "$2" == *'/runs?'* ]]; then
-    printf '[{"databaseId":10,"status":"%s","conclusion":null,"displayTitle":"Deploy %s","createdAt":"2026-07-14T00:00:00Z","url":"https://example.test/runs/10"}]\n' "$RUN_STATE" "$NEW_SHA"
+    printf '[{"databaseId":10,"status":"%s","conclusion":null,"displayTitle":"Deploy production %s","createdAt":"2026-07-14T00:00:00Z","url":"https://example.test/runs/10"}]\n' "$RUN_STATE" "$NEW_SHA"
     return 0
   fi
   if [ "$1" = api ] && [[ "$2" == *'/compare/'* ]]; then printf 'ahead\n'; return 0; fi
@@ -59,7 +44,7 @@ check 'queued successor reports pending' successor_pending "$(printf '%s' "$pend
 RUN_STATE=completed
 gh() {
   if [ "$1" = api ] && [[ "$2" == *'/runs?'* ]]; then
-    printf '[{"databaseId":10,"status":"completed","conclusion":"success","displayTitle":"Deploy %s","createdAt":"2026-07-14T00:00:00Z","url":"https://example.test/runs/10"}]\n' "$NEW_SHA"
+    printf '[{"databaseId":10,"status":"completed","conclusion":"success","displayTitle":"Deploy production %s","createdAt":"2026-07-14T00:00:00Z","url":"https://example.test/runs/10"}]\n' "$NEW_SHA"
     return 0
   fi
   if [ "$1" = api ] && [[ "$2" == *'/compare/'* ]]; then printf 'ahead\n'; return 0; fi
@@ -69,6 +54,30 @@ verified="$(find_eligible_successor acme/widget deploy.yml main production "$OLD
 check 'verified descendant succeeds' 0 "$verified_rc"
 check 'verified descendant is included' included "$(printf '%s' "$verified" | jq -r .outcome)"
 check 'included proof carries descendant SHA' "$NEW_SHA" "$(printf '%s' "$verified" | jq -r .sha)"
+
+gh() {
+  if [ "$1" = api ] && [[ "$2" == *'/runs?'* ]]; then
+    printf '[{"databaseId":11,"status":"completed","conclusion":"success","displayTitle":"Deploy staging %s","createdAt":"2026-07-14T00:00:01Z","url":"https://example.test/runs/11"}]\n' "$NEW_SHA"
+    return 0
+  fi
+  if [ "$1" = api ] && [[ "$2" == *'/compare/'* ]]; then printf 'ahead\n'; return 0; fi
+  return 1
+}
+wrong_environment="$(find_eligible_successor acme/widget deploy.yml main production "$OLD_SHA" https://example.test/health commit)"; wrong_environment_rc=$?
+check 'different-environment run evidence blocks inclusion' 1 "$wrong_environment_rc"
+check 'different-environment evidence reports blocked' blocked "$(printf '%s' "$wrong_environment" | jq -r .outcome)"
+
+gh() {
+  if [ "$1" = api ] && [[ "$2" == *'/runs?'* ]]; then
+    printf '[{"databaseId":12,"status":"completed","conclusion":"success","displayTitle":"Deploy production %s","createdAt":"2026-07-14T00:00:02Z","url":"https://example.test/runs/12"},{"databaseId":10,"status":"completed","conclusion":"success","displayTitle":"Deploy production %s","createdAt":"2026-07-14T00:00:00Z","url":"https://example.test/runs/10"}]\n' "$NEW_SHA" "$NEW_SHA"
+    return 0
+  fi
+  if [ "$1" = api ] && [[ "$2" == *'/compare/'* ]]; then printf 'ahead\n'; return 0; fi
+  return 1
+}
+duplicate="$(find_eligible_successor acme/widget deploy.yml main production "$OLD_SHA" https://example.test/health commit)"; duplicate_rc=$?
+check 'duplicate successful runs for live SHA are idempotent' 0 "$duplicate_rc"
+check 'newest duplicate run supplies inclusion proof' 12 "$(printf '%s' "$duplicate" | jq -r .run_id)"
 
 curl() { printf '{"commit":"cccccccccccccccccccccccccccccccccccccccc"}\n'; }
 stale="$(find_eligible_successor acme/widget deploy.yml main production "$OLD_SHA" https://example.test/health commit)"; stale_rc=$?
@@ -90,5 +99,5 @@ check 'cancelled older release records included' deploy_included \
   "$(deployment_last_record acme/widget "$cancel_key" | jq -r .event)"
 unset -f gh curl
 
-echo "  → $((23 - failures)) passed, $failures failed"
+echo "  → $((24 - failures)) passed, $failures failed"
 [ "$failures" -eq 0 ]

@@ -27,7 +27,7 @@ deploy:
 YAML
   cat > "$repo/.github/workflows/deploy-production.yml" <<'YAML'
 name: deploy production
-run-name: deploy ${{ inputs.sha }}
+run-name: deploy production ${{ inputs.sha }}
 on:
   workflow_dispatch:
     inputs:
@@ -77,6 +77,9 @@ assert_failure() {
 remove_dispatch() { sed -i.bak '/workflow_dispatch:/d' "$1"; rm -f "$1.bak"; }
 remove_sha_input() { sed -i.bak '/      sha:/d' "$1"; rm -f "$1.bak"; }
 remove_run_name() { sed -i.bak '/^run-name:/d' "$1"; rm -f "$1.bak"; }
+embed_sha_marker() { sed -i.bak 's/${{ inputs.sha }}/${{ inputs.sha }}suffix/' "$1"; rm -f "$1.bak"; }
+remove_environment_marker() { sed -i.bak 's/run-name: deploy production/run-name: deploy/' "$1"; rm -f "$1.bak"; }
+add_push_trigger() { awk '{ print; if ($0 == "on:") print "  push:" }' "$1" > "$1.tmp"; mv "$1.tmp" "$1"; }
 enable_cancellation() { sed -i.bak 's/cancel-in-progress: false/cancel-in-progress: true/' "$1"; rm -f "$1.bak"; }
 wrong_concurrency() { sed -i.bak 's/group: deploy-production/group: deploy-global/' "$1"; rm -f "$1.bak"; }
 remove_noop() { sed -i.bak '/otta: same-sha-noop/d' "$1"; rm -f "$1.bak"; }
@@ -85,6 +88,9 @@ remove_health() { sed -i.bak '/otta: health-sha-verify/d' "$1"; rm -f "$1.bak"; 
 assert_failure missing-dispatch 'FAIL workflow_dispatch' remove_dispatch
 assert_failure missing-sha-input 'FAIL SHA input' remove_sha_input
 assert_failure missing-run-name 'FAIL exact-SHA run-name' remove_run_name
+assert_failure embedded-sha-run-name 'FAIL exact-SHA run-name' embed_sha_marker
+assert_failure missing-environment-run-name 'FAIL environment run-name' remove_environment_marker
+assert_failure configured-workflow-push-trigger 'FAIL configured workflow trigger' add_push_trigger
 assert_failure cancellation-enabled 'FAIL non-cancelling concurrency' enable_cancellation
 assert_failure environment-independent-concurrency 'FAIL per-environment concurrency' wrong_concurrency
 assert_failure missing-same-sha-noop 'FAIL same-SHA no-op' remove_noop

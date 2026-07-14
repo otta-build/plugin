@@ -155,7 +155,7 @@ All `parse_deploy_*` functions keep their existing one-argument behavior for fla
 
 - [ ] **Step 5: Add additive contract generation**
 
-Add optional writer flags `--deploy-default-environment`, `--deploy-staging-workflow`, and `--deploy-production-workflow`. Only emit `deploy.environments` when the default-environment flag is present; otherwise byte-for-byte preserve the flat shape used by existing tests.
+Add optional writer flags `--deploy-default-environment`, `--deploy-staging-workflow`, `--deploy-staging-health-url`, `--deploy-production-workflow`, and `--deploy-production-health-url`. Every emitted environment must contain complete workflow, verification, health URL, and health-field evidence. Only emit `deploy.environments` when the default-environment flag is present; otherwise byte-for-byte preserve the flat shape used by existing tests.
 
 - [ ] **Step 6: Run focused tests and commit**
 
@@ -217,7 +217,7 @@ Add:
 find_eligible_successor <repo> <workflow> <ref> <environment> <older-sha>
 ```
 
-List `workflow_dispatch` runs for the configured workflow/ref and require an exact standalone SHA marker in the display title. Queued/in-progress candidates return non-terminal `successor_pending`; they are never considered policy-eligible by default. An included successor requires successful workflow evidence, a live runtime SHA match, and GitHub compare proof of same-SHA or descendant ancestry. Never classify from `main` advancement or a local-only ledger alone. Multiple plausible incomparable successors return blocked/ambiguous.
+List `workflow_dispatch` runs for the configured workflow/ref and require exact standalone environment and SHA markers in the display title. Queued/in-progress candidates return non-terminal `successor_pending`; they are never considered policy-eligible by default. An included successor requires successful workflow evidence, a live runtime SHA match, and GitHub compare proof of same-SHA or descendant ancestry. Duplicate successful runs for the same verified live SHA are idempotent and use the newest proof. Never classify from `main` advancement or a local-only ledger alone. Multiple incomparable successor SHAs return blocked/ambiguous.
 
 - [ ] **Step 4: Integrate outcomes without unsafe redispatch**
 
@@ -252,7 +252,7 @@ Commit: `feat(#151): classify latest eligible releases`
 
 - [ ] **Step 1: Write failing static workflow-validation tests**
 
-Fixtures must include one valid generic workflow and failures for missing `workflow_dispatch`, missing SHA input, missing exact-SHA `run-name`, `cancel-in-progress: true`, environment-independent concurrency, missing same-SHA no-op marker, missing health verification, and a competing push-triggered production workflow.
+Fixtures must include one valid generic workflow and failures for missing `workflow_dispatch`, missing SHA input, missing standalone environment/SHA `run-name`, an ordinary push trigger on the configured workflow, `cancel-in-progress: true`, environment-independent concurrency, missing same-SHA no-op marker, missing health verification, and a competing push-triggered production workflow.
 
 - [ ] **Step 2: Run the test and confirm RED**
 

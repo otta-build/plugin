@@ -146,16 +146,21 @@ READINESS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$REPO_ROOT/.otta.yml" ]; then
   # shellcheck source=scripts/otta-deploy-config.sh
   . "$READINESS_SCRIPT_DIR/otta-deploy-config.sh"
-  if DEPLOY_ENVIRONMENT="$(resolve_deploy_environment "$REPO_ROOT/.otta.yml" "" 2>/dev/null)"; then
-    DEPLOY_EXECUTOR="$(deploy_config_value "$REPO_ROOT/.otta.yml" "$DEPLOY_ENVIRONMENT" executor)"
-    if [ "$DEPLOY_EXECUTOR" = github-workflow ]; then
-      echo "Deploy workflow safety — environment=$DEPLOY_ENVIRONMENT"
-      if ! bash "$READINESS_SCRIPT_DIR/otta-deploy-readiness.sh" \
-        --otta-yml "$REPO_ROOT/.otta.yml" --environment "$DEPLOY_ENVIRONMENT"; then
-        DEPLOY_READINESS_RC=1
+  if DEPLOY_ENVIRONMENTS="$(list_deploy_environments "$REPO_ROOT/.otta.yml" 2>/dev/null)"; then
+    DEPLOY_WORKFLOW_COUNT=0
+    for DEPLOY_ENVIRONMENT in $DEPLOY_ENVIRONMENTS; do
+      DEPLOY_EXECUTOR="$(deploy_config_value "$REPO_ROOT/.otta.yml" "$DEPLOY_ENVIRONMENT" executor)"
+      if [ "$DEPLOY_EXECUTOR" = github-workflow ]; then
+        DEPLOY_WORKFLOW_COUNT=$((DEPLOY_WORKFLOW_COUNT + 1))
+        echo "Deploy workflow safety — environment=$DEPLOY_ENVIRONMENT"
+        if ! bash "$READINESS_SCRIPT_DIR/otta-deploy-readiness.sh" \
+          --otta-yml "$REPO_ROOT/.otta.yml" --environment "$DEPLOY_ENVIRONMENT"; then
+          DEPLOY_READINESS_RC=1
+        fi
       fi
-    else
-      echo "Deploy workflow safety: not applicable (executor=${DEPLOY_EXECUTOR:-none})"
+    done
+    if [ "$DEPLOY_WORKFLOW_COUNT" -eq 0 ]; then
+      echo "Deploy workflow safety: not applicable (no github-workflow environment)"
     fi
   else
     echo "FAIL deploy configuration — malformed or unresolved environment"

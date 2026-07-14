@@ -61,11 +61,17 @@ classify_release_successor() {
 }
 
 _release_run_candidates() {
-  jq -r '
+  local environment="$1"
+  jq -r --arg environment "$environment" '
     def marked_sha:
       try ((.displayTitle // "") |
         capture("(?:^|[^A-Za-z0-9])(?<sha>[0-9a-fA-F]{40})(?:[^A-Za-z0-9]|$)").sha) catch "";
-    [.[] | .candidateSha=marked_sha | select(.candidateSha != "")]
+    def environment_marker:
+      (.displayTitle // "")
+      | test("(^|[^A-Za-z0-9])" + $environment + "([^A-Za-z0-9]|$)");
+    [.[] | .candidateSha=marked_sha | select(.candidateSha != "" and environment_marker)]
+    | group_by(.candidateSha)
+    | map(sort_by(.createdAt) | reverse | .[0])
     | sort_by(.createdAt) | reverse
     | .[] | [.databaseId,.status,(.conclusion // ""),.candidateSha,(.url // "")] | @tsv
   '
@@ -95,7 +101,7 @@ find_eligible_successor() {
     jq -cn --arg outcome blocked --arg reason workflow-evidence-unavailable '{outcome:$outcome,reason:$reason}'
     return 1
   }
-  rows="$(printf '%s' "$runs" | _release_run_candidates)" || return 1
+  rows="$(printf '%s' "$runs" | _release_run_candidates "$environment")" || return 1
   [ -n "$health_url" ] && runtime_sha="$(_runtime_sha_once "$health_url" "$health_field" 2>/dev/null || true)"
 
   while IFS=$'\t' read -r run_id status conclusion candidate_sha url; do

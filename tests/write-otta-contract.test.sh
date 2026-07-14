@@ -166,6 +166,8 @@ bash "$SCRIPT" --output "$OUT" \
   --deploy-default-environment production \
   --deploy-staging-workflow deploy-staging.yml \
   --deploy-production-workflow deploy-production.yml \
+  --deploy-staging-health-url https://staging.example.test/health \
+  --deploy-production-health-url https://app.example.test/health \
   --deploy-sha-input sha --deploy-verify health-sha >/dev/null 2>&1
 grep -q '^  default: production$' "$OUT" || fail 'test 14: named default missing'
 grep -q '^  environments:$' "$OUT" || fail 'test 14: environments block missing'
@@ -173,7 +175,26 @@ grep -q '^    staging:$' "$OUT" || fail 'test 14: staging missing'
 grep -q '^    production:$' "$OUT" || fail 'test 14: production missing'
 [ "$(bash -c "source '$VERIFY'; parse_deploy_workflow '$OUT' staging")" = deploy-staging.yml ] || fail 'test 14: staging workflow not parseable'
 [ "$(bash -c "source '$VERIFY'; parse_deploy_workflow '$OUT' production")" = deploy-production.yml ] || fail 'test 14: production workflow not parseable'
-pass 'named staging/production environments emitted only on explicit opt-in'
+[ "$(bash -c "source '$VERIFY'; parse_deploy_health_url '$OUT' staging")" = https://staging.example.test/health ] || fail 'test 14: staging health URL not parseable'
+[ "$(bash -c "source '$VERIFY'; parse_deploy_health_url '$OUT' production")" = https://app.example.test/health ] || fail 'test 14: production health URL not parseable'
+for env in staging production; do
+  [ "$(bash -c "source '$VERIFY'; parse_deploy_executor '$OUT' '$env'")" = github-workflow ] || fail "test 14: $env executor incomplete"
+  [ "$(bash -c "source '$VERIFY'; parse_deploy_verify '$OUT' '$env'")" = health-sha ] || fail "test 14: $env verification incomplete"
+  [ "$(bash -c "source '$VERIFY'; parse_deploy_health_commit_field '$OUT' '$env'")" = commit ] || fail "test 14: $env health field incomplete"
+done
+pass 'named staging/production environments emit complete workflow and health evidence'
+
+# ── Test 15: production-only named profile is complete (#151 AC6) ────────────
+OUT="$TMP/t15.yml"
+bash "$SCRIPT" --output "$OUT" \
+  --deploy-default-environment production \
+  --deploy-production-workflow deploy-production.yml \
+  --deploy-production-health-url https://app.example.test/health \
+  --deploy-sha-input sha --deploy-verify health-sha >/dev/null 2>&1
+grep -q '^    production:$' "$OUT" || fail 'test 15: production profile missing'
+! grep -q '^    staging:$' "$OUT" || fail 'test 15: production-only profile emitted staging'
+[ "$(bash -c "source '$VERIFY'; parse_deploy_health_url '$OUT' production")" = https://app.example.test/health ] || fail 'test 15: production health missing'
+pass 'production-only named profile is complete'
 
 echo ""
-echo "✓ write-otta-contract: all 14 checks passed"
+echo "✓ write-otta-contract: all 15 checks passed"

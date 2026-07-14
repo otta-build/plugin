@@ -48,6 +48,8 @@ DEPLOY_HEALTH_COMMIT_FIELD="commit"
 DEPLOY_DEFAULT_ENVIRONMENT=""
 DEPLOY_STAGING_WORKFLOW=""
 DEPLOY_PRODUCTION_WORKFLOW=""
+DEPLOY_STAGING_HEALTH_URL=""
+DEPLOY_PRODUCTION_HEALTH_URL=""
 ALLOW_PRODUCTION=false
 PULSE=false
 OTEL_ENDPOINT="null"
@@ -73,6 +75,8 @@ while [[ $# -gt 0 ]]; do
     --deploy-default-environment) DEPLOY_DEFAULT_ENVIRONMENT="$2"; shift 2 ;;
     --deploy-staging-workflow) DEPLOY_STAGING_WORKFLOW="$2"; shift 2 ;;
     --deploy-production-workflow) DEPLOY_PRODUCTION_WORKFLOW="$2"; shift 2 ;;
+    --deploy-staging-health-url) DEPLOY_STAGING_HEALTH_URL="$2"; shift 2 ;;
+    --deploy-production-health-url) DEPLOY_PRODUCTION_HEALTH_URL="$2"; shift 2 ;;
     --allow-production)    ALLOW_PRODUCTION=true; shift ;;
     --pulse)               PULSE=true; shift ;;
     --otel)                OTEL_ENDPOINT="$2"; shift 2 ;;
@@ -95,6 +99,14 @@ if [ -n "$DEPLOY_DEFAULT_ENVIRONMENT" ]; then
     production) [ -n "$DEPLOY_PRODUCTION_WORKFLOW" ] || { echo "default production environment requires --deploy-production-workflow" >&2; exit 1; } ;;
     *) echo "unknown --deploy-default-environment value: $DEPLOY_DEFAULT_ENVIRONMENT (must be staging|production)" >&2; exit 1 ;;
   esac
+  if [ -n "$DEPLOY_STAGING_WORKFLOW" ] && [ -z "$DEPLOY_STAGING_HEALTH_URL" ]; then
+    echo "named staging environment requires --deploy-staging-health-url" >&2
+    exit 1
+  fi
+  if [ -n "$DEPLOY_PRODUCTION_WORKFLOW" ] && [ -z "$DEPLOY_PRODUCTION_HEALTH_URL" ]; then
+    echo "named production environment requires --deploy-production-health-url" >&2
+    exit 1
+  fi
 elif [ -n "$DEPLOY_STAGING_WORKFLOW" ] || [ -n "$DEPLOY_PRODUCTION_WORKFLOW" ]; then
   echo "named deployment workflows require --deploy-default-environment" >&2
   exit 1
@@ -276,10 +288,8 @@ fi
       printf '      sha_input: %s\n' "$DEPLOY_SHA_INPUT"
       printf '      provider: %s\n' "$DEPLOY_PROVIDER"
       printf '      verify: %s\n' "$DEPLOY_VERIFY"
-      if [ "$DEPLOY_DEFAULT_ENVIRONMENT" = staging ] && [ -n "$DEPLOY_HEALTH_URL" ]; then
-        printf '      health_url: %s\n' "$DEPLOY_HEALTH_URL"
-        printf '      health_commit_field: %s\n' "$DEPLOY_HEALTH_COMMIT_FIELD"
-      fi
+      printf '      health_url: %s\n' "$DEPLOY_STAGING_HEALTH_URL"
+      printf '      health_commit_field: %s\n' "$DEPLOY_HEALTH_COMMIT_FIELD"
     fi
     if [ -n "$DEPLOY_PRODUCTION_WORKFLOW" ]; then
       printf '%s\n' '    production:'
@@ -291,10 +301,8 @@ fi
       printf '      sha_input: %s\n' "$DEPLOY_SHA_INPUT"
       printf '      provider: %s\n' "$DEPLOY_PROVIDER"
       printf '      verify: %s\n' "$DEPLOY_VERIFY"
-      if [ "$DEPLOY_DEFAULT_ENVIRONMENT" = production ] && [ -n "$DEPLOY_HEALTH_URL" ]; then
-        printf '      health_url: %s\n' "$DEPLOY_HEALTH_URL"
-        printf '      health_commit_field: %s\n' "$DEPLOY_HEALTH_COMMIT_FIELD"
-      fi
+      printf '      health_url: %s\n' "$DEPLOY_PRODUCTION_HEALTH_URL"
+      printf '      health_commit_field: %s\n' "$DEPLOY_HEALTH_COMMIT_FIELD"
     fi
   else
     printf '  target:  %s\n' "$DEPLOY_TARGET_YAML"
