@@ -322,8 +322,8 @@ Show a complete summary of what will be written based on all choices above:
 > - `$CODEX_HOME/config.toml` (active Codex telemetry, mode 0600): `{yes/no — normally ~/.codex/config.toml}`
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
 > - `.gitattributes` — `.pr-body.md merge=ours` entry (always written, idempotent)
-> - `CLAUDE.md` (if absent): always written — CC is the primary harness being configured
-> - Additional harness context files (if absent): `AGENTS.md` (Codex), `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected non-CC harnesses
+> - `CLAUDE.md` and `AGENTS.md` — idempotent Otta intent-routing policy blocks (always written without changing surrounding content)
+> - Additional harness context files (if absent): `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected non-CC harnesses
 > - `docs/runner-setup.md` (self-hosted runner instructions): `{yes/no — only for private repos where runner was chosen}`
 >
 > Confirm to proceed, or go back to change any answer."
@@ -377,6 +377,15 @@ git commit -m "chore: add .otta.yml delivery contract (Otta setup v2)"
 Tell the developer this file is the v2 delivery contract — keep it in git so all agents and CI jobs see it. Fields marked `# FILL IN` should be reviewed and updated before the commit if the values are known.
 
 ### B1b. Write additional harness context files (OTTA.md mapper)
+
+First install the canonical natural-language intent policy for both supported harnesses. This replaces only the delimited Otta policy block and preserves all existing repository instructions:
+
+```bash
+OTTA_PLUGIN_ROOT="${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}" \
+  bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/install-otta-intent-policy.sh" "$(git rev-parse --show-toplevel)"
+```
+
+Natural language is the normal interface; explicit Claude commands and Codex skills remain deterministic recovery and API surfaces.
 
 For each additional harness detected in step 9b (i.e. non-CC harnesses only), inject an Otta gate notice into the corresponding context file. Use the delimiter block pattern — **never clobber existing content**:
 

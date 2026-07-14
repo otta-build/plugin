@@ -29,6 +29,8 @@ Then, once per repo:
 
 This runs a **guided wizard** that teaches why each step exists (pain → benefit), asks each question via structured chips (recommended default first), and writes `.otta.yml` + installs the pre-push gate hook and the **Otta Pulse** GitHub App. See [docs/why-otta-setup.md](docs/why-otta-setup.md) for the full pain→benefit table.
 
+After setup, natural language is the normal interface in both Claude Code and Codex: ask to start an issue, fix a bug, check status, stage, or release, and the repository policy routes the matching canonical Otta lifecycle. Explicit `/otta:*` commands and `$otta-*` skills always win when supplied and remain the deterministic recovery/API surface. Read-only or status intent never authorizes writes; ambiguous production targets and rollbacks pause for clarification.
+
 Claude Code invokes Otta through `/otta:*` commands, such as `/otta:start 131` and `/otta:ship`.
 
 ### Codex
