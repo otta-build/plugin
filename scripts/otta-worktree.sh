@@ -82,7 +82,11 @@ if [ "${1:-}" = "--remove" ]; then
     MAIN_WT="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
     [ -n "$MAIN_WT" ] && cd "$MAIN_WT"
     git worktree remove --force "$RWT"
-    echo "✓ removed worktree $RWT" >&2
+    # Codex launches Stop hooks using the subagent's recorded cwd after this
+    # command returns. Keep that path present until the process exits; without
+    # it, every Stop hook fails to spawn with `os error 2`.
+    mkdir -p "$WT"
+    echo "✓ removed worktree $RWT (cwd tombstone retained for Stop hooks)" >&2
   else
     echo "no worktree at $WT (nothing to remove)" >&2
   fi
@@ -147,6 +151,15 @@ mkdir -p "$WT_ROOT"
 if [ -e "$WT/.git" ]; then
   echo "↻ reusing worktree $WT" >&2
 else
+  # A prior DevOps teardown may have retained an empty cwd tombstone so Stop
+  # hooks could finish. Only remove an empty directory; never discard unknown
+  # files that may belong to the user or a failed run.
+  if [ -d "$WT" ]; then
+    rmdir "$WT" 2>/dev/null || {
+      echo "refusing to replace non-empty non-worktree path: $WT" >&2
+      exit 1
+    }
+  fi
   git worktree add -B "$BRANCH" "$WT" "$START" >/dev/null 2>&1 \
     || git worktree add "$WT" "$START" >/dev/null 2>&1
   echo "✓ worktree $WT on $BRANCH off $START" >&2

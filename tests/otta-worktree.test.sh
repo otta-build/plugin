@@ -40,13 +40,25 @@ grep -q work "$WT/f.txt" && fail "worktree leaked the feature-branch change"
 WT2="$(bash "$SCRIPT" 42 main)"
 [ "$WT2" = "$WT" ] || fail "second call returned different path: $WT2"
 
-# 5. --remove tears the worktree down — called from INSIDE the worktree, which
-#    is exactly how DevOps invokes it (it cd'd in to ship). Git refuses to remove
-#    the worktree you're standing in unless the script steps out first.
+# 5. --remove unregisters the worktree but preserves a spawnable cwd tombstone.
+#    DevOps invokes removal from inside the worktree, then Codex runs Stop hooks
+#    using that recorded path. Deleting the path makes both hooks fail with
+#    `No such file or directory (os error 2)` before either hook can start.
 ( cd "$WT" && bash "$SCRIPT" --remove 42 ) >/dev/null 2>&1 || fail "--remove failed from inside the worktree"
-[ -d "$WT" ] && fail "worktree not removed"
+git worktree list --porcelain | grep -Fq "worktree $WT" && fail "worktree still registered after --remove"
+[ -d "$WT" ] || fail "removed worktree path is not spawnable for Stop hooks"
+( cd "$WT" && pwd >/dev/null ) || fail "cannot start a command from the teardown cwd"
+[ ! -e "$WT/.git" ] || fail "teardown cwd still contains a linked worktree"
 
-# 6. --prune GCs orphans by age: an old worktree is pruned, a fresh one kept.
+# 6. A later run for the same issue replaces the empty tombstone with a valid
+#    linked worktree instead of treating the directory as reusable state.
+WT3="$(bash "$SCRIPT" 42 main)"
+[ "$WT3" = "$WT" ] || fail "recreated worktree returned a different path: $WT3"
+[ -e "$WT3/.git" ] || fail "teardown tombstone was not replaced with a Git worktree"
+[ "$(git -C "$WT3" rev-parse --abbrev-ref HEAD)" = "otta/42" ] || fail "recreated worktree is on the wrong branch"
+bash "$SCRIPT" --remove 42 >/dev/null 2>&1 || fail "recreated worktree teardown failed"
+
+# 7. --prune GCs orphans by age: an old worktree is pruned, a fresh one kept.
 OLD="$(bash "$SCRIPT" 100 main)"   # simulate a crashed run's leftover
 NEW="$(bash "$SCRIPT" 200 main)"   # an in-flight run
 touch -t 202001010000 "$OLD" 2>/dev/null || touch -d "2020-01-01" "$OLD"   # backdate the orphan
