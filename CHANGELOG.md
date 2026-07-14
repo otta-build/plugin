@@ -1,3 +1,9 @@
+## 1.2.0
+
+### Added
+
+- add per-run controls and receipts (#135) (#140)
+
 ## 1.1.3
 
 ### Fixed
