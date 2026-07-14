@@ -1,3 +1,9 @@
+## 1.4.0
+
+### Added
+
+- dispatch and verify GitHub workflow deployments (#145)
+
 ## 1.3.1
 
 ### Fixed
