@@ -105,3 +105,9 @@ Pipeline stages (#$1):
 ```
 
 Degrade gracefully if the ledger or PR state is insufficient to infer stages — omit the pipeline stage row rather than showing speculative data.
+
+### Resumption projection
+
+This status resolution is the durable evidence source and source of truth for native progress projections. On resume, resolve the issue, linked PR, checks, ledger verdicts, deploy policy, and deploy audit before marking stages active or completed. Never reset to Seed or Build merely because a new session invoked the workflow.
+
+If durable evidence conflicts or contradicts another source, report the contradiction and keep the affected stage blocked or unknown; do not advance optimistically. With insufficient evidence, omit speculative state and label any native projection session-only.

@@ -70,25 +70,47 @@ Both run the same `builder → reviewer → qa → devops` stages and open a PR 
 
 The subagents (`agents/*.md`) are reusable on their own — Claude delegates to them by name, and you can use them as agent-team teammates too.
 
-## Pipeline stage state
+## Pipeline progress
 
-Every `/otta:dev` and `/otta:build` run creates a **stage checklist** at run start — one item per pipeline stage — so you always know where a run is without reading the full log:
+Otta uses one progress protocol and each harness's best native surface:
+
+- Claude Code interactive runs use native Task items and named Agent rows.
+- Claude Code autonomous runs use native Workflow phases.
+- Codex runs use one native plan plus native agent rows and the goal footer.
+- `/otta:status` and `$otta-status` expose detailed durable evidence on demand.
+
+The pipeline stage checklist is therefore rendered through native progress UI instead of duplicated as routine transcript prose.
+
+Native progress is a projection, not the source of truth. Resumed runs reconstruct it from Otta ledger, PR, check, and deployment evidence. The projection changes only at meaningful stage transitions; routine in-stage narration stays out of the transcript.
+
+Normal progress:
 
 ```
-[ ] Seed     — seed .pr-body.md from the issue
-[✓] Learn    — consulted Pulse; no prior escapes for this idea
-[→] Build    — builder implementing test-first (in progress)
-[ ] Review   — spec-review
-[ ] QA       — gate + adversarial AC verification
-[ ] Ship     — commit + open PR
-[ ] Deploy   — deploy-verify per .otta.yml policy
+✔ Seed  ✔ Learn  ● Build — progress contracts  ○ Review  ○ QA  ○ Ship
 ```
 
-On a harness with a native task tool, each stage updates task state. Otherwise the checklist renders in chat and is updated at each stage transition. Otta does not require or provide a separate live runtime panel.
+Blocked attention event:
 
-**Failures annotate the stage:** `✗ QA — gate failed: tsc errors in src/foo.ts` so you see the blocker at a glance.
+```
+QA blocked · preview SHA 9ac21e7 does not match PR head b724ad1
+Action: rebuild the preview for the current head.
+```
 
-**`/otta:status` shows the same checklist** for in-flight runs, inferred from the LEARN ledger + PR check state — queryable from any session, even after the build agent has finished.
+Resumed run:
+
+```
+Resumed #139 · Build and Review verified from durable evidence
+● QA — running the Otta gate
+```
+
+Completion:
+
+```
+Shipped #139 · PR #N · gate, review, and QA passed
+Deploy policy: human approval required
+```
+
+If a harness has no native progress tool, Otta renders the selected compact stages once in Markdown. Failures still annotate the blocked stage with its reason and next action. `/otta:status` or `$otta-status` can reconstruct the detailed view from any session, even after the build agent finishes.
 
 ## Autonomous (`/otta:schedule`)
 

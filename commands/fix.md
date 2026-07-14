@@ -12,6 +12,12 @@ Run the Otta **fast path** for issue **#$1** — a tiny, surgical change that sk
 | Tiny: ≤2 files, no new public behavior | `/otta:fix` | Light (you) | ✓ always |
 | Standard: anything else | `/otta:dev` or `/otta:build` | Full pipeline | ✓ always |
 
+## Progress presentation
+
+Follow [the shared progress protocol](../docs/progress-protocol.md) with `Build → Gate → PR`. Use native Task or plan tooling when available and update it only at meaningful transitions. Do not narrate routine in-stage work.
+
+If scope expands beyond two files or changes public behavior, emit one material risk-change event and switch to `/otta:dev` or `/otta:build` (Codex: `$otta-dev` or `$otta-build`) before continuing. Never preserve the compact profile by weakening Review, QA, or gates.
+
 **Tiny ≠ ungated.** The fast path (cavecrew-builder style) optimizes execution cost only — the gate and PR are mandatory in every tier. cavecrew-builder never skips the gate.
 
 > **Branch-protection enforcement** (structural guarantee that direct-to-main is impossible) is owned by #75 / #65.

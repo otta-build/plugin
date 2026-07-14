@@ -11,23 +11,21 @@ Run the Otta shipping pipeline for issue **#$1** **interactively, in this sessio
 
 For Codex, include the resolved absolute plugin root in every subagent prompt and require the role to inline-inject `OTTA_PLUGIN_ROOT` on each plugin command; do not assume the subagent inherits the parent's environment. If collaboration/subagent primitives are unavailable, execute each `agents/<role>.md` contract sequentially in the current agent, explicitly completing build before review, review before qa, and qa before devops. Report this as same-agent staged execution, not as subagent work.
 
-**Name every dispatch.** Pass an explicit `name` to each Task/Agent call (e.g. `otta-builder-#$1`, `otta-reviewer-#$1`, `otta-qa-#$1`, `otta-devops-#$1`) instead of leaving it unnamed. Without a name, background-agent notifications ("Teammate @<hash> finished") show an opaque hash instead of which stage just completed.
+**Name every dispatch.** Pass an explicit `name` to each Task/Agent call (e.g. `otta-builder-#$1`, `otta-reviewer-#$1`, `otta-qa-#$1`, `otta-devops-#$1`) instead of leaving it unnamed. Without a name, background-agent notifications ("Teammate @<hash> finished") show an opaque hash instead of which stage just completed. For Codex task identifiers use `otta_build_$1`, `otta_review_$1`, `otta_qa_$1`, and `otta_ship_$1`.
 
-**Stage checklist (create immediately, before stage 1).** Create a task/todo checklist at the start of this run using the harness's native task tool (TaskCreate / TodoCreate if available). One item per pipeline stage:
+## Progress presentation
 
-```
-[ ] Seed     — seed .pr-body.md from issue #$1
-[ ] Learn    — consult Pulse for prior run history
-[ ] Build    — implement test-first
-[ ] Review   — spec-review: every AC met, nothing extra
-[ ] QA       — gate + adversarial AC verification
-[ ] Ship     — commit + open PR
-[ ] Deploy   — deploy-verify per .otta.yml policy
-```
+Follow [the shared progress protocol](../docs/progress-protocol.md) with interactive delivery. Append Deploy and Verify only when resolved policy performs deployment.
 
-Update each item to `in_progress` when starting it and `completed` when done. Also update the `activeForm` field (if available) on each Task/Agent dispatch to show the current stage in the agent switcher (e.g. `"Building #$1"`, `"QA #$1"`, `"Waiting CI #$1"`). If the harness has no native task/todo tool, print the checklist as a markdown block in chat and update it inline at each stage transition.
+### Claude Code adapter
 
-**Stage failures:** when a stage fails or is blocked, annotate the checklist item with the failure reason (e.g. `✗ QA — gate failed: tsc errors in src/foo.ts`) so the developer sees at a glance which stage blocked and why without reading the full log.
+Create one native Task/Todo projection with TaskCreate or TodoCreate. Use one item per selected stage, update it only at a meaningful transition, and keep `activeForm` aligned with the active stage. Native Tasks and named Agent rows are ambient progress; do not print a duplicate checklist or routine narration when they are available.
+
+### Codex adapter
+
+Create one native plan with `update_plan` and reuse it for the run. Keep exactly one stage `in_progress`; only active or blocked stage text carries detail. Update only at a meaningful transition. Native agent rows and the goal footer already show runtime activity, so do not repeat them in prose.
+
+Without native progress tooling, render the selected compact Markdown stages once. For either adapter, emit transcript messages only for decisions, failures or blockers, material risk changes, and completion. When a stage fails or is blocked, mark it `blocked` with the concrete reason and next action.
 
 1. **Seed.** If `.pr-body.md` is missing, run:
    `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/seed-pr-body.sh" $1`
