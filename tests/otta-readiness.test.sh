@@ -185,4 +185,34 @@ for state in not_installed permission_approval_required github_unavailable; do
 done
 echo "  ✓ hosted Pulse status overrides pulse.env file existence"
 
+# Deploy readiness is invoked only for configured GitHub Workflow executors.
+OUTPUT="$(cd "$ZERO_REPO" && PATH="$FAKE_BIN_ZERO:$PATH" bash "$SCRIPT" 2>&1)" || true
+echo "$OUTPUT" | grep -Fq 'Deploy workflow safety: not applicable' \
+  || fail "no-runtime repo should report deploy safety not applicable: $OUTPUT"
+echo "  ✓ no-runtime repository reports deploy safety not applicable"
+
+DEPLOY_REPO="$TMP/deploy-unsafe"
+mkdir -p "$DEPLOY_REPO/.github/workflows"
+cd "$DEPLOY_REPO"
+git init -q
+git config user.email t@t.t
+git config user.name t
+echo base > f; git add f; git commit -qm base
+cat > .otta.yml <<'YAML'
+deploy:
+  auto: human-approve
+  target: production
+  executor: github-workflow
+  workflow: deploy.yml
+  sha_input: sha
+YAML
+echo 'name: unsafe' > .github/workflows/deploy.yml
+set +e
+OUTPUT="$(PATH="$FAKE_BIN_ZERO:$PATH" bash "$SCRIPT" 2>&1)"; DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail 'unsafe configured workflow should make general readiness fail'
+echo "$OUTPUT" | grep -Fq 'FAIL workflow_dispatch' \
+  || fail "general readiness did not invoke deploy validation: $OUTPUT"
+echo "  ✓ configured unsafe workflow fails general readiness"
+
 echo "✓ otta-readiness: all checks passed (0/8, 8/8, 3/8, read-only, hosted status, per-dim list)"

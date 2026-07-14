@@ -139,6 +139,33 @@ else
 fi
 
 # ------------------------------------------------------------------
+# Deploy workflow mutation safety (additive; not part of the legacy 0-8 score)
+# ------------------------------------------------------------------
+DEPLOY_READINESS_RC=0
+READINESS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$REPO_ROOT/.otta.yml" ]; then
+  # shellcheck source=scripts/otta-deploy-config.sh
+  . "$READINESS_SCRIPT_DIR/otta-deploy-config.sh"
+  if DEPLOY_ENVIRONMENT="$(resolve_deploy_environment "$REPO_ROOT/.otta.yml" "" 2>/dev/null)"; then
+    DEPLOY_EXECUTOR="$(deploy_config_value "$REPO_ROOT/.otta.yml" "$DEPLOY_ENVIRONMENT" executor)"
+    if [ "$DEPLOY_EXECUTOR" = github-workflow ]; then
+      echo "Deploy workflow safety — environment=$DEPLOY_ENVIRONMENT"
+      if ! bash "$READINESS_SCRIPT_DIR/otta-deploy-readiness.sh" \
+        --otta-yml "$REPO_ROOT/.otta.yml" --environment "$DEPLOY_ENVIRONMENT"; then
+        DEPLOY_READINESS_RC=1
+      fi
+    else
+      echo "Deploy workflow safety: not applicable (executor=${DEPLOY_EXECUTOR:-none})"
+    fi
+  else
+    echo "FAIL deploy configuration — malformed or unresolved environment"
+    DEPLOY_READINESS_RC=1
+  fi
+else
+  echo "Deploy workflow safety: not applicable (no .otta.yml)"
+fi
+
+# ------------------------------------------------------------------
 # Summary
 # ------------------------------------------------------------------
 echo "----------------------------------------"
@@ -149,3 +176,5 @@ else
   [ "$score" -ge 5 ] && MARKER="🟡" || true
   echo "Your repo: $score/8 production-ready $MARKER → setup unlocks → 8/8 🟢"
 fi
+
+exit "$DEPLOY_READINESS_RC"

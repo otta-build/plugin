@@ -108,6 +108,14 @@ Collect:
 
 Before enabling it, require the target repository to disable competing deployment triggers, define one production concurrency group with cancellation disabled, reuse build artifacts where practical, and document a repository-owned rollback workflow. The workflow must put the exact SHA input in `run-name` as a standalone token (for example, `deploy ${{ inputs.commit_sha }}`). Otta requires that exact `display_title` marker for correlation; `head_sha` is never a substitute because it identifies the workflow ref rather than proving which SHA input the run received. The workflow must also self-dedupe across machines: after entering the global production concurrency group, compare live health to the requested SHA and exit without mutation when it already matches. Otta's local ledger lock cannot serialize agents on different hosts. These answers map to `--deploy-executor github-workflow`, `--deploy-workflow`, `--deploy-ref`, `--deploy-sha-input`, `--deploy-provider`, `--deploy-verify health-sha`, `--deploy-health-url`, and `--deploy-health-commit-field`.
 
+Mark the concrete no-op and verification steps with `# otta: same-sha-noop` and `# otta: health-sha-verify`, then run the read-only safety validator before calling setup complete:
+
+```bash
+bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-deploy-readiness.sh" --environment <selected-environment>
+```
+
+Queued or running workflow dispatches are not approval proof. Unless a future durable eligibility source is explicitly configured, preemptive supersession stays disabled: GitHub concurrency coalesces pending work, while Otta marks an older request included only after a descendant workflow succeeds and the live runtime reports that descendant SHA. For `shared_host: true`, the validator warns that repository-local concurrency is insufficient; use a single-capacity shared runner or an external host semaphore rather than adding a broker to Otta.
+
 ---
 
 ## 4. Self-learning opt-in (LEARN layer)
