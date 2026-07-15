@@ -42,5 +42,56 @@ grep -Eq 'git add .*\.codex-plugin/plugin\.json' "$RELEASE_WORKFLOW" || \
 pass "marketplace.json version ($MARKETPLACE_VER) == plugin.json version ($PLUGIN_VER)"
 pass "Codex plugin.json version ($CODEX_PLUGIN_VER) == Claude plugin.json version ($PLUGIN_VER)"
 pass "auto-release bumps and commits the Codex manifest"
+
+# --- issue #117: marketplace listing polish -------------------------------
+command -v jq >/dev/null 2>&1 || fail "jq is required to check marketplace listing fields"
+
+MP_ENTRY='.plugins[0]'
+
+PLUGIN_DISPLAY_NAME="$(jq -r '.displayName // empty' "$PLUGIN_JSON")"
+PLUGIN_ICON="$(jq -r '.icon // empty' "$PLUGIN_JSON")"
+PLUGIN_EXAMPLE="$(jq -r '.examplePrompt // empty' "$PLUGIN_JSON")"
+PLUGIN_HOMEPAGE="$(jq -r '.homepage // empty' "$PLUGIN_JSON")"
+PLUGIN_AUTHOR="$(jq -r '.author.name // empty' "$PLUGIN_JSON")"
+
+[ -n "$PLUGIN_DISPLAY_NAME" ] || fail "plugin.json missing displayName"
+[ -n "$PLUGIN_ICON" ]         || fail "plugin.json missing icon"
+[ -n "$PLUGIN_EXAMPLE" ]      || fail "plugin.json missing examplePrompt"
+[ -n "$PLUGIN_HOMEPAGE" ]     || fail "plugin.json missing homepage"
+[ -n "$PLUGIN_AUTHOR" ]       || fail "plugin.json missing author.name"
+
+MARKET_CATEGORY="$(jq -r "$MP_ENTRY.category // empty" "$MARKETPLACE")"
+MARKET_DISPLAY_NAME="$(jq -r "$MP_ENTRY.displayName // empty" "$MARKETPLACE")"
+MARKET_ICON="$(jq -r "$MP_ENTRY.icon // empty" "$MARKETPLACE")"
+MARKET_EXAMPLE="$(jq -r "$MP_ENTRY.examplePrompt // empty" "$MARKETPLACE")"
+MARKET_HOMEPAGE="$(jq -r "$MP_ENTRY.homepage // empty" "$MARKETPLACE")"
+
+[ "$MARKET_CATEGORY" = "Productivity" ] || fail "marketplace.json plugins[0].category must be \"Productivity\" (got \"$MARKET_CATEGORY\")"
+[ "$MARKET_DISPLAY_NAME" = "$PLUGIN_DISPLAY_NAME" ] || fail "marketplace.json displayName must match plugin.json displayName"
+[ "$MARKET_ICON" = "$PLUGIN_ICON" ]                 || fail "marketplace.json icon must match plugin.json icon"
+[ "$MARKET_EXAMPLE" = "$PLUGIN_EXAMPLE" ]           || fail "marketplace.json examplePrompt must match plugin.json examplePrompt"
+[ "$MARKET_HOMEPAGE" = "$PLUGIN_HOMEPAGE" ]         || fail "marketplace.json homepage must match plugin.json homepage"
+
+CODEX_ICON="$(jq -r '.icon // empty' "$CODEX_PLUGIN_JSON")"
+CODEX_EXAMPLE="$(jq -r '.examplePrompt // empty' "$CODEX_PLUGIN_JSON")"
+[ "$CODEX_ICON" = "$PLUGIN_ICON" ]       || fail "Codex plugin.json icon must mirror Claude plugin.json icon"
+[ "$CODEX_EXAMPLE" = "$PLUGIN_EXAMPLE" ] || fail "Codex plugin.json examplePrompt must mirror Claude plugin.json examplePrompt"
+
+pass "plugin.json carries displayName, icon, examplePrompt, homepage, author.name"
+pass "marketplace.json plugins[0] carries category=Productivity and mirrors displayName/icon/examplePrompt/homepage"
+pass "Codex plugin.json mirrors icon and examplePrompt"
+
+if command -v claude >/dev/null 2>&1; then
+  if claude plugin validate "$REPO" >/tmp/otta-plugin-validate.$$ 2>&1; then
+    pass "claude plugin validate: no load-breaking errors (unknown fields degrade gracefully)"
+  else
+    cat /tmp/otta-plugin-validate.$$ >&2
+    fail "claude plugin validate reported a load-breaking error"
+  fi
+  rm -f /tmp/otta-plugin-validate.$$
+else
+  pass "claude CLI not on PATH — skipping claude plugin validate (non-blocking)"
+fi
+
 echo ""
 echo "✓ marketplace-version-sync: all checks passed"

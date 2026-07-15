@@ -1,6 +1,6 @@
 ---
 name: learn-from-pulse
-description: Use BEFORE implementing an issue or starting a build/loop on a repo that uses Otta Pulse — consults the idea's history (shipped issues/PRs/versions, escaped defects, prior loop verdicts) so you don't repeat a failure the loop already learned about. Runs after shipping-loop, before the builder writes code.
+description: Use BEFORE implementing an issue or starting a build/loop on a repo that uses Otta Pulse — consults the idea's history (shipped issues/PRs/versions, escaped defects, prior loop verdicts) so you don't repeat a failure the loop already learned about.
 ---
 
 # Learn From Pulse
