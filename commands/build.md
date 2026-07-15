@@ -15,6 +15,8 @@ Follow [the shared progress protocol](../docs/progress-protocol.md) with autonom
 
 When Workflow is available, its native phase display is the primary progress surface. Map phases to the shared stages and do not create a second competing checklist or narrate routine phase activity. Without Workflow, use one native Task/Todo projection updated only at a meaningful transition.
 
+For headless/unattended invocations (`claude -p`), set `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` in the launch environment: with nobody watching, the advisor tool's per-subagent, uncached transcript re-read is a nondeterministic cost/latency multiplier. This does **not** apply to interactive `/otta:dev` — the advisor stays available there.
+
 ### Codex adapter
 
 When Workflow is unavailable, create one native plan with `update_plan` before builder dispatch and reuse it through the `builder → reviewer → qa → devops` chain. Keep exactly one stage `in_progress`, update only at a meaningful transition, and do not repeat plan, agent, polling, or tool activity in prose.
