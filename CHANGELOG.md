@@ -1,3 +1,9 @@
+## 1.8.1
+
+### Fixed
+
+- pre-push-guard detects backslash line-continuation pushes (LF and CRLF) — closes fail-open detection gap (#169)
+
 ## 1.8.0
 
 ### Added
