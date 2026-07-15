@@ -19,6 +19,8 @@ When Workflow is available, its native phase display is the primary progress sur
 
 When Workflow is unavailable, create one native plan with `update_plan` before builder dispatch and reuse it through the `builder → reviewer → qa → devops` chain. Keep exactly one stage `in_progress`, update only at a meaningful transition, and do not repeat plan, agent, polling, or tool activity in prose.
 
+**Headless resume.** When resuming a headless/unattended Codex run (e.g. after a usage-limit pause), use `codex exec resume --output-schema <schema>` where available to get structured JSON stage verdicts instead of parsing prose output. On Codex versions without `--output-schema`, fall back to parsing the plain-text resume output.
+
 Without native progress tooling, render the compact Markdown stages once. For either adapter, emit transcript messages only for decisions, failures or blockers, material risk changes, and completion. Mark a blocked stage with its concrete reason and next action.
 
 Then **learn before building** by resolving the same repo-native policy used by every delivery path:

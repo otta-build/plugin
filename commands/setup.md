@@ -289,6 +289,8 @@ Ask via AskUserQuestion — header "Codex adapter", question "Codex CLI detected
 - "Yes (recommended)" — will run `otta-codex-setup.sh --derive` in Part B to write the active mode-0600 `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`) plus the gitignored legacy `.otta/codex.env`
 - "Skip" — no Codex telemetry
 
+**Delegation & approval mode.** Recommend Codex's `explicit-request-only` multi-agent delegation mode (v0.142.0+) for pipeline runs, so a build/review/qa/devops stage doesn't self-delegate to sub-subagents unexpectedly. For CI/headless runs, recommend the `writes` approval mode (v0.144.0+): read-only actions proceed without a prompt, while writes still require approval.
+
 **If `gemini` is detected:**
 
 Ask via AskUserQuestion — header "Gemini adapter", question "Gemini CLI detected. Wire Otta telemetry for Gemini? Note: Gemini has no native OTLP auth headers — a local OTel Collector sidecar is required to inject the token. (runs otta-gemini-setup.sh)":
