@@ -11,6 +11,8 @@ Run the Otta shipping pipeline for issue **#$1** **interactively, in this sessio
 
 For Codex, include the resolved absolute plugin root in every subagent prompt and require the role to inline-inject `OTTA_PLUGIN_ROOT` on each plugin command; do not assume the subagent inherits the parent's environment. If collaboration/subagent primitives are unavailable, execute each `agents/<role>.md` contract sequentially in the current agent, explicitly completing build before review, review before qa, and qa before devops. Report this as same-agent staged execution, not as subagent work.
 
+**Debugging note.** Codex defaults `hide_spawn_agent_metadata` to `true` (v0.137.0+), which hides subagent spans/attributes from OTEL output. When a Pulse per-stage join looks incomplete for a Codex run, check whether `hide_spawn_agent_metadata` is set `false` in `config.toml` before assuming a wiring bug.
+
 **Name every dispatch.** Pass an explicit `name` to each Task/Agent call (e.g. `otta-builder-$1`, `otta-reviewer-$1`, `otta-qa-$1`, `otta-devops-$1`) instead of leaving it unnamed. Names must match `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` (no `#`) so `SendMessage({to: <name>})` can resume them later. Without a name, background-agent notifications ("Teammate @<hash> finished") show an opaque hash instead of which stage just completed. For Codex task identifiers use `otta_build_$1`, `otta_review_$1`, `otta_qa_$1`, and `otta_ship_$1`.
 
 ## Progress presentation
@@ -24,6 +26,8 @@ Create one native Task/Todo projection with TaskCreate or TodoCreate — one tas
 ### Codex adapter
 
 Create one native plan with `update_plan` and reuse it for the run. Keep exactly one stage `in_progress`; only active or blocked stage text carries detail. Update only at a meaningful transition. Native agent rows and the goal footer already show runtime activity, so do not repeat them in prose.
+
+Where Codex's persisted goal system is available, set the goal from the issue's acceptance criteria at run start (`/goal <acceptance-criteria summary>`) alongside this `update_plan` protocol, so the run keeps an explicit completion condition across pause/resume. On Codex versions without persisted goals, fall back to `update_plan` only.
 
 Without native progress tooling, render the selected compact Markdown stages once. For either adapter, emit transcript messages only for decisions, failures or blockers, material risk changes, and completion. When a stage fails or is blocked, mark it `blocked` with the concrete reason and next action.
 

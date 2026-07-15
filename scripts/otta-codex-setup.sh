@@ -13,6 +13,17 @@
 # these env vars, but kept for documentation / tooling that sources the file).
 #
 # Endpoint base: OTTA_PULSE_URL if set, else the hosted default.
+#
+# Per-stage correlation (Pulse join key): once wired, Codex emits
+# SubagentStart/SubagentStop hook events (v0.133.0+) around spawn_agent
+# subagents, with subagent identity present in hook payloads from v0.134.0.
+# Subagents inherit the parent's session ID (v0.131.0) — that inherited
+# session ID is what Pulse joins a stage's telemetry back to its run; no
+# extra instrumentation is required on the Otta side.
+#
+# OTEL unit note: Codex >=0.141.0 emits seconds-based duration histograms
+# (not milliseconds) — check that Pulse dashboards/queries account for this
+# when comparing Codex data to Claude Code's histogram units.
 set -euo pipefail
 
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 required." >&2; exit 1; }
