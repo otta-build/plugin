@@ -42,7 +42,7 @@ pass "Codex telemetry surface documents subagent identity in hook inputs"
 found_in 'session ID' || fail "Codex telemetry surface missing parent session-ID inheritance reference"
 pass "Codex telemetry surface documents parent session-ID inheritance as the Pulse join key"
 
-found_in 'seconds' || fail "Codex telemetry surface missing seconds-based OTEL histogram note"
+found_in 'seconds-based' || fail "Codex telemetry surface missing seconds-based OTEL histogram note"
 pass "Codex telemetry surface notes seconds-based OTEL duration histograms"
 
 grep -qF 'hide_spawn_agent_metadata' "$CODEX_SETUP_SH" || grep -qF 'hide_spawn_agent_metadata' "$DEV_MD" \
