@@ -1,3 +1,9 @@
+## 1.10.0
+
+### Added
+
+- emit input.branch on qa/reviewer loop_verdict captures (#172)
+
 ## 1.9.0
 
 ### Added
