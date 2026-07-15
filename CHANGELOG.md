@@ -1,3 +1,9 @@
+## 1.8.0
+
+### Added
+
+- disable advisor tool in autonomous/headless Claude Code runs (#168)
+
 ## 1.7.5
 
 ### Fixed
