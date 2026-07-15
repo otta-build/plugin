@@ -1,3 +1,9 @@
+## 1.7.5
+
+### Fixed
+
+- direct OTLP export, not collector sidecar (#166)
+
 ## 1.7.4
 
 ### Fixed
