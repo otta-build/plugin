@@ -1,3 +1,9 @@
+## 1.9.0
+
+### Added
+
+- marketplace listing polish — displayName, category, homepage, icon, examplePrompt, skill one-liner audit (#170)
+
 ## 1.8.1
 
 ### Fixed
