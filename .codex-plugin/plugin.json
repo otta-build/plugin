@@ -18,7 +18,7 @@
     "ci-gates"
   ],
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
+  "hooks": "./hooks/hooks.codex.json",
   "interface": {
     "displayName": "Otta",
     "shortDescription": "Build, verify, and ship software with evidence",

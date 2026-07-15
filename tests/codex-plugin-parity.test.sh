@@ -6,7 +6,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$HERE/.."
 MANIFEST="$REPO/.codex-plugin/plugin.json"
-HOOKS="$REPO/hooks/hooks.json"
+HOOKS="$REPO/hooks/hooks.codex.json"
 failures=0
 
 fail() {
@@ -32,10 +32,10 @@ else
     fail 'Codex manifest must declare "skills": "./skills/"'
   fi
 
-  if jq -e '.hooks == "./hooks/hooks.json"' "$MANIFEST" >/dev/null; then
+  if jq -e '.hooks == "./hooks/hooks.codex.json"' "$MANIFEST" >/dev/null; then
     pass "Codex manifest declares hooks path"
   else
-    fail 'Codex manifest must declare "hooks": "./hooks/hooks.json"'
+    fail 'Codex manifest must declare "hooks": "./hooks/hooks.codex.json"'
   fi
 fi
 
