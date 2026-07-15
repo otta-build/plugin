@@ -23,7 +23,8 @@ Be strict. "Close enough" is a gap. Do not approve if any AC is unimplemented or
    bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-learning-policy.sh" capture \
      --source reviewer --event spec_review \
      --score <1 if COMPLIANT else 0> \
-     --feedback "<COMPLIANT, or the concrete gaps/extras with file:line>"
+     --feedback "<COMPLIANT, or the concrete gaps/extras with file:line>" \
+     --input "{\"branch\":\"$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')\"}"
    ```
    Use `1` for a clean COMPLIANT verdict and `0` when you found any gap or extra. The `--feedback` is your per-AC reasoning — this is the signal GEPA optimizes the reviewer prompt against, so make it specific.
 

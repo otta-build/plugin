@@ -23,4 +23,11 @@ PORTABLE_POLICY='${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/sc
 grep -Fq "$PORTABLE_POLICY" "$AGENTS/reviewer.md" || fail "reviewer.md not using portable plugin root path"
 grep -Fq "$PORTABLE_POLICY" "$AGENTS/qa.md" || fail "qa.md not using portable plugin root path"
 
+# 4. both captures pass the current branch as --input so ledger records are
+#    joinable with the Pulse /escape-rate view (#171), same pattern as the
+#    deterministic gate's own capture in scripts/otta-gate.sh.
+BRANCH_INPUT='--input "{\"branch\":\"$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '"'"'?'"'"')\"}"'
+grep -Fq -- "$BRANCH_INPUT" "$AGENTS/reviewer.md" || fail "reviewer.md capture missing --input branch"
+grep -Fq -- "$BRANCH_INPUT" "$AGENTS/qa.md" || fail "qa.md capture missing --input branch"
+
 echo "✓ verdict-capture: all checks passed"
