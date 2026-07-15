@@ -10,6 +10,20 @@
 # different repos in one compound command) or a target can't be resolved, we
 # fail closed and gate the session repo instead.
 #
+# Two different failure modes, two different defaults:
+#   - RESOLUTION failures (which repo does a detected push target?) fail
+#     CLOSED: ambiguous or unresolvable targets gate the session repo rather
+#     than risk gating nothing. Being overly cautious here just means an
+#     occasional unnecessary gate run.
+#   - DETECTION failures (is this command a push at all?) currently fail
+#     OPEN: if the segment parser doesn't recognize a command as containing
+#     `git` and `push`, push_segments_seen stays 0 and the hook exits 0
+#     silently. A push that slips past detection bypasses the gate entirely,
+#     which is why the parser errs toward recognizing more shell forms as
+#     pushes (subshells, trailing `&`/`|`/`)`, backslash line-continuations)
+#     rather than fewer — a false positive here just re-runs the gate, but a
+#     false negative ships ungated.
+#
 # Bypass: set OTTA_SKIP_GATE=1 in the environment.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 input="$(cat)"
@@ -24,6 +38,15 @@ fi
 [ -n "${OTTA_SKIP_GATE:-}" ] && exit 0
 
 SESSION_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+
+# Collapse shell backslash-newline line continuations (`git \` + newline +
+# `push`) into a single line BEFORE segment parsing below splits on
+# newlines. Detection is the risky side here: we only ever fail CLOSED on
+# ambiguity (see the header note above), so a missed continuation would mean
+# a real push slips through ungated (fail OPEN) rather than a false block.
+# Erring toward joining continuations, even speculatively, keeps detection
+# conservative in the direction that matters.
+cmd="$(printf '%s' "$cmd" | sed -e :a -e '$!N;s/\\\n/ /;ta')"
 
 # Conservative compound-command split on && , || , ; (not a full shell
 # parser, but sufficient for the `cd X && git push` / chained forms we see).
