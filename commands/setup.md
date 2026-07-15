@@ -293,8 +293,8 @@ Ask via AskUserQuestion — header "Codex adapter", question "Codex CLI detected
 
 **If `gemini` is detected:**
 
-Ask via AskUserQuestion — header "Gemini adapter", question "Gemini CLI detected. Wire Otta telemetry for Gemini? Note: Gemini has no native OTLP auth headers — a local OTel Collector sidecar is required to inject the token. (runs otta-gemini-setup.sh)":
-- "Yes" — will run `otta-gemini-setup.sh` in Part B; requires `docker` for the OTel Collector sidecar
+Ask via AskUserQuestion — header "Gemini adapter", question "Gemini CLI detected. Wire Otta telemetry for Gemini? Gemini exports OTLP directly (no collector sidecar needed) — the auth token is injected via a sourced env var. (runs otta-gemini-setup.sh)":
+- "Yes" — will run `otta-gemini-setup.sh` in Part B; writes `.gemini/settings.json` (telemetry endpoint) and `.otta/gemini.env` (auth header, source it before starting `gemini`)
 - "Skip" — no Gemini telemetry
 
 **If `cursor` is detected:**

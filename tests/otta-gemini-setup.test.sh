@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# otta-gemini-setup.test.sh — regression tests for scripts/otta-gemini-setup.sh (issue #30).
-# Writes .gemini/settings.json + otel-collector-config.yaml for sidecar-based telemetry.
+# otta-gemini-setup.test.sh — regression tests for scripts/otta-gemini-setup.sh (issue #51).
+# Writes .gemini/settings.json (telemetry.target=local + otlpEndpoint/otlpProtocol,
+# direct OTLP/HTTP export) and .otta/gemini.env (OTEL_EXPORTER_OTLP_HEADERS auth).
+# No collector sidecar — see script header for the source-verified rationale.
 # Run: bash tests/otta-gemini-setup.test.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,19 +36,21 @@ except Exception:
 valid_json() { python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$1" 2>/dev/null; }
 
 # ---------------------------------------------------------------------------
-# 1. Basic write: .gemini/settings.json and otel-collector-config.yaml created
+# 1. Basic write: .gemini/settings.json + .otta/gemini.env created, no collector yaml
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo1"
 mkdir -p "$RDIR"
 cd "$RDIR"
 bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "basic run exited non-zero"
 [ -f ".gemini/settings.json" ] || fail ".gemini/settings.json not created"
-[ -f "otel-collector-config.yaml" ] || fail "otel-collector-config.yaml not created"
+[ -f ".otta/gemini.env" ] || fail ".otta/gemini.env not created"
+[ -f "otel-collector-config.yaml" ] && fail "otel-collector-config.yaml should NOT be created (direct export, no collector)"
 valid_json ".gemini/settings.json" || fail ".gemini/settings.json is not valid JSON"
-pass "AC2: settings.json and otel-collector-config.yaml created"
+pass "AC3: settings.json + gemini.env created, no collector yaml"
 
 # ---------------------------------------------------------------------------
-# 2. settings.json: telemetry.enabled=true, otlpEndpoint, otlpProtocol
+# 2. settings.json: telemetry.enabled=true, target=local, otlpEndpoint (base
+#    URL, no /v1 — Gemini's exporter joins v1/logs etc itself), otlpProtocol=http
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo2"
 mkdir -p "$RDIR"
@@ -55,92 +59,73 @@ bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "settings run exited non-zero"
 ENABLED="$(getjson ".gemini/settings.json" "telemetry.enabled")"
 [ "$ENABLED" = "True" ] || \
   fail "telemetry.enabled wrong (must be true): $ENABLED"
+TARGET="$(getjson ".gemini/settings.json" "telemetry.target")"
+[ "$TARGET" = "local" ] || \
+  fail "telemetry.target wrong (must be local — gcp only applies to Vertex/GCP export): $TARGET"
 OTLP_ENDPOINT="$(getjson ".gemini/settings.json" "telemetry.otlpEndpoint")"
-[ "$OTLP_ENDPOINT" = "http://localhost:4318" ] || \
+[ "$OTLP_ENDPOINT" = "https://pulse.otta.build" ] || \
   fail "telemetry.otlpEndpoint wrong: $OTLP_ENDPOINT"
 PROTOCOL="$(getjson ".gemini/settings.json" "telemetry.otlpProtocol")"
-[ "$PROTOCOL" = "http/json" ] || \
+[ "$PROTOCOL" = "http" ] || \
   fail "telemetry.otlpProtocol wrong: $PROTOCOL"
-pass "AC2: telemetry.enabled=true, otlpEndpoint=http://localhost:4318, otlpProtocol=http/json"
+pass "AC3: telemetry.enabled=true, target=local, otlpEndpoint=pulse base URL, otlpProtocol=http"
 
 # ---------------------------------------------------------------------------
-# 3. collector config: has required sections (receivers, processors, exporters)
+# 3. .otta/gemini.env: OTEL_EXPORTER_OTLP_HEADERS carries x-pulse-token=<token>
+#    (the standard OTel JS SDK header env var Gemini's exporters fall back to
+#    when no explicit `headers` option is passed — verified in gemini-cli
+#    source, sdk.ts constructs OTLPTraceExporterHttp/etc with only `url`.)
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo3"
 mkdir -p "$RDIR"
 cd "$RDIR"
-bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "collector config run exited non-zero"
-YAML="otel-collector-config.yaml"
-grep -q 'receivers:' "$YAML" || fail "collector yaml: missing receivers"
-grep -q 'processors:' "$YAML" || fail "collector yaml: missing processors"
-grep -q 'exporters:' "$YAML" || fail "collector yaml: missing exporters"
-grep -q '4318' "$YAML" || fail "collector yaml: missing port 4318 (otlp http)"
-pass "AC2: collector yaml has receivers/processors/exporters + port 4318"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "headers run exited non-zero"
+[ "$(bash -c 'source "$1"; printf "%s" "$OTEL_EXPORTER_OTLP_HEADERS"' _ .otta/gemini.env)" = "x-pulse-token=$TOKEN" ] || \
+  fail "OTEL_EXPORTER_OTLP_HEADERS does not round-trip with x-pulse-token=<token>"
+pass "AC3: OTEL_EXPORTER_OTLP_HEADERS=x-pulse-token=<token> present in gemini.env"
 
 # ---------------------------------------------------------------------------
-# 4. collector config: repo + harness=gemini resource attrs
+# 4. .otta/gemini.env: OTEL_RESOURCE_ATTRIBUTES contains repo slug and harness=gemini
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo4"
 mkdir -p "$RDIR"
 cd "$RDIR"
-bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "attrs run exited non-zero"
-YAML="otel-collector-config.yaml"
-grep -q "$REPO_SLUG" "$YAML" || fail "collector yaml: repo slug not present"
-grep -q 'harness' "$YAML" || fail "collector yaml: harness attr not present"
-grep -q 'gemini' "$YAML" || fail "collector yaml: gemini value not present"
-pass "AC2: collector yaml contains repo and harness=gemini attrs"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "resource attrs run exited non-zero"
+[ "$(bash -c 'source "$1"; printf "%s" "$OTEL_RESOURCE_ATTRIBUTES"' _ .otta/gemini.env)" = "repo=$REPO_SLUG,harness=gemini" ] || \
+  fail "OTEL_RESOURCE_ATTRIBUTES does not round-trip with repo+harness=gemini"
+pass "AC3: OTEL_RESOURCE_ATTRIBUTES=repo=...,harness=gemini present"
 
 # ---------------------------------------------------------------------------
-# 5. collector config: x-pulse-token uses env substitution (NOT literal token)
+# 4b. .otta/gemini.env: GEMINI_CLI_TRUST_WORKSPACE=true — required or Gemini's
+#     folder-trust feature silently drops workspace .gemini/settings.json
+#     (confirmed in gemini-cli's settings.ts mergeSettings: untrusted
+#     workspace settings are replaced with {} before merge).
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo4b"
+mkdir -p "$RDIR"
+cd "$RDIR"
+bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "trust-workspace run exited non-zero"
+[ "$(bash -c 'source "$1"; printf "%s" "$GEMINI_CLI_TRUST_WORKSPACE"' _ .otta/gemini.env)" = "true" ] || \
+  fail "GEMINI_CLI_TRUST_WORKSPACE=true not set — workspace settings.json would be silently ignored"
+pass "AC3: GEMINI_CLI_TRUST_WORKSPACE=true present (workspace settings.json would else be dropped)"
+
+# ---------------------------------------------------------------------------
+# 5. pulse URL base-only (no /v1 suffix) — default + OTTA_PULSE_URL override,
+#    trailing slash normalized
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo5"
 mkdir -p "$RDIR"
 cd "$RDIR"
-bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "token-safety run exited non-zero"
-YAML="otel-collector-config.yaml"
-# Token must NOT appear literally in the yaml (it uses env substitution)
-grep -q "$TOKEN" "$YAML" && fail "literal token present in collector yaml (should use env substitution)"
-# But env substitution pattern should be present
-grep -q 'OTTA_PULSE_TOKEN\|env:' "$YAML" || fail "collector yaml: missing env substitution for token"
-pass "AC5: token uses env substitution in collector yaml (not literal)"
-
-# ---------------------------------------------------------------------------
-# 6. collector config: cost_usd transform present
-# ---------------------------------------------------------------------------
-RDIR="$TMP/repo6"
-mkdir -p "$RDIR"
-cd "$RDIR"
-bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "cost_usd run exited non-zero"
-grep -q 'cost_usd' "otel-collector-config.yaml" || fail "collector yaml: cost_usd not present"
-pass "AC2: collector yaml includes cost_usd computation"
-
-# ---------------------------------------------------------------------------
-# 7. collector config: pulse export URL — base only (otlphttp appends /v1/logs)
-# ---------------------------------------------------------------------------
-RDIR="$TMP/repo7"
-mkdir -p "$RDIR"
-cd "$RDIR"
-bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "default pulse URL run failed"
-# Exporter endpoint must be the base URL only. The otlphttp exporter appends
-# /v1/logs automatically; including /v1 in the config would produce /v1/v1/logs.
-grep -q 'endpoint: "https://pulse.otta.build"' "otel-collector-config.yaml" || \
-  fail "exporter endpoint must be bare base URL (without /v1), got: $(grep 'endpoint' otel-collector-config.yaml | tail -1)"
-# And must NOT have the doubled path
-grep -v '#' "otel-collector-config.yaml" | grep 'endpoint' | grep -v 'localhost' | grep -q '/v1"' && \
-  fail "exporter endpoint contains /v1 — would double to /v1/v1/logs" || true
-RDIR="$TMP/repo7b"
-mkdir -p "$RDIR"
-cd "$RDIR"
 OTTA_PULSE_URL="https://pulse.acme.example/" bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || \
   fail "override pulse URL run failed"
-grep -q 'endpoint: "https://pulse.acme.example"' "otel-collector-config.yaml" || \
-  fail "override pulse URL endpoint wrong: $(grep 'endpoint' otel-collector-config.yaml | tail -1)"
-pass "AC1: pulse URL base-only in exporter endpoint (default + OTTA_PULSE_URL override)"
+[ "$(getjson ".gemini/settings.json" "telemetry.otlpEndpoint")" = "https://pulse.acme.example" ] || \
+  fail "override pulse URL endpoint wrong: $(getjson ".gemini/settings.json" "telemetry.otlpEndpoint")"
+pass "AC3: OTTA_PULSE_URL override respected (trailing slash normalized, base URL only)"
 
 # ---------------------------------------------------------------------------
-# 8. Merge: pre-existing settings.json keys preserved (idempotent JSON merge)
+# 6. Merge: pre-existing settings.json keys preserved (idempotent JSON merge)
 # ---------------------------------------------------------------------------
-RDIR="$TMP/repo8"
+RDIR="$TMP/repo6"
 mkdir -p "$RDIR/.gemini"
 cd "$RDIR"
 cat > ".gemini/settings.json" <<'JSON'
@@ -155,44 +140,46 @@ valid_json ".gemini/settings.json" || fail "merge produced invalid JSON"
   fail "merge: pre-existing 'model' key clobbered"
 [ "$(getjson ".gemini/settings.json" "theme")" = "dark" ] || \
   fail "merge: pre-existing 'theme' key clobbered"
-[ "$(getjson ".gemini/settings.json" "telemetry.otlpEndpoint")" = "http://localhost:4318" ] || \
+[ "$(getjson ".gemini/settings.json" "telemetry.otlpEndpoint")" = "https://pulse.otta.build" ] || \
   fail "merge: telemetry.otlpEndpoint not merged"
-pass "AC4: merge preserves pre-existing settings.json keys"
+pass "AC3: merge preserves pre-existing settings.json keys"
 
 # ---------------------------------------------------------------------------
-# 9. Idempotent: re-run produces byte-identical output
+# 7. Idempotent: re-run produces byte-identical output for both files
 # ---------------------------------------------------------------------------
-RDIR="$TMP/repo9"
+RDIR="$TMP/repo7"
 mkdir -p "$RDIR"
 cd "$RDIR"
 bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "idempotent run 1 failed"
 FIRST_SETTINGS="$(cat .gemini/settings.json)"
-FIRST_YAML="$(cat otel-collector-config.yaml)"
+FIRST_ENV="$(cat .otta/gemini.env)"
 bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "idempotent run 2 failed"
 SECOND_SETTINGS="$(cat .gemini/settings.json)"
-SECOND_YAML="$(cat otel-collector-config.yaml)"
+SECOND_ENV="$(cat .otta/gemini.env)"
 [ "$FIRST_SETTINGS" = "$SECOND_SETTINGS" ] || fail "settings.json not idempotent on re-run"
-[ "$FIRST_YAML" = "$SECOND_YAML" ] || fail "otel-collector-config.yaml not idempotent on re-run"
-pass "AC4: idempotent re-run (stable output for both files)"
+[ "$FIRST_ENV" = "$SECOND_ENV" ] || fail ".otta/gemini.env not idempotent on re-run"
+pass "AC3: idempotent re-run (stable output for both files)"
 
 # ---------------------------------------------------------------------------
-# 10. .gitignore: .gemini/settings.json added (idempotent)
+# 8. Gitignore: .gemini/settings.json and .otta/gemini.env both added (idempotent)
 # ---------------------------------------------------------------------------
-RDIR="$TMP/repo10"
+RDIR="$TMP/repo8"
 mkdir -p "$RDIR"
 cd "$RDIR"
 bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "gitignore run failed"
 grep -qF '.gemini/settings.json' ".gitignore" || fail ".gitignore: .gemini/settings.json not added"
-# Re-run does not duplicate
+grep -qF '.otta/gemini.env' ".gitignore" || fail ".gitignore: .otta/gemini.env not added"
 bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "gitignore idempotent run failed"
-N="$(grep -c '\.gemini/settings\.json' ".gitignore")"
-[ "$N" = "1" ] || fail ".gitignore: pattern duplicated after re-run (count=$N)"
-pass "AC2: .gitignore updated with .gemini/settings.json (idempotent)"
+N1="$(grep -c '\.gemini/settings\.json' ".gitignore")"
+N2="$(grep -c '\.otta/gemini\.env' ".gitignore")"
+[ "$N1" = "1" ] || fail ".gitignore: settings.json pattern duplicated after re-run (count=$N1)"
+[ "$N2" = "1" ] || fail ".gitignore: gemini.env pattern duplicated after re-run (count=$N2)"
+pass "AC3: .gitignore updated with both files (idempotent)"
 
 # ---------------------------------------------------------------------------
-# 11. Token not staged: literal token not in any git-staged file
+# 9. Token not staged: literal token not in any git-staged file
 # ---------------------------------------------------------------------------
-RDIR="$TMP/repo11"
+RDIR="$TMP/repo9"
 mkdir -p "$RDIR"
 cd "$RDIR"
 git init -q -b main
@@ -200,44 +187,100 @@ git config user.email t@t.t
 git config user.name t
 bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "token-staged run failed"
 git add -A
-# The literal token must not appear in any staged file
 STAGED_WITH_TOKEN="$(git diff --cached --name-only | while read -r f; do
   grep -q "$TOKEN" "$f" 2>/dev/null && echo "$f" || true
 done)"
 [ -z "$STAGED_WITH_TOKEN" ] || fail "literal token found in staged file(s): $STAGED_WITH_TOKEN"
-pass "AC5: literal token not in any staged file"
+pass "AC3: literal token not in any staged file"
 
 # ---------------------------------------------------------------------------
-# 12. AC3: consent disclosure + sidecar start instructions
+# 10. Output: consent disclosure + direct-export framing (no docker/collector
+#     instructions — this is the corrected mechanism from issue #51)
 # ---------------------------------------------------------------------------
-RDIR="$TMP/repo12"
+RDIR="$TMP/repo10"
 mkdir -p "$RDIR"
 cd "$RDIR"
 OUT="$(bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" 2>&1)"
-echo "$OUT" | grep -q 'pulse.otta.build' || fail "AC3: consent disclosure missing pulse.otta.build"
-echo "$OUT" | grep -qi 'docker\|collector' || fail "AC2: sidecar start instructions missing"
-pass "AC3: consent disclosure + sidecar start instructions printed"
+echo "$OUT" | grep -q 'pulse.otta.build' || fail "AC1: consent disclosure missing pulse.otta.build"
+echo "$OUT" | grep -qi 'docker' && fail "AC1: output should not mention docker — direct export needs no collector"
+echo "$OUT" | grep -qi 'gemini.env' || fail "AC1: output missing instructions to source gemini.env"
+echo "$OUT" | grep -qi 'TRUST_WORKSPACE\|folder-trust' || fail "AC1: output missing folder-trust caveat"
+pass "AC1: consent disclosure printed; no docker/collector instructions; folder-trust caveat present"
 
 # ---------------------------------------------------------------------------
-# 13. Usage guard: missing args exit non-zero
+# 11. Usage guard: missing args exit non-zero
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo11"
+mkdir -p "$RDIR"
+cd "$RDIR"
+if OTTA_PULSE_TOKEN= bash "$SCRIPT" >/dev/null 2>&1; then fail "missing args should exit non-zero"; fi
+if OTTA_PULSE_TOKEN= bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing token should exit non-zero"; fi
+pass "usage guard: missing repo/token rejected"
+
+# ---------------------------------------------------------------------------
+# 12. AC5: --derive hosted mode reuses .otta/pulse.env and never calls /token.
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo12"
+mkdir -p "$RDIR/.otta"
+cd "$RDIR"
+printf 'OTTA_PULSE_URL=https://pulse.otta.build\nOTTA_PULSE_TOKEN=hosted-derived-fixture\n' > .otta/pulse.env
+mkdir -p "$TMP/gemini-derive-bin"
+cat > "$TMP/gemini-derive-bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+echo "$@" >> "${CURL_ARGS_FILE:-/dev/null}"
+exit 1
+CURL_STUB
+chmod +x "$TMP/gemini-derive-bin/curl"
+OUT="$(CURL_ARGS_FILE="$TMP/gemini12-curl.txt" PATH="$TMP/gemini-derive-bin:$PATH" bash "$SCRIPT" --derive "$REPO_SLUG" 2>&1)" || \
+  fail "AC5: hosted --derive run exited non-zero"
+[ ! -s "$TMP/gemini12-curl.txt" ] || fail "AC5: hosted --derive called curl/self-hosted /token path"
+[ "$(bash -c 'source "$1"; printf "%s" "$OTEL_EXPORTER_OTLP_HEADERS"' _ .otta/gemini.env)" = "x-pulse-token=hosted-derived-fixture" ] || \
+  fail "AC5: hosted --derive did not write derived token into gemini.env"
+! printf '%s' "$OUT" | grep -q 'hosted-derived-fixture' || fail "AC5: derived token leaked into stdout/stderr"
+pass "AC5: hosted --derive reuses pulse.env and keeps the repo token private"
+
+# ---------------------------------------------------------------------------
+# 13. AC5: --derive self-hosted mode requires and sends the webhook secret,
+#     but stores only the derived token.
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo13"
 mkdir -p "$RDIR"
 cd "$RDIR"
-if bash "$SCRIPT" >/dev/null 2>&1; then fail "missing args should exit non-zero"; fi
-if bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing token should exit non-zero"; fi
-pass "usage guard: missing repo/token rejected"
+SELFHOST_SECRET="webhook-secret-xyz"
+cat > "$TMP/gemini-derive-bin/curl" <<'CURL_STUB'
+#!/usr/bin/env bash
+echo "$@" >> "${CURL_ARGS_FILE:-/dev/null}"
+printf '{"token":"hosted-derived-fixture"}'
+exit 0
+CURL_STUB
+chmod +x "$TMP/gemini-derive-bin/curl"
+OUT="$(CURL_ARGS_FILE="$TMP/gemini13-curl.txt" PATH="$TMP/gemini-derive-bin:$PATH" \
+  OTTA_PULSE_URL="https://pulse.example.test" \
+  bash "$SCRIPT" --derive "$REPO_SLUG" "$SELFHOST_SECRET" 2>&1)" || \
+  fail "AC5: self-hosted --derive run exited non-zero"
+grep -q 'https://pulse.example.test/token?repo=acme/widget' "$TMP/gemini13-curl.txt" || \
+  fail "AC5: self-hosted --derive did not call /token with repo query param"
+grep -q "x-pulse-token: $SELFHOST_SECRET" "$TMP/gemini13-curl.txt" || \
+  fail "AC5: self-hosted --derive did not send webhook secret as x-pulse-token"
+[ "$(bash -c 'source "$1"; printf "%s" "$OTEL_EXPORTER_OTLP_HEADERS"' _ .otta/gemini.env)" = "x-pulse-token=hosted-derived-fixture" ] || \
+  fail "AC5: self-hosted --derive did not write derived token into gemini.env"
+! printf '%s' "$OUT" | grep -q "$SELFHOST_SECRET\|hosted-derived-fixture" || \
+  fail "AC5: webhook secret or derived token leaked into stdout/stderr"
+pass "AC5: self-hosted --derive uses the webhook secret only for derivation"
 
 # ---------------------------------------------------------------------------
-# 14. AC2(#46): collector config includes a metrics pipeline
+# 14. AC5: --derive usage guards.
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo14"
 mkdir -p "$RDIR"
 cd "$RDIR"
-bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" || fail "metrics pipeline run exited non-zero"
-YAML="otel-collector-config.yaml"
-grep -q 'metrics:' "$YAML" || \
-  fail "collector yaml: missing metrics pipeline under pipelines:"
-pass "AC2(#46): metrics pipeline present in collector yaml"
+if PATH="$TMP/gemini-derive-bin:$PATH" bash "$SCRIPT" --derive >/dev/null 2>&1; then
+  fail "--derive with no repo should exit non-zero"
+fi
+if OTTA_PULSE_URL="https://pulse.example.test" PATH="$TMP/gemini-derive-bin:$PATH" \
+    bash "$SCRIPT" --derive "$REPO_SLUG" >/dev/null 2>&1; then
+  fail "--derive self-hosted with no webhook secret should exit non-zero"
+fi
+pass "AC5: --derive usage guards (missing repo / missing self-hosted secret)"
 
 echo "All otta-gemini-setup tests passed."
