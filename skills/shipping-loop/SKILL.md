@@ -1,6 +1,6 @@
 ---
 name: shipping-loop
-description: Use when building, fixing, or shipping any change to a GitHub repo — the Otta loop (issue → acceptance criteria → local gate → PR → ship) that makes work traceable end-to-end and feeds DORA + lifecycle metrics to Otta Pulse.
+description: Use when building, fixing, or shipping any change to a GitHub repo — the Otta loop (issue → acceptance criteria → local gate → PR → ship) that makes work traceable end-to-end and feeds DORA + lifecycle metrics to Otta Pulse. Runs FIRST, before debugging or other skills.
 ---
 
 # The Otta Shipping Loop
