@@ -560,5 +560,49 @@ check "AC4 repo B calls pr merge exactly once on its own open PR" 1 "$(grep -c '
 case "$_repob_out" in *"upstream1"*|*"GitPWeb"*) check "AC2 repo B output carries no repo-A residue" yes no ;; *) check "AC2 repo B output carries no repo-A residue" yes yes ;; esac
 unset -f git gh
 
+# 11e. github-workflow executor pre-merge refresh: the PR can merge (by any
+# actor) between the initial read (:444) and the refresh right before mutation
+# (:526). auto=merge-on-green/merge-and-deploy must not trust `gh pr merge`'s
+# own exit code on that race — it must see state=MERGED at the refresh and
+# fail closed, same as the legacy path already does.
+RACE_CALLS="$TMP/race-calls"; : > "$RACE_CALLS"
+RACE_Y="$(mk_yml race 'deploy:
+  auto: merge-on-green
+  target: staging
+  executor: github-workflow
+  workflow: deploy-staging.yml
+  ref: main
+  sha_input: commit_sha
+  provider: none
+  verify: none
+  health_url: https://example.test/health
+  health_commit_field: commit')"
+export OTTA_DEPLOY_POLL_TIMEOUT=0 OTTA_DEPLOY_POLL_INTERVAL=1
+git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
+run_github_workflow_deploy() { printf 'adapter called\n' >> "$RACE_CALLS"; return 0; }
+RACE_VIEW_COUNT="$TMP/race-view-count"; printf '0\n' > "$RACE_VIEW_COUNT"
+gh() {
+  printf '%s\n' "$*" >> "$RACE_CALLS"
+  case "$1 $2" in
+    "pr view")
+      count="$(cat "$RACE_VIEW_COUNT")"; count=$((count + 1)); printf '%s\n' "$count" > "$RACE_VIEW_COUNT"
+      if [ "$count" -eq 1 ]; then
+        printf '{"url":"https://github.com/acme/widgets/pull/91","state":"OPEN","headRefOid":"racehead1","baseRefName":"main","baseRefOid":"base1","mergeCommit":null}\n'
+      else
+        printf '{"url":"https://github.com/acme/widgets/pull/91","state":"MERGED","headRefOid":"racehead1","baseRefName":"main","baseRefOid":"base1","mergeCommit":{"oid":"racemerge1"}}\n'
+      fi
+      ;;
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr merge") printf '! Pull request acme/widgets#91 was already merged\n' >&2; return 0 ;;
+  esac
+}
+_race_out="$(_run 91 --otta-yml "$RACE_Y" 2>&1)"; _race_rc=$?
+check "AC(#153) refresh-path race: already-merged at refresh → fails closed" 1 "$_race_rc"
+check "AC(#153) refresh-path race: no second pr merge attempted" 0 "$(grep -c '^pr merge ' "$RACE_CALLS" || true)"
+check "AC(#153) refresh-path race: adapter never dispatched" 0 "$(grep -c '^adapter called' "$RACE_CALLS" || true)"
+case "$_race_out" in *"not OPEN"*"MERGED"*) check "AC(#153) refresh-path race: error names the state" yes yes ;; *) check "AC(#153) refresh-path race: error names the state" yes "no ($_race_out)" ;; esac
+unset -f git gh run_github_workflow_deploy
+unset OTTA_DEPLOY_POLL_TIMEOUT OTTA_DEPLOY_POLL_INTERVAL
+
 echo "  → $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

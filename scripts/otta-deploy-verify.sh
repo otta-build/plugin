@@ -533,6 +533,16 @@ _run() {
       echo "deploy: invalid approval after gate — approved head $approved_head does not match current head $pr_head" >&2
       return 1
     fi
+    # AC5: a merge-on-green/merge-and-deploy PR can merge (by any actor)
+    # between the initial read and this refresh. decide_delivery_action does
+    # not re-check state for that policy, so guard it here rather than
+    # trusting `gh pr merge`'s own silent no-op on an already-merged PR
+    # (issue #153) — the human-approve path legitimately dispatches a MERGED
+    # PR, so this guard is scoped to the auto-merge policies only.
+    if [ "$auto" != "human-approve" ] && [ "$pr_state" != "OPEN" ]; then
+      echo "deploy: BLOCKED — PR #$pr in $gh_repo is not OPEN (state=$pr_state) at pre-merge refresh; refusing to merge (stale/foreign PR-number match or already-merged race)." >&2
+      return 1
+    fi
 
     local workflow_action
     workflow_action="$(decide_delivery_action "$auto" "$pr_state" "$executor" "$approved_head" "$pr_head" true)" || true
