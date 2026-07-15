@@ -110,10 +110,22 @@ pulse_endpoint = os.environ["PULSE_ENDPOINT"]
 
 try:
     with open(path) as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
+        raw = f.read()
+    if raw.strip() == "":
         data = {}
-except (FileNotFoundError, json.JSONDecodeError):
+    else:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            print(
+                f"ERROR: {path} exists and is not valid JSON — refusing to "
+                "overwrite it. Fix or remove the file, then re-run.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not isinstance(data, dict):
+            data = {}
+except FileNotFoundError:
     data = {}
 
 # Merge telemetry block — direct OTLP/HTTP export, target "local" (default).

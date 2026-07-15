@@ -145,6 +145,29 @@ valid_json ".gemini/settings.json" || fail "merge produced invalid JSON"
 pass "AC3: merge preserves pre-existing settings.json keys"
 
 # ---------------------------------------------------------------------------
+# 6b. Malformed settings.json (non-empty, invalid JSON): must exit non-zero
+#     and NOT overwrite the file or write .otta/gemini.env — a silent
+#     data-loss hazard if the script blindly treated a parse failure as
+#     "start empty" and clobbered the user's existing (broken but theirs)
+#     config. Empty/absent files still fall back to {} per existing behavior.
+# ---------------------------------------------------------------------------
+RDIR="$TMP/repo6b"
+mkdir -p "$RDIR/.gemini"
+cd "$RDIR"
+MALFORMED='{ "model": "gemini-2.0-flash", invalid json here'
+printf '%s' "$MALFORMED" > ".gemini/settings.json"
+if OUT="$(bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" 2>&1)"; then
+  fail "malformed settings.json: script must exit non-zero, not proceed"
+fi
+echo "$OUT" | grep -qF '.gemini/settings.json' || \
+  fail "error must name the offending file (.gemini/settings.json): got: $OUT"
+AFTER="$(cat ".gemini/settings.json")"
+[ "$AFTER" = "$MALFORMED" ] || \
+  fail "malformed settings.json was overwritten (data loss): got: $AFTER"
+[ ! -f ".otta/gemini.env" ] || fail "malformed settings.json: .otta/gemini.env should not have been written"
+pass "AC3: malformed non-empty settings.json exits non-zero, no partial writes"
+
+# ---------------------------------------------------------------------------
 # 7. Idempotent: re-run produces byte-identical output for both files
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo7"
