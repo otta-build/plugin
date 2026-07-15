@@ -10,6 +10,8 @@ Set up an autonomous Otta routine only when the active harness actually provides
 
 Default schedule: **weeknights**. Confirm the cadence, repository, and environment with the user before saving (the routine commits and opens PRs as them).
 
+Set `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` in the routine's Claude Code launch environment: nobody is watching a scheduled run, so the advisor tool's per-subagent, uncached transcript re-read is a nondeterministic cost/latency multiplier not worth paying unattended.
+
 **Codex alternative:** Codex does not provide a persistent cloud scheduler through this plugin. Offer the user the copy-ready routine prompt above for an existing CI/scheduler, or offer to adapt it to an automation system the user explicitly names and authorizes. Do not claim that a schedule was saved, will run laptop-off, or can open PRs autonomously unless an available scheduling system confirms creation.
 
 Other useful triggers the user can add on the routine's page at claude.ai/code/routines:
