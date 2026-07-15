@@ -7,13 +7,18 @@
   "plugins": [
     {
       "name": "otta",
+      "displayName": "Otta",
       "description": "The self-learning AI software factory. Turns any Claude Code session into a TDD build → review → verify → ship pipeline run by specialist subagents, gated on acceptance criteria and schedulable as a cloud routine. Every gate verdict feeds the LEARN layer (GEPA) so the factory improves itself — plus DORA + idea→version metrics via the Otta Pulse GitHub App.",
       "version": "1.8.1",
       "source": "./",
       "author": {
         "name": "Sam Petrenko"
       },
-      "license": "Apache-2.0"
+      "license": "Apache-2.0",
+      "homepage": "https://otta.build",
+      "category": "Productivity",
+      "icon": "🦦",
+      "examplePrompt": "Run /otta:dev on issue #42 — build, review, verify, ship"
     }
   ]
 }
