@@ -1,3 +1,9 @@
+## 1.7.3
+
+### Fixed
+
+- deploy-verify scopes PR state and merge resolution to the canonical origin repository (#164)
+
 ## 1.7.2
 
 ### Fixed
