@@ -43,6 +43,55 @@ repo_slug_full() {
   printf '%s' "$r"
 }
 
+# issue_slug <title> — kebab-case, lowercase, <=40 chars, conventional-commit
+# prefix ("fix(LC-2682): ") stripped since {issue} already carries that info.
+issue_slug() {
+  local title="$1" slug
+  title="$(printf '%s' "$title" | sed -E 's/^[A-Za-z]+\([^)]*\):[[:space:]]*//')"
+  slug="$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+  slug="${slug:0:40}"
+  slug="$(printf '%s' "$slug" | sed -E 's/-+$//')"
+  [ -n "$slug" ] || slug="issue"
+  printf '%s' "$slug"
+}
+
+# branch_pattern <repo-root> — reads .otta.yml's `branch_pattern:` (a single
+# unquoted or quoted scalar). Falls back to the legacy default so repos
+# without the key, or without a .otta.yml at all, keep today's `otta/<n>`
+# naming — some consumer repos gate branch names against a required pattern
+# (e.g. Linear's `(feat|fix)/team-N-slug`) and reject `otta/<n>` outright,
+# closing PRs on rename.
+branch_pattern() {
+  local root="$1" file="$1/.otta.yml" pattern=""
+  if [ -f "$file" ]; then
+    pattern="$(grep -E '^branch_pattern:' "$file" 2>/dev/null | head -1 \
+      | sed -E 's/^branch_pattern:[[:space:]]*"?([^"#]*[^"#[:space:]])"?[[:space:]]*(#.*)?$/\1/')"
+  fi
+  # NOTE: don't use "${pattern:-otta/{issue}}" — bash only tracks nesting for
+  # `${`, not a bare `{`, so the literal `{issue}` in the default mis-parses
+  # and leaks a trailing `}` into the result. Use an explicit conditional.
+  [ -n "$pattern" ] || pattern='otta/{issue}'
+  printf '%s' "$pattern"
+}
+
+# derive_branch <issue> — expands {issue} always; {slug} only if present in
+# the pattern (avoids a `gh` round-trip for repos on the legacy default).
+derive_branch() {
+  local issue="$1" root pattern branch title slug
+  root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  pattern="$(branch_pattern "$root")"
+  branch="${pattern//\{issue\}/$issue}"
+  if [[ "$branch" == *"{slug}"* ]]; then
+    title=""
+    if command -v gh >/dev/null 2>&1; then
+      title="$(gh issue view "$issue" --json title -q .title 2>/dev/null || true)"
+    fi
+    slug="$(issue_slug "${title:-issue-$issue}")"
+    branch="${branch//\{slug\}/$slug}"
+  fi
+  printf '%s' "$branch"
+}
+
 _stamp_session_link() {
   local wt_path="$1" branch="$2" full_repo="$3"
   local sid="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
@@ -141,7 +190,7 @@ git rev-parse --verify --quiet "origin/$BASE" >/dev/null 2>&1 && START="origin/$
 
 SLUG="$(repo_slug)"
 WT="$WT_ROOT/$SLUG-$ISSUE"
-BRANCH="otta/$ISSUE"
+BRANCH="$(derive_branch "$ISSUE")"
 
 mkdir -p "$WT_ROOT"
 

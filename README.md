@@ -72,6 +72,16 @@ Both run the same `builder → reviewer → qa → devops` stages and open a PR 
 
 The subagents (`agents/*.md`) are reusable on their own — Claude delegates to them by name, and you can use them as agent-team teammates too.
 
+### Branch naming (`.otta.yml` `branch_pattern`)
+
+Every stage runs in an isolated worktree from `scripts/otta-worktree.sh`, which by default branches as `otta/<issue>`. Some consumer repos gate PR branch names against a required pattern (e.g. a Linear-linked `(feat|fix)/team-N-slug` convention) and reject `otta/<issue>` outright — renaming a PR's head branch after the fact closes it on GitHub. Opt into a gate-compliant name with `branch_pattern` in `.otta.yml`:
+
+```yaml
+branch_pattern: "fix/lc-{issue}-{slug}"
+```
+
+`{issue}` always expands to the issue number. `{slug}` is optional and, only when present in the pattern, triggers a `gh issue view` title fetch — kebab-cased, conventional-commit prefix stripped, capped at 40 chars. If `gh` is unavailable or the title fetch fails, it falls back to `issue-<n>` rather than aborting the worktree. Omitting `branch_pattern` entirely keeps the legacy `otta/{issue}` default.
+
 ## Pipeline progress
 
 Otta uses one progress protocol and each harness's best native surface:

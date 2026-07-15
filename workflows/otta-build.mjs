@@ -61,7 +61,7 @@ phase('Build')
 const built = await agent(
   `Implement issue #${issue} test-first.\n` +
     `FIRST establish an ISOLATED CLEAN base — the PR must contain only this change and must not touch the session's branch. ` +
-    `Create/enter the run's worktree (a separate checkout off the base, on its own otta/${issue} branch):\n` +
+    `Create/enter the run's worktree (a separate checkout off the base, on its own branch — name derived from .otta.yml's branch_pattern, default otta/${issue}):\n` +
     `  WT="$(${WT} ${issue})" && cd "$WT"\n` +
     `(pass a base arg to the helper if .otta.yml names a staging branch). Confirm "git log --oneline @{u}..HEAD" is empty. ` +
     `Do NOT build in the session's current checkout.\n` +

@@ -104,4 +104,64 @@ bash "$SCRIPT" --remove 8882 >/dev/null 2>&1 || true
 
 rm -rf "$TMP_CURL"
 
-echo "✓ otta-worktree: all 11 checks passed"
+# --- branch_pattern tests (gate-compliant branch names, plugin issue #2682) ---
+# Some consumer repos gate PR branch names against a fixed pattern (e.g.
+# Linear's `(feat|fix)/team-N-slug`) and reject the legacy `otta/<n>` name
+# outright. `.otta.yml`'s `branch_pattern:` lets a repo opt into a compliant
+# name; {issue} always expands, {slug} triggers a `gh issue view` title fetch.
+
+# 12: no .otta.yml → legacy default preserved (already covered above, but
+# assert explicitly against a repo that HAS a .otta.yml without the key).
+cat > "$REPO/.otta.yml" <<'EOF'
+version: "1"
+base: "main"
+EOF
+git -C "$REPO" add .otta.yml && git -C "$REPO" commit -qm "add otta.yml"
+WT12="$(bash "$SCRIPT" 12 main)"
+[ "$(git -C "$WT12" rev-parse --abbrev-ref HEAD)" = "otta/12" ] || fail "12: .otta.yml without branch_pattern should keep legacy default"
+bash "$SCRIPT" --remove 12 >/dev/null 2>&1 || true
+
+# 13: branch_pattern with only {issue} — no gh call needed.
+cat > "$REPO/.otta.yml" <<'EOF'
+version: "1"
+base: "main"
+branch_pattern: "fix/lc-{issue}"
+EOF
+git -C "$REPO" commit -qam "set branch_pattern issue-only"
+WT13="$(bash "$SCRIPT" 13 main)"
+[ "$(git -C "$WT13" rev-parse --abbrev-ref HEAD)" = "fix/lc-13" ] || fail "13: branch_pattern {issue} not applied: $(git -C "$WT13" rev-parse --abbrev-ref HEAD)"
+bash "$SCRIPT" --remove 13 >/dev/null 2>&1 || true
+
+# 14: branch_pattern with {slug} — fetches the issue title via a fake `gh`.
+cat > "$REPO/.otta.yml" <<'EOF'
+version: "1"
+base: "main"
+branch_pattern: "fix/lc-{issue}-{slug}"
+EOF
+git -C "$REPO" commit -qam "set branch_pattern with slug"
+FAKE_GH_DIR="$(mktemp -d)"
+cat > "$FAKE_GH_DIR/gh" <<'EOF'
+#!/usr/bin/env bash
+# fake `gh issue view <n> --json title -q .title`
+echo '{"title":"fix(LC-2682): Otta branch pattern gate compliance!!"}' | \
+  python3 -c "import sys,json; print(json.load(sys.stdin)['title'])"
+EOF
+chmod +x "$FAKE_GH_DIR/gh"
+WT14="$(PATH="$FAKE_GH_DIR:$PATH" bash "$SCRIPT" 14 main)"
+BRANCH14="$(git -C "$WT14" rev-parse --abbrev-ref HEAD)"
+[ "$BRANCH14" = "fix/lc-14-otta-branch-pattern-gate-compliance" ] || fail "14: branch_pattern {slug} not derived correctly: $BRANCH14"
+bash "$SCRIPT" --remove 14 >/dev/null 2>&1 || true
+rm -rf "$FAKE_GH_DIR"
+
+# 15: {slug} pattern with `gh` failing (no auth / no network) — falls back to
+# a safe slug instead of aborting the whole worktree creation.
+FAKE_GH_FAIL_DIR="$(mktemp -d)"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKE_GH_FAIL_DIR/gh"
+chmod +x "$FAKE_GH_FAIL_DIR/gh"
+WT15="$(PATH="$FAKE_GH_FAIL_DIR:$PATH" bash "$SCRIPT" 15 main)"
+BRANCH15="$(git -C "$WT15" rev-parse --abbrev-ref HEAD)"
+[[ "$BRANCH15" == fix/lc-15-* ]] || fail "15: branch_pattern {slug} fallback failed when gh errors: $BRANCH15"
+bash "$SCRIPT" --remove 15 >/dev/null 2>&1 || true
+rm -rf "$FAKE_GH_FAIL_DIR"
+
+echo "✓ otta-worktree: all 15 checks passed"
