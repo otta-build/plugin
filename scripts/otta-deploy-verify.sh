@@ -360,6 +360,45 @@ verify_deploy() {
 }
 
 # ===========================================================================
+# PR repo/identity verification (issue #153)
+#
+# `--repo "$gh_repo"` is threaded through every `gh` call, and `$gh_repo` is
+# re-derived from `git remote origin` on every invocation — so there is no
+# cross-invocation state to go stale (AC1/AC2). What was still missing: a
+# live read + print of the PR's own identity right before any mutation, and a
+# fail-closed check that it actually resolves back to the repo we intended
+# (AC3/AC5). Without it, `gh pr merge` on an already-merged/foreign PR #<n>
+# silently no-ops and the script reported a false "deploy: merged PR #<n>".
+# ===========================================================================
+
+# _pr_url_repo <pr-url> — extracts "owner/repo" from a GitHub PR URL
+# (https://github.com/OWNER/REPO/pull/N). Empty string if unparseable.
+_pr_url_repo() {
+  printf '%s' "$1" | sed -n 's#^https\{0,1\}://[^/]*/\([^/][^/]*/[^/][^/]*\)/pull/.*#\1#p'
+}
+
+# _print_and_verify_pr_identity <canonical-repo> <pr> <pr-json>
+#   AC3: prints canonical repo, PR URL, head SHA, and base SHA/branch from one
+#   live `gh pr view` payload.
+#   AC5: fails closed (non-zero, no mutation performed by the caller) when the
+#   PR's own URL does not resolve back to the canonical repo.
+_print_and_verify_pr_identity() {
+  local gh_repo="$1" pr="$2" json="$3"
+  local url head base_name base_sha url_repo
+  url="$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("url",""))' 2>/dev/null)"
+  head="$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefOid",""))' 2>/dev/null)"
+  base_name="$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("baseRefName",""))' 2>/dev/null)"
+  base_sha="$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("baseRefOid",""))' 2>/dev/null)"
+  echo "deploy: canonical repo=$gh_repo pr=#$pr url=${url:-<unknown>} head=${head:-<unknown>} base=${base_name:-<unknown>}@${base_sha:-<unknown>}"
+  url_repo="$(_pr_url_repo "$url")"
+  if [ -z "$url_repo" ] || [ "$url_repo" != "$gh_repo" ]; then
+    echo "deploy: BLOCKED — live PR identity (${url_repo:-<unresolvable>}) does not match canonical repo ($gh_repo); refusing to act on PR #$pr." >&2
+    return 1
+  fi
+  return 0
+}
+
+# ===========================================================================
 # Orchestration (only runs when executed, not when sourced)
 # ===========================================================================
 
@@ -402,9 +441,10 @@ _run() {
   if [ "$executor" = "github-workflow" ]; then
     [ -n "$workflow" ] || { echo "deploy: github-workflow executor requires deploy.workflow" >&2; return 1; }
     [ -n "$health_url" ] || { echo "deploy: github-workflow executor requires deploy.health_url" >&2; return 1; }
-    pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json state,headRefOid,mergeCommit 2>/dev/null)" || {
+    pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json url,state,headRefOid,baseRefName,baseRefOid,mergeCommit 2>/dev/null)" || {
       echo "deploy: cannot read PR #$pr state" >&2; return 1;
     }
+    _print_and_verify_pr_identity "$gh_repo" "$pr" "$pr_json" || return 1
     pr_state="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))')"
     pr_head="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefOid", ""))')"
     merge_sha="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("mergeCommit") or {}).get("oid", ""))')"
@@ -483,9 +523,10 @@ _run() {
   if [ "$executor" = "github-workflow" ]; then
     # Re-read the head immediately before mutation. Approval is invalidated by
     # any push that happened while checks were being polled.
-    pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json state,headRefOid,mergeCommit 2>/dev/null)" || {
+    pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json url,state,headRefOid,baseRefName,baseRefOid,mergeCommit 2>/dev/null)" || {
       echo "deploy: cannot refresh PR #$pr before merge" >&2; return 1;
     }
+    _print_and_verify_pr_identity "$gh_repo" "$pr" "$pr_json" || return 1
     pr_state="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))')"
     pr_head="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefOid", ""))')"
     if [ "$auto" = "human-approve" ] && [ "$approved_head" != "$pr_head" ]; then
@@ -517,6 +558,20 @@ _run() {
       run_github_workflow_deploy "$gh_repo" "$gh_repo" "$target" "$workflow" \
       "$workflow_ref" "$sha_input" "$merge_sha" "$health_url" "$health_field"
     return $?
+  fi
+
+  # AC3/AC5: one live query for repo/PR identity before mutating anything.
+  # Fails closed rather than trusting `gh pr merge`'s own silent no-op on an
+  # already-merged/foreign PR, which previously let a stale/wrong-repo PR
+  # #<n> look like a fresh merge (issue #153).
+  pr_json="$(gh pr view "$pr" --repo "$gh_repo" --json url,state,headRefOid,baseRefName,baseRefOid,mergeCommit 2>/dev/null)" || {
+    echo "deploy: cannot read PR #$pr state before merge" >&2; return 1;
+  }
+  _print_and_verify_pr_identity "$gh_repo" "$pr" "$pr_json" || return 1
+  pr_state="$(printf '%s' "$pr_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))')"
+  if [ "$pr_state" != "OPEN" ]; then
+    echo "deploy: BLOCKED — PR #$pr in $gh_repo is not OPEN (state=$pr_state); refusing to merge (stale/foreign PR-number match?)." >&2
+    return 1
   fi
 
   # Decide + merge.
