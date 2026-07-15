@@ -37,6 +37,10 @@ cwd="$PWD"
 while IFS= read -r seg; do
   seg_trimmed="$(printf '%s' "$seg" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   [ -z "$seg_trimmed" ] && continue
+  # Strip a leading subshell/group opener (`(`, `{`) and trailing `)`/`}` so
+  # `(cd other && git push)` is parsed the same as `cd other && git push`.
+  seg_trimmed="$(printf '%s' "$seg_trimmed" | sed -E 's/^[({][[:space:]]*//; s/[[:space:]]*[)}]$//')"
+  [ -z "$seg_trimmed" ] && continue
 
   # Track `cd <dir>` state for subsequent segments in this compound command.
   if printf '%s' "$seg_trimmed" | grep -qE '^cd[[:space:]]+'; then
@@ -49,9 +53,11 @@ while IFS= read -r seg; do
   fi
 
   # Is this segment a `git ... push ...`? (word-boundary matches so a path
-  # like `push-service` or flag like `--push-option` doesn't false-match.)
-  printf '%s' "$seg_trimmed" | grep -qE '(^|[^a-zA-Z])git([[:space:]]|$)' || continue
-  printf '%s' "$seg_trimmed" | grep -qE '(^|[^a-zA-Z-])push([[:space:]]|$)' || continue
+  # like `push-service` or flag like `--push-option` doesn't false-match, but
+  # shell metacharacters right after `push` — `)`, `&`, `|`, `>` — still count,
+  # e.g. `(git push)`, `git push&`, `git push|cat`.)
+  printf '%s' "$seg_trimmed" | grep -qE '(^|[^a-zA-Z])git([^a-zA-Z-]|$)' || continue
+  printf '%s' "$seg_trimmed" | grep -qE '(^|[^a-zA-Z-])push([^a-zA-Z-]|$)' || continue
   push_segments_seen=$((push_segments_seen + 1))
 
   # Resolve the target dir: apply any `-C <path>` flags cumulatively (each

@@ -73,4 +73,24 @@ rc4=0
 out4="$(cd "$OTHER" && printf '%s' "{\"tool_input\":{\"command\":\"git -C $GATED push origin main\"}}" | bash "$GUARD" 2>&1)" || rc4=$?
 [ "$rc4" -eq 2 ] || fail "expected exit 2 (blocked) for 'git -C <gated> push' from other cwd, got $rc4: $out4"
 
-echo "✓ pre-push-guard-target-repo: all 4 checks passed"
+# 5. `(git push)` (subshell-wrapped, trailing `)` directly after `push`, no
+#    whitespace) from within GATED's cwd must still be detected as a push
+#    targeting the gated repo and gated/blocked — not silently ignored.
+rc5=0
+out5="$(cd "$GATED" && printf '%s' '{"tool_input":{"command":"(git push)"}}' | bash "$GUARD" 2>&1)" || rc5=$?
+[ "$rc5" -eq 2 ] || fail "expected exit 2 (blocked) for '(git push)' targeting the gated repo, got $rc5: $out5"
+
+# 6. `git push&` (trailing `&`, no whitespace) from within GATED's cwd must
+#    also still be detected and gated/blocked.
+rc6=0
+out6="$(cd "$GATED" && printf '%s' '{"tool_input":{"command":"git push&"}}' | bash "$GUARD" 2>&1)" || rc6=$?
+[ "$rc6" -eq 2 ] || fail "expected exit 2 (blocked) for 'git push&' targeting the gated repo, got $rc6: $out6"
+
+# 7. `(cd <OTHER> && git push)` (subshell-wrapped compound cd+push) from
+#    within GATED's cwd must scope to OTHER, same as the unwrapped form.
+rc7=0
+out7="$(cd "$GATED" && printf '%s' "{\"tool_input\":{\"command\":\"(cd $OTHER && git push origin main)\"}}" | bash "$GUARD" 2>&1)" || rc7=$?
+[ "$rc7" -eq 0 ] || fail "expected exit 0 for '(cd <other> && git push)' from gated cwd, got $rc7: $out7"
+printf '%s' "$out7" | grep -q "otta-gate" && fail "gate must not run for a subshell-wrapped 'cd <other> && git push', but it did: $out7"
+
+echo "✓ pre-push-guard-target-repo: all 7 checks passed"
