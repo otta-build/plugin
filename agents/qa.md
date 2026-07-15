@@ -22,7 +22,8 @@ Steps:
    bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-learning-policy.sh" capture \
      --source qa --event verify \
      --score <1 if gate passed AND every AC passed else 0> \
-     --feedback "<gate result + each FAILED AC with why; 'all ACs verified' if clean>"
+     --feedback "<gate result + each FAILED AC with why; 'all ACs verified' if clean>" \
+     --input "{\"branch\":\"$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')\"}"
    ```
    The deterministic gate already self-captures its own pass/fail; this record is your *adversarial* per-AC reasoning, which the gate can't produce. That reasoning is the richest GEPA signal — make `--feedback` specific (which AC, what evidence was missing).
 

@@ -259,6 +259,27 @@ git -C "$GIT_FIXTURE" diff --quiet \
 [ "$(cd "$GIT_FIXTURE" && grep -cFx '/.otta/run/' "$(git rev-parse --git-path info/exclude)")" -eq 1 ] \
   || fail "local .otta/run exclusion is missing or duplicated"
 
+# Callers may pass --input through the capture wrapper (e.g. qa/reviewer sending
+# the current branch, #171) and it reaches the ledger record unchanged, joinable
+# with Pulse /escape-rate. Captures with no --input still succeed (input: {}).
+OTTA_LEDGER_DIR="$TMP/input-ledger" \
+  bash "$SCRIPT" capture --config "$TMP/.otta.yml" \
+    --policy-receipt "$TMP/no-prepare.json" --receipt "$TMP/input-capture.jsonl" \
+    --capture true --source qa --event verify --score 1 --feedback 'all ACs verified' \
+    --project test/repo --input '{"branch":"feat/171-capture-input-branch"}' >/dev/null
+assert_receipt "$TMP/input-ledger/test-repo.jsonl" \
+  'd["input"]["branch"] == "feat/171-capture-input-branch"' \
+  "capture --input branch did not reach the ledger record"
+
+OTTA_LEDGER_DIR="$TMP/no-input-ledger" \
+  bash "$SCRIPT" capture --config "$TMP/.otta.yml" \
+    --policy-receipt "$TMP/no-prepare.json" --receipt "$TMP/no-input-capture.jsonl" \
+    --capture true --source reviewer --event spec_review --score 1 --feedback 'COMPLIANT' \
+    --project test/repo >/dev/null
+assert_receipt "$TMP/no-input-ledger/test-repo.jsonl" \
+  'd["input"] == {}' \
+  "capture without --input broke backward compatibility (AC4)"
+
 # All three delivery paths prepare the same contract; gate/reviewer/QA use its capture wrapper.
 for path in commands/dev.md commands/build.md commands/fix.md workflows/otta-build.mjs; do
   grep -q 'otta-learning-policy.sh.*prepare' "$HERE/../$path" \
