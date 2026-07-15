@@ -16,6 +16,7 @@
     "acceptance-criteria",
     "ci-gates"
   ],
+  "hooks": "./hooks/hooks.claude.json",
   "experimental": {
     "monitors": [
       {

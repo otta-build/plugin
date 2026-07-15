@@ -7,14 +7,14 @@
 #         retains the `skills` pointer)
 #   (ii)  no use of removed/renamed agent tool names (close_agent,
 #         assign_task) anywhere in commands/skills/agents
-#   (iii) hooks/hooks.json top-level keys restricted to the supported set
+#   (iii) hooks/hooks.codex.json top-level keys restricted to the supported set
 #
 # Run: bash tests/codex-breaking-guards.test.sh
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$HERE/.."
 MANIFEST="$REPO/.codex-plugin/plugin.json"
-HOOKS="$REPO/hooks/hooks.json"
+HOOKS="$REPO/hooks/hooks.codex.json"
 failures=0
 
 fail() { echo "✗ FAIL: $1" >&2; failures=$((failures + 1)); }
@@ -57,12 +57,12 @@ if [ -f "$HOOKS" ]; then
   actual_keys="$(jq -r 'keys[]' "$HOOKS" 2>/dev/null | sort)"
   expected_keys="$(printf '%s\n' $supported_top_level_keys | sort)"
   if [ "$actual_keys" = "$expected_keys" ]; then
-    pass "hooks/hooks.json top-level keys restricted to the supported set ($supported_top_level_keys)"
+    pass "hooks/hooks.codex.json top-level keys restricted to the supported set ($supported_top_level_keys)"
   else
-    fail "hooks/hooks.json top-level keys must be exactly {$supported_top_level_keys}, found: $(printf '%s' "$actual_keys" | tr '\n' ' ')"
+    fail "hooks/hooks.codex.json top-level keys must be exactly {$supported_top_level_keys}, found: $(printf '%s' "$actual_keys" | tr '\n' ' ')"
   fi
 else
-  fail "hooks/hooks.json not found at $HOOKS"
+  fail "hooks/hooks.codex.json not found at $HOOKS"
 fi
 
 if [ "$failures" -ne 0 ]; then
