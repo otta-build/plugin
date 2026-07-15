@@ -1,3 +1,9 @@
+## 1.7.4
+
+### Fixed
+
+- split hook manifests per harness — Claude Code exec args form, Codex shell form, no double-fire (#165)
+
 ## 1.7.3
 
 ### Fixed
