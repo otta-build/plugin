@@ -1,3 +1,9 @@
+## 1.7.0
+
+### Added
+
+- Codex-native parity — persisted goal, subagent lifecycle telemetry, headless output-schema, delegation + approval hardening (#158)
+
 ## 1.6.0
 
 ### Added
