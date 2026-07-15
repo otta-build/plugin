@@ -1,3 +1,9 @@
+## 1.7.1
+
+### Fixed
+
+- pre-push-guard scopes gate to the repo actually targeted by the push (#162)
+
 ## 1.7.0
 
 ### Added
