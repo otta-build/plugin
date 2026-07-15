@@ -5,7 +5,9 @@
 # on the next. No single segment matches both `git` and `push`, so
 # push_segments_seen stays 0 and the hook exits 0 without ever gating a real
 # push. Fix: collapse backslash-newline continuations into a single line
-# before segment parsing.
+# before segment parsing. Also covers the CRLF variant (`git \` + CR + LF +
+# `push`), which a naive `\<LF>`-only collapse misses (the backslash is
+# immediately followed by CR, not LF).
 # Run: bash plugins/otta/tests/pre-push-guard-line-continuation.test.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,4 +59,12 @@ out2="$(cd "$GATED" && printf '%s' '{"tool_input":{"command":"git push \\\n--for
 [ "$rc2" -eq 2 ] || fail "expected exit 2 (blocked) for 'git push \\<newline>--force', got $rc2: $out2"
 printf '%s' "$out2" | grep -q "otta gate blocked this push" || fail "expected gate-blocked message for continuation push --force: $out2"
 
-echo "✓ pre-push-guard-line-continuation: all 2 checks passed"
+# 3. `git \` + CRLF (carriage return + newline) + `push origin main` — the
+#    CRLF variant of the continuation form (e.g. a command typed/pasted with
+#    Windows-style line endings) — must also be detected and gated/blocked.
+rc3=0
+out3="$(cd "$GATED" && printf '%s' '{"tool_input":{"command":"git \\\r\npush origin main"}}' | bash "$GUARD" 2>&1)" || rc3=$?
+[ "$rc3" -eq 2 ] || fail "expected exit 2 (blocked) for 'git \\<CRLF>push origin main', got $rc3: $out3"
+printf '%s' "$out3" | grep -q "otta gate blocked this push" || fail "expected gate-blocked message for CRLF continuation push: $out3"
+
+echo "✓ pre-push-guard-line-continuation: all 3 checks passed"

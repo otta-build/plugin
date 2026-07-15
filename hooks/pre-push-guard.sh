@@ -46,7 +46,10 @@ SESSION_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 # a real push slips through ungated (fail OPEN) rather than a false block.
 # Erring toward joining continuations, even speculatively, keeps detection
 # conservative in the direction that matters.
-cmd="$(printf '%s' "$cmd" | sed -e :a -e '$!N;s/\\\n/ /;ta')"
+# Strip stray CRs first (normalizes CRLF to LF) so a CRLF-style continuation
+# (`git \` + CR + LF + `push`) collapses the same as a plain LF one — the
+# backslash-newline sed below only matches `\` directly followed by LF.
+cmd="$(printf '%s' "$cmd" | tr -d '\r' | sed -e :a -e '$!N;s/\\\n/ /;ta')"
 
 # Conservative compound-command split on && , || , ; (not a full shell
 # parser, but sufficient for the `cd X && git push` / chained forms we see).
