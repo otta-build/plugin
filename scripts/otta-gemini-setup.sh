@@ -124,7 +124,14 @@ try:
             )
             sys.exit(1)
         if not isinstance(data, dict):
-            data = {}
+            print(
+                f"ERROR: {path} exists and is valid JSON but not a JSON "
+                "object (found "
+                f"{type(data).__name__}) — refusing to overwrite it. Fix or "
+                "remove the file, then re-run.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 except FileNotFoundError:
     data = {}
 

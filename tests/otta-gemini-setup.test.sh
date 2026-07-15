@@ -168,6 +168,28 @@ AFTER="$(cat ".gemini/settings.json")"
 pass "AC3: malformed non-empty settings.json exits non-zero, no partial writes"
 
 # ---------------------------------------------------------------------------
+# 6c. Valid JSON but non-object settings.json (array/string/number): same
+#     data-loss shape as 6b — must fail loud (exit non-zero, error naming the
+#     file, no writes) instead of silently resetting to {} and clobbering.
+# ---------------------------------------------------------------------------
+for NONOBJ in '[1,2,3]' '"just a string"' '42'; do
+  RDIR="$TMP/repo6c-$(echo "$NONOBJ" | tr -dc 'a-zA-Z0-9')"
+  mkdir -p "$RDIR/.gemini"
+  cd "$RDIR"
+  printf '%s' "$NONOBJ" > ".gemini/settings.json"
+  if OUT="$(bash "$SCRIPT" "$REPO_SLUG" "$TOKEN" 2>&1)"; then
+    fail "non-object settings.json ($NONOBJ): script must exit non-zero, not proceed"
+  fi
+  echo "$OUT" | grep -qF '.gemini/settings.json' || \
+    fail "non-object settings.json ($NONOBJ): error must name the offending file: got: $OUT"
+  AFTER="$(cat ".gemini/settings.json")"
+  [ "$AFTER" = "$NONOBJ" ] || \
+    fail "non-object settings.json ($NONOBJ) was overwritten (data loss): got: $AFTER"
+  [ ! -f ".otta/gemini.env" ] || fail "non-object settings.json ($NONOBJ): .otta/gemini.env should not have been written"
+done
+pass "AC3: valid-but-non-object settings.json exits non-zero, no partial writes"
+
+# ---------------------------------------------------------------------------
 # 7. Idempotent: re-run produces byte-identical output for both files
 # ---------------------------------------------------------------------------
 RDIR="$TMP/repo7"
