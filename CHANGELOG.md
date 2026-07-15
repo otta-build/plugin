@@ -1,3 +1,9 @@
+## 1.7.2
+
+### Fixed
+
+- support gate-compliant branch names via .otta.yml branch_pattern (#163)
+
 ## 1.7.1
 
 ### Fixed
