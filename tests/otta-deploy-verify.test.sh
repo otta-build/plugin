@@ -224,7 +224,7 @@ git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
 gh() {
   printf '%s\n' "$*" >> "$CALLS"
   if [ "$1 $2" = "pr view" ]; then
-    printf '{"state":"OPEN","headRefOid":"abc123","mergeCommit":null}\n'
+    printf '{"url":"https://github.com/acme/widgets/pull/42","state":"OPEN","headRefOid":"abc123","baseRefName":"main","baseRefOid":"base1","mergeCommit":null}\n'
   fi
 }
 _approval_out="$(_run 42 --otta-yml "$Y" 2>&1)"; _approval_rc=$?
@@ -272,7 +272,7 @@ gh() {
     "pr view")
       case "$*" in
         *"--json mergeCommit -q"*) printf 'merge123\n' ;;
-        *) printf '{"state":"OPEN","headRefOid":"abc123","mergeCommit":null}\n' ;;
+        *) printf '{"url":"https://github.com/acme/widgets/pull/42","state":"OPEN","headRefOid":"abc123","baseRefName":"main","baseRefOid":"base1","mergeCommit":null}\n' ;;
       esac
       ;;
     "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
@@ -294,9 +294,9 @@ gh() {
     "pr view")
       count="$(cat "$REFRESH_COUNT")"; count=$((count + 1)); printf '%s\n' "$count" > "$REFRESH_COUNT"
       if [ "$count" -eq 1 ]; then
-        printf '{"state":"OPEN","headRefOid":"abc123","mergeCommit":null}\n'
+        printf '{"url":"https://github.com/acme/widgets/pull/42","state":"OPEN","headRefOid":"abc123","baseRefName":"main","baseRefOid":"base1","mergeCommit":null}\n'
       else
-        printf '{"state":"OPEN","headRefOid":"abc1234","mergeCommit":null}\n'
+        printf '{"url":"https://github.com/acme/widgets/pull/42","state":"OPEN","headRefOid":"abc1234","baseRefName":"main","baseRefOid":"base1","mergeCommit":null}\n'
       fi
       ;;
     "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
@@ -311,7 +311,7 @@ check "refreshed prefix drift performs no merge" 0 "$(grep -c '^gh pr merge ' "$
 gh() {
   printf 'gh %s\n' "$*" >> "$ORCH_CALLS"
   [ "$1 $2" = "pr view" ] && {
-    printf '{"state":"MERGED","headRefOid":"abc123","mergeCommit":{"oid":"merged999"}}\n'; return 0
+    printf '{"url":"https://github.com/acme/widgets/pull/42","state":"MERGED","headRefOid":"abc123","baseRefName":"main","baseRefOid":"base1","mergeCommit":{"oid":"merged999"}}\n'; return 0
   }
   return 1
 }
@@ -463,7 +463,12 @@ gh() {
   case "$1 $2" in
     "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
     "pr merge") return 0 ;;
-    "pr view") printf 'legacy123\n' ;;
+    "pr view")
+      case "$*" in
+        *"--json mergeCommit -q"*) printf 'legacy123\n' ;;
+        *) printf '{"url":"https://github.com/acme/widgets/pull/77","state":"OPEN","headRefOid":"abc123","baseRefName":"main","baseRefOid":"base123","mergeCommit":null}\n' ;;
+      esac
+      ;;
   esac
 }
 legacy_out="$(OTTA_PULSE_URL= OTTA_PULSE_TOKEN= _run 77 --otta-yml "$LEGACY_ORCH" 2>&1)"; legacy_rc=$?
@@ -471,6 +476,133 @@ check "legacy merge-and-deploy still succeeds" 0 "$legacy_rc"
 check "legacy merge-and-deploy still merges" 1 "$(grep -c '^pr merge ' "$LEGACY_CALLS")"
 case "$legacy_out" in *"provider 'none'"*) check "legacy route still invokes provider verification" yes yes ;; *) check "legacy route still invokes provider verification" yes no ;; esac
 unset -f git gh
+
+# ---------------------------------------------------------------------------
+# 11. Issue #153 — deploy PR state/merge resolution scoped by repository.
+# AC1/AC2: canonical repo is re-derived from git remote origin on every
+# invocation and threaded through every gh call — no cross-invocation state to
+# go stale. AC3: one live `gh pr view` read prints repo/URL/head/base before
+# any merge. AC5: fails closed when the PR's own URL doesn't resolve back to
+# the canonical repo, or the PR isn't OPEN, instead of trusting `gh pr
+# merge`'s silent no-op on an already-merged/foreign PR (the exact false
+# "deploy: merged PR #17" the issue reported).
+# ---------------------------------------------------------------------------
+
+# 11a. Pure helper: extracts owner/repo from a PR URL.
+check "AC1 _pr_url_repo extracts owner/repo" "acme/widgets" "$(_pr_url_repo "https://github.com/acme/widgets/pull/42")"
+check "AC1 _pr_url_repo on garbage → empty" "" "$(_pr_url_repo "not-a-url")"
+
+# 11b. Pure helper: identity check passes when URL repo matches canonical repo.
+MATCH_JSON='{"url":"https://github.com/acme/widgets/pull/42","state":"OPEN","headRefOid":"headsha1","baseRefName":"main","baseRefOid":"basesha1"}'
+_match_out="$(_print_and_verify_pr_identity "acme/widgets" 42 "$MATCH_JSON")"; _match_rc=$?
+check "AC3 identity match → exit 0" 0 "$_match_rc"
+case "$_match_out" in
+  *"acme/widgets"*"headsha1"*"basesha1"*) check "AC3 identity match prints repo/head/base" yes yes ;;
+  *) check "AC3 identity match prints repo/head/base" yes "no ($_match_out)" ;;
+esac
+
+# 11c. AC5: identity check fails closed when the live URL resolves to a
+# different repository than the canonical one we intended to query.
+MISMATCH_JSON='{"url":"https://github.com/GitPWeb/billing-new/pull/17","state":"MERGED","headRefOid":"upstream1","baseRefName":"main","baseRefOid":"basesha2"}'
+_mismatch_out="$(_print_and_verify_pr_identity "wiselancer/billing-new" 17 "$MISMATCH_JSON" 2>&1)"; _mismatch_rc=$?
+check "AC5 identity mismatch → exit 1" 1 "$_mismatch_rc"
+case "$_mismatch_out" in
+  *"GitPWeb/billing-new"*"wiselancer/billing-new"*) check "AC5 mismatch names both repos" yes yes ;;
+  *) check "AC5 mismatch names both repos" yes "no ($_mismatch_out)" ;;
+esac
+
+# 11d. AC4 end-to-end: two repositories, PR #17 in different states, run back
+# to back. The stale/foreign "already merged" resolution from repo A must
+# never leak into repo B's fresh, still-open PR #17.
+AC4_A="$TMP/ac4-repo-a-calls"; AC4_B="$TMP/ac4-repo-b-calls"
+
+REPOA_ORCH="$(mk_yml repoa 'deploy:
+  auto: merge-on-green
+  target: staging
+  provider: none')"
+git() { [ "$1" = remote ] && echo "https://github.com/GitPWeb/billing-new.git" || :; }
+gh() {
+  printf '%s\n' "$*" >> "$AC4_A"
+  case "$1 $2" in
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr view") printf '{"url":"https://github.com/GitPWeb/billing-new/pull/17","state":"MERGED","headRefOid":"upstream1","baseRefName":"main","baseRefOid":"base1","mergeCommit":{"oid":"upstreammerge1"}}\n' ;;
+    "pr merge") echo "! Pull request GitPWeb/billing-new#17 was already merged" >&2; return 0 ;;
+  esac
+}
+_repoa_out="$(_run 17 --otta-yml "$REPOA_ORCH" 2>&1)"; _repoa_rc=$?
+check "AC4 repo A (already-merged PR #17) fails closed, no false merge report" 1 "$_repoa_rc"
+case "$_repoa_out" in *"deploy: merged PR #17"*) check "AC4 repo A does not report a false merge" yes no ;; *) check "AC4 repo A does not report a false merge" yes yes ;; esac
+check "AC4 repo A never calls pr merge on an already-merged PR" 0 "$(grep -c '^pr merge ' "$AC4_A" || true)"
+unset -f git gh
+
+REPOB_ORCH="$(mk_yml repob 'deploy:
+  auto: merge-on-green
+  target: staging
+  provider: none')"
+git() { [ "$1" = remote ] && echo "https://github.com/wiselancer/billing-new.git" || :; }
+gh() {
+  printf '%s\n' "$*" >> "$AC4_B"
+  case "$1 $2" in
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr view")
+      case "$*" in
+        *"--json mergeCommit -q"*) printf 'forkmerge1\n' ;;
+        *) printf '{"url":"https://github.com/wiselancer/billing-new/pull/17","state":"OPEN","headRefOid":"forkhead1","baseRefName":"main","baseRefOid":"base2","mergeCommit":null}\n' ;;
+      esac
+      ;;
+    "pr merge") return 0 ;;
+  esac
+}
+_repob_out="$(_run 17 --otta-yml "$REPOB_ORCH" 2>&1)"; _repob_rc=$?
+check "AC4 repo B (fresh open fork PR #17) merges its own PR" 0 "$_repob_rc"
+case "$_repob_out" in *"deploy: merged PR #17 at forkmerge1"*) check "AC4 repo B reports its own real merge SHA" yes yes ;; *) check "AC4 repo B reports its own real merge SHA" yes "no ($_repob_out)" ;; esac
+check "AC4 repo B calls pr merge exactly once on its own open PR" 1 "$(grep -c '^pr merge ' "$AC4_B" || true)"
+case "$_repob_out" in *"upstream1"*|*"GitPWeb"*) check "AC2 repo B output carries no repo-A residue" yes no ;; *) check "AC2 repo B output carries no repo-A residue" yes yes ;; esac
+unset -f git gh
+
+# 11e. github-workflow executor pre-merge refresh: the PR can merge (by any
+# actor) between the initial read (:444) and the refresh right before mutation
+# (:526). auto=merge-on-green/merge-and-deploy must not trust `gh pr merge`'s
+# own exit code on that race — it must see state=MERGED at the refresh and
+# fail closed, same as the legacy path already does.
+RACE_CALLS="$TMP/race-calls"; : > "$RACE_CALLS"
+RACE_Y="$(mk_yml race 'deploy:
+  auto: merge-on-green
+  target: staging
+  executor: github-workflow
+  workflow: deploy-staging.yml
+  ref: main
+  sha_input: commit_sha
+  provider: none
+  verify: none
+  health_url: https://example.test/health
+  health_commit_field: commit')"
+export OTTA_DEPLOY_POLL_TIMEOUT=0 OTTA_DEPLOY_POLL_INTERVAL=1
+git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
+run_github_workflow_deploy() { printf 'adapter called\n' >> "$RACE_CALLS"; return 0; }
+RACE_VIEW_COUNT="$TMP/race-view-count"; printf '0\n' > "$RACE_VIEW_COUNT"
+gh() {
+  printf '%s\n' "$*" >> "$RACE_CALLS"
+  case "$1 $2" in
+    "pr view")
+      count="$(cat "$RACE_VIEW_COUNT")"; count=$((count + 1)); printf '%s\n' "$count" > "$RACE_VIEW_COUNT"
+      if [ "$count" -eq 1 ]; then
+        printf '{"url":"https://github.com/acme/widgets/pull/91","state":"OPEN","headRefOid":"racehead1","baseRefName":"main","baseRefOid":"base1","mergeCommit":null}\n'
+      else
+        printf '{"url":"https://github.com/acme/widgets/pull/91","state":"MERGED","headRefOid":"racehead1","baseRefName":"main","baseRefOid":"base1","mergeCommit":{"oid":"racemerge1"}}\n'
+      fi
+      ;;
+    "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+    "pr merge") printf '! Pull request acme/widgets#91 was already merged\n' >&2; return 0 ;;
+  esac
+}
+_race_out="$(_run 91 --otta-yml "$RACE_Y" 2>&1)"; _race_rc=$?
+check "AC(#153) refresh-path race: already-merged at refresh → fails closed" 1 "$_race_rc"
+check "AC(#153) refresh-path race: no second pr merge attempted" 0 "$(grep -c '^pr merge ' "$RACE_CALLS" || true)"
+check "AC(#153) refresh-path race: adapter never dispatched" 0 "$(grep -c '^adapter called' "$RACE_CALLS" || true)"
+case "$_race_out" in *"not OPEN"*"MERGED"*) check "AC(#153) refresh-path race: error names the state" yes yes ;; *) check "AC(#153) refresh-path race: error names the state" yes "no ($_race_out)" ;; esac
+unset -f git gh run_github_workflow_deploy
+unset OTTA_DEPLOY_POLL_TIMEOUT OTTA_DEPLOY_POLL_INTERVAL
 
 echo "  → $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
