@@ -4,8 +4,14 @@ export const meta = {
   phases: [{ title: 'Batch' }],
 }
 
-// Pure: normalize a raw issue arg (array | scalar | undefined) -> deduped string list.
-export function normalizeIssues(raw) {
+// NOTE: a Workflow script wraps everything after `export const meta` in a
+// function where static `import`/`export` are illegal, and `meta` must be the
+// first statement. So the pure helpers below are plain (non-export) function
+// declarations, not a separate module. They are unit-tested by slicing them out
+// of this file (see tests/otta-batch-helpers.test.sh).
+
+// Normalize a raw issue arg (array | scalar | undefined) -> deduped string list.
+function normalizeIssues(raw) {
   const list = Array.isArray(raw) ? raw : (raw == null ? [] : [raw])
   const seen = new Set()
   const out = []
@@ -16,8 +22,8 @@ export function normalizeIssues(raw) {
   return out
 }
 
-// Pure: map parallel() results (a null = failed/skipped lane) -> summary rows.
-export function summarizeBatch(results, issues) {
+// Map parallel() results (a null = failed/skipped lane) -> summary rows.
+function summarizeBatch(results, issues) {
   return issues.map((issue, i) => {
     const r = results[i]
     if (!r) return { issue: String(issue).replace(/^#/, ''), status: 'blocked', reason: 'lane-error-or-null' }
@@ -28,8 +34,15 @@ export function summarizeBatch(results, issues) {
   })
 }
 
-const issues = normalizeIssues(args && (args.issues ?? args))
-const root = (args && args.pluginRoot) || '${CLAUDE_PLUGIN_ROOT}'
+// args may arrive as a real object OR as a JSON string (harness serialization
+// varies). Normalize to an object before reading fields.
+let a = args
+if (typeof a === 'string') {
+  try { a = JSON.parse(a) } catch { a = { issues: a } }
+}
+
+const issues = normalizeIssues(a && (a.issues ?? a))
+const root = (a && a.pluginRoot) || '${CLAUDE_PLUGIN_ROOT}'
 const CHILD = `${root}/workflows/otta-build.mjs`
 
 if (!issues.length) return { error: 'no issues provided — usage: /otta:batch 101 102 103', issues: [] }
