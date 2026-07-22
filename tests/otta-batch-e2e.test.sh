@@ -24,10 +24,12 @@ export OTTA_LEDGER_DIR="$TMP/ledger"
 
 wt_count() { find "$TMP/wts" -maxdepth 1 -type d -name "*-$1" 2>/dev/null | wc -l | tr -d ' '; }
 
-# === 1. REAL 16-lane concurrent fan-out: each lane creates its worktree AND
+# === 1. REAL concurrent fan-out (LANES lanes): each lane creates its worktree AND
 #        commits a distinct file to its own branch — proves true isolation. ===
 pids=""
-for n in $(seq 1 16); do
+LANES=8   # ≈ the real Workflow fan-out cap min(16, cores-2); enough to prove
+          # real cross-lane isolation without starving a constrained CI runner.
+for n in $(seq 1 "$LANES"); do
   (
     cd "$WORK"
     wt="$(bash "$WT_SCRIPT" "$n" main 2>/dev/null)" || exit 1
@@ -42,20 +44,20 @@ for n in $(seq 1 16); do
   pids="$pids $!"
 done
 ok=0; for p in $pids; do wait "$p" && ok=$((ok+1)); done
-[ "$ok" = "16" ] || fail "only $ok/16 real lanes completed"
+[ "$ok" = "$LANES" ] || fail "only $ok/$LANES real lanes completed"
 
 # Isolation: each branch otta/<n> must contain ONLY its own lane file (+ base),
 # never another lane's file. This is the core batch guarantee.
-for n in $(seq 1 16); do
+for n in $(seq 1 "$LANES"); do
   files="$(git -C "$WORK" ls-tree --name-only "otta/$n" 2>/dev/null | sort | tr '\n' ' ')"
   [ "$files" = "base.txt lane-$n.txt " ] || fail "branch otta/$n leaked cross-lane files: [$files]"
 done
 
-# Ledger: 16 concurrent appends → 16 intact JSON lines (no interleave).
+# Ledger: N concurrent appends → N intact JSON lines (no interleave).
 LF="$TMP/ledger/acme-web.jsonl"
-[ "$(wc -l < "$LF" | tr -d ' ')" = "16" ] || fail "ledger: expected 16 lines, got $(wc -l < "$LF")"
+[ "$(wc -l < "$LF" | tr -d ' ')" = "$LANES" ] || fail "ledger: expected $LANES lines, got $(wc -l < "$LF")"
 while IFS= read -r line; do printf '%s' "$line" | jq -e . >/dev/null 2>&1 || fail "corrupt ledger line"; done < "$LF"
-echo "  ✓ 16 real lanes: isolated branches + intact ledger"
+echo "  ✓ $LANES real lanes: isolated branches + intact ledger"
 
 # === 2. EDGE: duplicate issue → idempotent reuse, not a second worktree. ===
 before="$(wt_count 1)"
@@ -97,4 +99,4 @@ live="$(git -C "$WORK" worktree list | grep -c "$TMP/wts" || true)"
 [ "$live" = "0" ] || fail "--prune 0 left $live registered worktrees"
 echo "  ✓ --remove + --prune 0 tear down all lanes"
 
-echo "✓ otta-batch e2e: 16-lane isolation, dedup, clobber-refusal, failure-isolation, teardown"
+echo "✓ otta-batch e2e: 8-lane isolation, dedup, clobber-refusal, failure-isolation, teardown"

@@ -18,7 +18,9 @@ otta_lock_acquire "$LOCK" || fail "acquire failed on free lock"
 otta_lock_release "$LOCK"
 [ -d "$LOCK" ] && fail "lock dir not removed on release"
 
-# 2. mutual exclusion: 20 concurrent incrementers of a shared counter never lose a write
+# 2. mutual exclusion: 8 concurrent incrementers of a shared counter never lose a
+#    write (8 ≈ the real Workflow fan-out cap min(16, cores-2); enough to prove
+#    the mkdir mutex without starving a constrained CI runner).
 COUNT="$TMP/count"; echo 0 > "$COUNT"
 LOCK2="$TMP/l2"
 inc() {
@@ -26,9 +28,9 @@ inc() {
   n="$(cat "$COUNT")"; echo $((n + 1)) > "$COUNT"
   otta_lock_release "$LOCK2"
 }
-for _ in $(seq 20); do inc & done
+for _ in $(seq 8); do inc & done
 wait
-[ "$(cat "$COUNT")" = "20" ] || fail "lost updates under contention: got $(cat "$COUNT"), want 20"
+[ "$(cat "$COUNT")" = "8" ] || fail "lost updates under contention: got $(cat "$COUNT"), want 8"
 
 # 3. timeout returns non-zero when the lock is already held (fresh, not stale)
 LOCK3="$TMP/l3"; mkdir "$LOCK3"

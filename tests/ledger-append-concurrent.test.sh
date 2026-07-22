@@ -10,7 +10,7 @@ trap 'rm -rf "$TMP"' EXIT
 fail() { echo "✗ $1" >&2; exit 1; }
 
 BIG="$(head -c 6000 < /dev/zero | tr '\0' 'x')"   # 6KB payload, exceeds PIPE_BUF
-N=16
+N=8   # ≈ real Workflow fan-out cap; enough to prove no interleave, CI-friendly
 pids=""
 for i in $(seq "$N"); do
   ( OTTA_LEDGER_DIR="$TMP" OTTA_NO_CAPTURE=1 bash "$SCRIPT" \

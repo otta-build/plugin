@@ -10,7 +10,7 @@
 # lock is never stolen).
 
 otta_lock_acquire() {
-  local lock="$1" timeout="${2:-60}" stale now m age deadline
+  local lock="$1" timeout="${2:-60}" stale now m age deadline jit
   stale="${OTTA_LOCK_STALE_SECS:-300}"
   # Wall-clock deadline, NOT an iteration count: under a loaded/constrained
   # runner (few cores, many spinners) a `sleep 0.1 × N` counter fires early and
@@ -31,8 +31,12 @@ otta_lock_acquire() {
       return 1
     fi
     # Jittered backoff (0.02–0.09s) so synchronized spinners desync instead of
-    # thundering-herd racing the same instant and starving unlucky lanes.
-    sleep "0.0$(( RANDOM % 8 + 2 ))"
+    # thundering-herd racing the same instant and starving unlucky lanes. Use
+    # per-process /dev/urandom entropy — $RANDOM is SHARED across forked `&`
+    # subshells (identical sequences → no desync), and $BASHPID can be empty.
+    jit="$(od -An -N1 -tu1 /dev/urandom 2>/dev/null | tr -d ' ')"
+    [ -n "$jit" ] || jit=$$
+    sleep "0.0$(( jit % 8 + 2 ))"
   done
   return 0
 }
