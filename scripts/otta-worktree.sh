@@ -16,6 +16,9 @@
 # Only the path goes to stdout; all logs go to stderr (so `cd "$(...)"` is safe).
 set -euo pipefail
 
+# shellcheck source=otta-lock.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/otta-lock.sh"
+
 WT_ROOT="${OTTA_WORKTREE_DIR:-$HOME/.otta/worktrees}"
 
 repo_slug() {
@@ -200,22 +203,35 @@ mkdir -p "$WT_ROOT"
 if [ -e "$WT/.git" ]; then
   echo "↻ reusing worktree $WT" >&2
 else
-  # A prior DevOps teardown may have retained an empty cwd tombstone so Stop
-  # hooks could finish. Only remove an empty directory; never discard unknown
-  # files that may belong to the user or a failed run.
-  if [ -d "$WT" ]; then
-    rmdir "$WT" 2>/dev/null || {
-      echo "refusing to replace non-empty non-worktree path: $WT" >&2
-      exit 1
-    }
+  # Concurrent `git worktree add` contends on the shared .git/worktrees lock and
+  # races with "fatal: could not lock". Serialize creation with the per-repo
+  # mkdir lock (flock is absent on macOS). Only the create step is serialized;
+  # the long build work stays parallel.
+  _wt_lock="$WT_ROOT/.lock-$SLUG"
+  otta_lock_acquire "$_wt_lock" || { echo "✗ worktree lock timeout for $SLUG" >&2; exit 1; }
+  # Re-check inside the lock: another lane may have created it while we waited.
+  if [ -e "$WT/.git" ]; then
+    echo "↻ reusing worktree $WT" >&2
+  else
+    # A prior DevOps teardown may have retained an empty cwd tombstone so Stop
+    # hooks could finish. Only remove an empty directory; never discard unknown
+    # files that may belong to the user or a failed run.
+    if [ -d "$WT" ]; then
+      rmdir "$WT" 2>/dev/null || {
+        echo "refusing to replace non-empty non-worktree path: $WT" >&2
+        otta_lock_release "$_wt_lock"
+        exit 1
+      }
+    fi
+    git worktree add -B "$BRANCH" "$WT" "$START" >/dev/null 2>&1 \
+      || git worktree add "$WT" "$START" >/dev/null 2>&1
+    echo "✓ worktree $WT on $BRANCH off $START" >&2
+    # gitignore session.json (token-adjacent)
+    grep -qxF '.otta/session.json' "${WT}/.gitignore" 2>/dev/null || \
+      echo '.otta/session.json' >> "${WT}/.gitignore"
+    _stamp_session_link "$WT" "$BRANCH" "$(repo_slug_full)"
   fi
-  git worktree add -B "$BRANCH" "$WT" "$START" >/dev/null 2>&1 \
-    || git worktree add "$WT" "$START" >/dev/null 2>&1
-  echo "✓ worktree $WT on $BRANCH off $START" >&2
-  # gitignore session.json (token-adjacent)
-  grep -qxF '.otta/session.json' "${WT}/.gitignore" 2>/dev/null || \
-    echo '.otta/session.json' >> "${WT}/.gitignore"
-  _stamp_session_link "$WT" "$BRANCH" "$(repo_slug_full)"
+  otta_lock_release "$_wt_lock"
 fi
 
 printf '%s\n' "$WT"
