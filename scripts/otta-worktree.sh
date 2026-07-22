@@ -17,7 +17,8 @@
 set -euo pipefail
 
 # shellcheck source=otta-lock.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/otta-lock.sh"
+# Pure-bash path (no external `dirname`) so a PATH-restricted caller can't break sourcing.
+. "$(cd "${BASH_SOURCE[0]%/*}" && pwd)/otta-lock.sh"
 
 WT_ROOT="${OTTA_WORKTREE_DIR:-$HOME/.otta/worktrees}"
 
