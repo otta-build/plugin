@@ -2,6 +2,12 @@
 
 ### Added
 
+- /otta:batch — parallel multi-issue delivery (#174)
+
+## 1.11.0
+
+### Added
+
 - `/otta:batch` — parallel multi-issue delivery. Fans out the existing
   build→review→qa→ship pipeline across many issues, one PR each. Adds a portable
   `mkdir` lock (macOS has no `flock`) guarding concurrent `git worktree add` and
