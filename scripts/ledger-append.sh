@@ -15,6 +15,9 @@
 # Store: ${OTTA_LEDGER_DIR:-~/.otta/ledger}/<project-slug>.jsonl  (one file per repo)
 set -euo pipefail
 
+# shellcheck source=otta-lock.sh
+. "$(cd "${BASH_SOURCE[0]%/*}" && pwd)/otta-lock.sh"
+
 # Source repo-local Pulse config if present, but only for vars not already SET in env.
 # An explicitly-exported env var (even empty) always wins over the file value.
 if [ -f "./.otta/pulse.env" ]; then
@@ -148,7 +151,13 @@ print(json.dumps(record, separators=(",", ":"), allow_nan=False))
 PY
 )" || usage
 fi
+# One ledger file per repo is shared across concurrent batch lanes. O_APPEND is
+# atomic only up to PIPE_BUF (~4KB); a fat record can interleave. Serialize the
+# write with the portable mkdir lock.
+_ledger_lock="$DIR/.lock-$SLUG"
+otta_lock_acquire "$_ledger_lock" || { echo "✗ ledger lock timeout for $SLUG" >&2; exit 1; }
 printf '%s\n' "$RECORD" >> "$DIR/$SLUG.jsonl"
+otta_lock_release "$_ledger_lock"
 
 echo "✓ ledger += $EVENT (score=$SCORE) → $DIR/$SLUG.jsonl" >&2
 

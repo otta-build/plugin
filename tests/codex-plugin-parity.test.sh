@@ -15,7 +15,7 @@ fail() {
 }
 
 canonical_commands=(
-  setup start dev build fix ship status schedule remember pulse-doctor
+  setup start dev build batch fix ship status schedule remember pulse-doctor
 )
 portable_command_root='${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}'
 
@@ -44,9 +44,9 @@ actual_otta_skill_dirs="$(
   find "$REPO/skills" -mindepth 1 -maxdepth 1 -type d -name 'otta-*' -exec basename {} \; | sort
 )"
 if [ "$actual_otta_skill_dirs" = "$expected_otta_skill_dirs" ]; then
-  pass "Codex exposes exactly the ten canonical otta-* skill directories"
+  pass "Codex exposes exactly the canonical otta-* skill directories"
 else
-  fail "Codex otta-* skill directories must match the ten canonical commands (found: $(printf '%s' "$actual_otta_skill_dirs" | tr '\n' ' '))"
+  fail "Codex otta-* skill directories must match the canonical commands (found: $(printf '%s' "$actual_otta_skill_dirs" | tr '\n' ' '))"
 fi
 
 for command_name in "${canonical_commands[@]}"; do
@@ -154,6 +154,19 @@ if grep -Fq 'When the `Workflow` tool is available' "$BUILD_COMMAND" &&
   pass "build preserves Workflow and defines sequential Codex-native orchestration"
 else
   fail "build must conditionally preserve Workflow and define sequential Codex spawn/wait/feedback orchestration"
+fi
+
+BATCH_COMMAND="$REPO/commands/batch.md"
+if grep -Fq 'When the `Workflow` tool is available' "$BATCH_COMMAND" &&
+   grep -Fq 'When `Workflow` is unavailable' "$BATCH_COMMAND" &&
+   grep -Fq '`spawn_agent`' "$BATCH_COMMAND" &&
+   grep -Fq '`wait_agent`' "$BATCH_COMMAND" &&
+   grep -Fq 'one lane per issue' "$BATCH_COMMAND" &&
+   grep -Fq 'include the resolved absolute plugin root in every subagent prompt' "$BATCH_COMMAND" &&
+   grep -Fq 'If neither Workflow nor collaboration/subagent primitives are available' "$BATCH_COMMAND"; then
+  pass "batch preserves Workflow fan-out and defines a parallel Codex-native lane fan-out"
+else
+  fail "batch must conditionally preserve Workflow and define parallel Codex spawn/wait lane orchestration"
 fi
 
 DEV_COMMAND="$REPO/commands/dev.md"

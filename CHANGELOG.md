@@ -1,3 +1,17 @@
+## 1.11.0
+
+### Added
+
+- `/otta:batch` — parallel multi-issue delivery. Fans out the existing
+  build→review→qa→ship pipeline across many issues, one PR each. Adds a portable
+  `mkdir` lock (macOS has no `flock`) guarding concurrent `git worktree add` and
+  ledger appends, with stale-lock self-heal. Worktrees are `git worktree list`-visible
+  and GC'd via `otta-worktree.sh --prune`.
+- `/otta:batch` is dual-harness: Claude Code fans out via the Workflow tool
+  (`workflows/otta-batch.mjs`), Codex fans out one lane per issue via native
+  `spawn_agent`/`wait_agent` (`skills/otta-batch/SKILL.md` + `commands/batch.md`
+  adapters), with a sequential fallback. Enforced by `codex-plugin-parity.test.sh`.
+
 ## 1.10.0
 
 ### Added

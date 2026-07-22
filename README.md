@@ -44,6 +44,7 @@ Install Otta from Codex's Plugins surface. Codex reads `.codex-plugin/plugin.jso
 | `/otta:start <issue>` | Seed `.pr-body.md` from a GitHub issue's acceptance criteria |
 | `/otta:dev <issue>` | Run the pipeline **interactively** — the builder can ask you mid-build |
 | `/otta:build <issue>` | Run the pipeline **autonomously** as a workflow (unattended, can't ask) |
+| `/otta:batch <issue> <issue> ...` | Run the pipeline across many issues **concurrently** — one PR each |
 | `/otta:ship` | Run the local gate, then open the PR with the seeded body (manual ship) |
 | `/otta:setup` | Install the pre-push gate hook + onboard the Pulse GitHub App |
 | `/otta:pulse-doctor [owner/repo]` | Verify the Pulse GitHub App installation has `checks:write` |
@@ -71,6 +72,13 @@ Both run the same `builder → reviewer → qa → devops` stages and open a PR 
 4. **Ship** — `devops` opens the PR — **only if** the gate passed and every AC passed
 
 The subagents (`agents/*.md`) are reusable on their own — Claude delegates to them by name, and you can use them as agent-team teammates too.
+
+### `/otta:batch <issue> <issue> ...`
+
+Run the gated pipeline across many issues **concurrently** — one worktree-isolated
+lane and one PR per issue. Otta gates every lane identically; a failed lane never
+aborts the batch. Rides the Workflow tool's native `parallel()` fan-out (Otta owns
+the gate, not the scheduler). Concurrency self-throttles at `min(16, cores−2)`.
 
 ### Branch naming (`.otta.yml` `branch_pattern`)
 
