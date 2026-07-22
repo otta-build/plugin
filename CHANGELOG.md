@@ -2,6 +2,11 @@
 
 ### Added
 
+- `/otta:batch` — parallel multi-issue delivery. Fans out the existing
+  build→review→qa→ship pipeline across many issues via native `parallel()`, one
+  PR each. Adds a portable `mkdir` lock (macOS has no `flock`) guarding concurrent
+  `git worktree add` and ledger appends. Worktrees are `git worktree list`-visible
+  and GC'd via `otta-worktree.sh --prune`.
 - emit input.branch on qa/reviewer loop_verdict captures (#172)
 
 ## 1.9.0
