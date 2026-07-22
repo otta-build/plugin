@@ -10,9 +10,12 @@
 # lock is never stolen).
 
 otta_lock_acquire() {
-  local lock="$1" timeout="${2:-30}" waited=0 max stale now m age
-  max=$((timeout * 10))
+  local lock="$1" timeout="${2:-60}" stale now m age deadline
   stale="${OTTA_LOCK_STALE_SECS:-300}"
+  # Wall-clock deadline, NOT an iteration count: under a loaded/constrained
+  # runner (few cores, many spinners) a `sleep 0.1 × N` counter fires early and
+  # starves lanes; a real deadline waits the actual `timeout` seconds.
+  deadline=$(( $(date +%s) + timeout ))
   until mkdir "$lock" 2>/dev/null; do
     # Self-heal: steal a lock left behind by a dead holder. GNU `stat -c %Y`
     # first, BSD/macOS `stat -f %m` fallback (same order used elsewhere).
@@ -23,12 +26,13 @@ otta_lock_acquire() {
       rmdir "$lock" 2>/dev/null || true
       continue
     fi
-    sleep 0.1
-    waited=$((waited + 1))
-    if [ "$waited" -ge "$max" ]; then
+    if [ "$now" -ge "$deadline" ]; then
       echo "otta-lock: timeout after ${timeout}s acquiring $lock" >&2
       return 1
     fi
+    # Jittered backoff (0.02–0.09s) so synchronized spinners desync instead of
+    # thundering-herd racing the same instant and starving unlucky lanes.
+    sleep "0.0$(( RANDOM % 8 + 2 ))"
   done
   return 0
 }

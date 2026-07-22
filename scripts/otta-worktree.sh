@@ -210,6 +210,10 @@ else
   # the long build work stays parallel.
   _wt_lock="$WT_ROOT/.lock-$SLUG"
   otta_lock_acquire "$_wt_lock" || { echo "✗ worktree lock timeout for $SLUG" >&2; exit 1; }
+  # Release the lock on EVERY exit path — including a `set -e` abort from a failed
+  # `git worktree add` (e.g. a bad base ref). Without this a failing lane would
+  # orphan the per-repo lock and block its siblings until the stale timeout.
+  trap 'otta_lock_release "$_wt_lock"' EXIT
   # Re-check inside the lock: another lane may have created it while we waited.
   if [ -e "$WT/.git" ]; then
     echo "↻ reusing worktree $WT" >&2
@@ -220,12 +224,16 @@ else
     if [ -d "$WT" ]; then
       rmdir "$WT" 2>/dev/null || {
         echo "refusing to replace non-empty non-worktree path: $WT" >&2
-        otta_lock_release "$_wt_lock"
         exit 1
       }
     fi
-    git worktree add -B "$BRANCH" "$WT" "$START" >/dev/null 2>&1 \
-      || git worktree add "$WT" "$START" >/dev/null 2>&1
+    # If both attempts fail (e.g. an invalid base), release + exit non-zero for
+    # THIS lane without taking the lock down with us (the trap handles release).
+    if ! { git worktree add -B "$BRANCH" "$WT" "$START" >/dev/null 2>&1 \
+        || git worktree add "$WT" "$START" >/dev/null 2>&1; }; then
+      echo "✗ git worktree add failed for issue $ISSUE off $START" >&2
+      exit 1
+    fi
     echo "✓ worktree $WT on $BRANCH off $START" >&2
     # gitignore session.json (token-adjacent)
     grep -qxF '.otta/session.json' "${WT}/.gitignore" 2>/dev/null || \
@@ -233,6 +241,7 @@ else
     _stamp_session_link "$WT" "$BRANCH" "$(repo_slug_full)"
   fi
   otta_lock_release "$_wt_lock"
+  trap - EXIT
 fi
 
 printf '%s\n' "$WT"
