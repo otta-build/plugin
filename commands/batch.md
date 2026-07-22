@@ -15,9 +15,10 @@ lane never aborts the batch).
 1. Parse `$ARGUMENTS` into a whitespace-separated list of issue numbers. If empty,
    tell the user the usage `/otta:batch 101 102 103` and stop.
 
-2. Invoke the **Workflow** tool with:
-   - `scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/otta-batch.mjs"`
-   - `args: { "issues": [<the parsed issue numbers as strings>], "pluginRoot": "${CLAUDE_PLUGIN_ROOT}" }`
+2. Invoke the **Workflow** tool with (resolve the plugin root with the same
+   fallback every other Otta command uses):
+   - `scriptPath: "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/workflows/otta-batch.mjs"`
+   - `args: { "issues": [<the parsed issue numbers as strings>], "pluginRoot": "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}" }`
 
    (The workflow normalizes/dedupes the list, fans out one `otta-build` lane per
    issue via native `parallel()`, and returns `{ issues: [...], summary }`.)
@@ -32,5 +33,5 @@ lane never aborts the batch).
 - Worktrees live under `~/.otta/worktrees/` and are discoverable via
   `git worktree list`; the pipeline tears each down after its PR opens.
 - If a lane dies before shipping, sweep leftover worktrees with the existing GC:
-  `bash "${CLAUDE_PLUGIN_ROOT}/scripts/otta-worktree.sh" --prune` (age-based;
+  `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/otta-worktree.sh" --prune` (age-based;
   pass `--prune 0` to remove all when no batch is in flight).
