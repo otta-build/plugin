@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # subagent-gate-guard.test.sh — behavior test for the SubagentStop gate hook.
-# No test framework in this repo; run directly:  bash hooks/subagent-gate-guard.test.sh
+# No test framework in this repo; run directly:  bash tests/subagent-gate-guard.test.sh
 # Exits 0 when all cases pass, 1 otherwise.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GUARD="$HERE/subagent-gate-guard.sh"
+GUARD="$HERE/../hooks/subagent-gate-guard.sh"
 pass=0; fail=0
 
 # Run the guard with a given stdin JSON + env; echo the exit code.
