@@ -1,3 +1,9 @@
+## 1.11.1
+
+### Fixed
+
+- close pre-push fail-open, un-collide skill name, unwrap Python (#178)
+
 ## 1.11.0
 
 ### Added
