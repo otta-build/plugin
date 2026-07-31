@@ -93,7 +93,7 @@ _runtime_sha_once() {
 # release. Queued/running candidates are non-terminal successor_pending.
 find_eligible_successor() {
   local repo="$1" workflow="$2" ref="$3" environment="$4" older_sha="$5"
-  local health_url="$6" health_field="$7" runs rows runtime_sha="" line
+  local health_url="$6" health_field="$7" runs rows runtime_sha=""
   local run_id status conclusion candidate_sha url compare pending="" included="" included_count=0 included_shas="|"
   runs="$(_list_workflow_runs "$repo" "$workflow" "$ref")" || {
     jq -cn --arg outcome blocked --arg reason workflow-evidence-unavailable '{outcome:$outcome,reason:$reason}'
