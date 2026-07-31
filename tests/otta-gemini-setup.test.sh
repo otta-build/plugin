@@ -258,7 +258,9 @@ pass "AC1: consent disclosure printed; no docker/collector instructions; folder-
 RDIR="$TMP/repo11"
 mkdir -p "$RDIR"
 cd "$RDIR"
+# shellcheck disable=SC1007  # `VAR= cmd` is an intentional empty-value env prefix for one command — setting the variable empty is exactly what this case tests
 if OTTA_PULSE_TOKEN= bash "$SCRIPT" >/dev/null 2>&1; then fail "missing args should exit non-zero"; fi
+# shellcheck disable=SC1007  # `VAR= cmd` is an intentional empty-value env prefix for one command — setting the variable empty is exactly what this case tests
 if OTTA_PULSE_TOKEN= bash "$SCRIPT" "$REPO_SLUG" >/dev/null 2>&1; then fail "missing token should exit non-zero"; fi
 pass "usage guard: missing repo/token rejected"
 

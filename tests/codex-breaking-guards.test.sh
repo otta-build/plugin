@@ -23,6 +23,11 @@ pass() { echo "  ✓ $1"; }
 # (i) no reliance on removed file-based custom prompts (~/.codex/prompts).
 # Scan documentation/config surfaces only; exclude this test file itself and
 # .pr-body.md, which legitimately quotes the guarded string as AC text.
+# The tilde here is part of the literal string being SEARCHED FOR, not a path
+# this script dereferences. Expanding it to $HOME (SC2088) would make the guard
+# hunt for the caller's home directory instead of the '~/.codex/prompts' text
+# the guard exists to forbid.
+# shellcheck disable=SC2088
 prompt_hits="$(
   grep -rlF '~/.codex/prompts' "$REPO/commands" "$REPO/skills" "$REPO/agents" \
     "$REPO/scripts" "$REPO/docs" 2>/dev/null || true

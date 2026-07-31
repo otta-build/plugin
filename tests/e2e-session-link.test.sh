@@ -103,7 +103,7 @@ PY
 STUB_PID=$!
 
 # Wait for stub to be ready (poll up to 3s)
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   python3 -c "import socket; s=socket.socket(); s.settimeout(0.2); s.connect(('127.0.0.1',$STUB_PORT)); s.close()" 2>/dev/null && break
   sleep 0.1
 done

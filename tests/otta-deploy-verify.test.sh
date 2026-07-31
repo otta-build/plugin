@@ -471,6 +471,7 @@ gh() {
       ;;
   esac
 }
+# shellcheck disable=SC1007  # `VAR= cmd` is an intentional empty-value env prefix for one command — setting the variable empty is exactly what this case tests
 legacy_out="$(OTTA_PULSE_URL= OTTA_PULSE_TOKEN= _run 77 --otta-yml "$LEGACY_ORCH" 2>&1)"; legacy_rc=$?
 check "legacy merge-and-deploy still succeeds" 0 "$legacy_rc"
 check "legacy merge-and-deploy still merges" 1 "$(grep -c '^pr merge ' "$LEGACY_CALLS")"
