@@ -1,3 +1,9 @@
+## 1.11.8
+
+### Fixed
+
+- stop otta-worktree dirtying the target repo's tracked .gitignore (#191)
+
 ## 1.11.7
 
 ### Changed
