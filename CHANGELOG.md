@@ -1,3 +1,9 @@
+## 1.11.6
+
+### Fixed
+
+- count worktree matches instead of [ -e <glob> ] (SC2144) (#188)
+
 ## 1.11.5
 
 ### Changed
