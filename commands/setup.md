@@ -333,7 +333,7 @@ Show a complete summary of what will be written based on all choices above:
 > - `.claude/settings.local.json` (telemetry, gitignored): `{yes/no — logs / logs+traces}`
 > - `$CODEX_HOME/config.toml` (active Codex telemetry, mode 0600): `{yes/no — normally ~/.codex/config.toml}`
 > - Pre-push gate hook (install-git-hooks.sh): `{yes/no}`
-> - `.gitattributes` — `.pr-body.md merge=ours` entry (always written, idempotent)
+> - `.gitattributes` — `.pr-body.md merge=ours` entry (idempotent; skipped entirely when `.pr-body.md` is gitignored)
 > - `CLAUDE.md` and `AGENTS.md` — idempotent Otta intent-routing policy blocks (always written without changing surrounding content)
 > - Additional harness context files (if absent): `GEMINI.md` (Gemini), `.cursor/rules` (Cursor) — only for detected non-CC harnesses
 > - `docs/runner-setup.md` (self-hosted runner instructions): `{yes/no — only for private repos where runner was chosen}`
@@ -470,9 +470,11 @@ If the developer chose Yes in step 8:
 bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/install-git-hooks.sh"
 ```
 
-### B4b. Install PR-body merge driver (unconditional)
+### B4b. Install PR-body merge driver
 
-Always run after writing `.pr-body.md`. Installs the `merge=ours` git driver so `.pr-body.md` is never overwritten during a merge or rebase from main — each branch keeps its own PR body:
+Always run after writing `.pr-body.md`. Installs the `merge=ours` git driver so `.pr-body.md` is never overwritten during a merge or rebase from main — each branch keeps its own PR body.
+
+The script self-skips in repos that gitignore `.pr-body.md`: the driver only protects a *tracked* body, so installing it there would add dead config and dirty `.gitattributes` on every seed. Run it unconditionally and let it decide:
 
 ```bash
 bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/install-merge-ours.sh"
