@@ -12,6 +12,27 @@ on:
         type: string
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+      # Lower-severity findings are surfaced for review but never block. Gating
+      # them would mean a hundreds-of-edits quoting cleanup before the useful
+      # part of this gate could go green.
+      - name: shellcheck report (warning/info/style — non-blocking)
+        run: shellcheck --severity=style --format=gcc scripts/*.sh hooks/*.sh || true
+      # The blocking gate. Error severity is the class that actually breaks at
+      # runtime — e.g. the shipped otta-worktree.sh --prune defect where a
+      # BSD-first `stat -f %m` silently parsed as --file-system on Linux.
+      #
+      # The *.sh glob is what excludes scripts/otta-learning-policy.py: it is
+      # Python, so it is left out by targeting shell files, not by a blanket
+      # suppression directive inside the file.
+      - name: shellcheck gate (error severity)
+        run: shellcheck --severity=error --format=gcc scripts/*.sh hooks/*.sh
+
   test:
     runs-on: ubuntu-latest
     steps:
