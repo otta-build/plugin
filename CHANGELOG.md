@@ -1,3 +1,9 @@
+## 1.11.7
+
+### Changed
+
+- ci(otta): extend shellcheck gate to tests/, clear its 18 warnings (#189)
+
 ## 1.11.6
 
 ### Fixed
