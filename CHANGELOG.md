@@ -1,3 +1,9 @@
+## 1.11.5
+
+### Changed
+
+- test(otta): run subagent-gate-guard test in CI, guard against orphans (#185)
+
 ## 1.11.4
 
 ### Changed
