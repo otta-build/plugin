@@ -1,3 +1,9 @@
+## 1.11.3
+
+### Fixed
+
+- skip merge=ours driver where .pr-body.md is gitignored (#181)
+
 ## 1.11.2
 
 ### Changed
