@@ -96,6 +96,32 @@ derive_branch() {
   printf '%s' "$branch"
 }
 
+# Ignore .otta/session.json (token-adjacent) WITHOUT touching tracked files.
+#
+# This used to append the entry to "$WT/.gitignore". In the normal case that
+# file is TRACKED, so every worktree creation left the repo dirty in a file
+# unrelated to the issue being worked on. Reviewers stripped it as scope creep
+# (reverted in otta-build/pulse#138), so it never landed and reappeared on the
+# next run — a permanent dirt generator.
+#
+# info/exclude lives in $GIT_COMMON_DIR, is never tracked, and is shared across
+# every worktree of a repo, so this is also naturally idempotent. Same approach
+# otta-learning-policy.py already uses for /.otta/run/.
+_exclude_session_json() {
+  local wt="$1" excl entry='.otta/session.json'
+  excl="$(git -C "$wt" rev-parse --git-path info/exclude 2>/dev/null)" || return 0
+  [ -n "$excl" ] || return 0
+  # --git-path returns a path relative to the -C directory unless absolute.
+  case "$excl" in /*) ;; *) excl="$wt/$excl" ;; esac
+  mkdir -p "${excl%/*}" 2>/dev/null || return 0
+  grep -qxF "$entry" "$excl" 2>/dev/null && return 0
+  # Don't glue onto a final line that lacks its newline.
+  if [ -s "$excl" ] && [ -n "$(tail -c1 "$excl")" ]; then
+    printf '\n' >> "$excl" 2>/dev/null || return 0
+  fi
+  printf '%s\n' "$entry" >> "$excl" 2>/dev/null || return 0
+}
+
 _stamp_session_link() {
   local wt_path="$1" branch="$2" full_repo="$3"
   local sid="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
@@ -235,9 +261,7 @@ else
       exit 1
     fi
     echo "✓ worktree $WT on $BRANCH off $START" >&2
-    # gitignore session.json (token-adjacent)
-    grep -qxF '.otta/session.json' "${WT}/.gitignore" 2>/dev/null || \
-      echo '.otta/session.json' >> "${WT}/.gitignore"
+    _exclude_session_json "$WT"
     _stamp_session_link "$WT" "$BRANCH" "$(repo_slug_full)"
   fi
   otta_lock_release "$_wt_lock"
