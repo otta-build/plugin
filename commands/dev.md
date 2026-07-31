@@ -31,9 +31,12 @@ Where Codex's persisted goal system is available, set the goal from the issue's 
 
 Without native progress tooling, render the selected compact Markdown stages once. For either adapter, emit transcript messages only for decisions, failures or blockers, material risk changes, and completion. When a stage fails or is blocked, mark it `blocked` with the concrete reason and next action.
 
-1. **Seed.** If `.pr-body.md` is missing, run:
-   `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/seed-pr-body.sh" $1`
+1. **Seed.** Always reseed the body for this issue — never reuse whatever `.pr-body.md` happens to be lying around:
+   `bash "${OTTA_PLUGIN_ROOT:-${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}/scripts/seed-pr-body.sh" $1 --force`
    Read it. If the issue has no acceptance criteria, ask the developer to add them before continuing.
+
+   Then export the issue number for the rest of the run so the gate can catch a body that belongs to a different issue:
+   `export OTTA_EXPECTED_ISSUE=$1`
 
 2. **Learn.** Resolve the run's independent consult/capture policy and consult active, non-expired repo rules **before** the builder writes code:
 
