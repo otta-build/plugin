@@ -1,3 +1,9 @@
+## 1.11.4
+
+### Changed
+
+- ci(otta): tighten shellcheck gate from error to warning severity (#183)
+
 ## 1.11.3
 
 ### Fixed
