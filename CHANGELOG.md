@@ -1,3 +1,9 @@
+## 1.11.2
+
+### Changed
+
+- ci(otta): gate shellcheck at error severity over scripts/ and hooks/ (#179)
+
 ## 1.11.1
 
 ### Fixed
