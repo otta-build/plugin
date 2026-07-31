@@ -1,9 +1,9 @@
 ---
-name: otta-dev
-description: Reference for builders and reviewers using the Otta shipping loop — AC layer tags, gate rules, and evidence requirements.
+name: ac-layers
+description: Use when writing, tagging, or checking off acceptance criteria in the Otta shipping loop — AC layer tags, verification labels, gate rules, and what evidence each tag requires.
 ---
 
-# Otta Dev Reference
+# Otta AC Layer Reference
 
 ## AC Layer Tags
 

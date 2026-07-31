@@ -126,7 +126,62 @@ else
   TOPLEVEL="$SESSION_TOPLEVEL"
 fi
 
-[ -f "$TOPLEVEL/.pr-body.md" ] || exit 0
+# Resolve the repo's default branch: origin/HEAD if set, else a conventional
+# name as either a remote-tracking or local ref. Non-zero when undeterminable.
+default_branch() {
+  local top="$1" d c
+  if d="$(git -C "$top" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)"; then
+    printf '%s' "${d#origin/}"
+    return 0
+  fi
+  for c in main master; do
+    if git -C "$top" show-ref --verify --quiet "refs/remotes/origin/$c" \
+      || git -C "$top" show-ref --verify --quiet "refs/heads/$c"; then
+      printf '%s' "$c"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Is HEAD carrying commits the default branch doesn't have? That's our proxy
+# for "this push is PR-bound", i.e. work that a PR body is supposed to describe.
+ahead_of_default() {
+  local top="$1" d base cur n
+  d="$(default_branch "$top")" || return 1
+  cur="$(git -C "$top" rev-parse --abbrev-ref HEAD 2>/dev/null)" || return 1
+  # Pushing the default branch itself is not PR-bound work.
+  [ "$cur" = "$d" ] && return 1
+  if git -C "$top" show-ref --verify --quiet "refs/remotes/origin/$d"; then
+    base="origin/$d"
+  elif git -C "$top" show-ref --verify --quiet "refs/heads/$d"; then
+    base="$d"
+  else
+    return 1
+  fi
+  n="$(git -C "$top" rev-list --count "$base..HEAD" 2>/dev/null)" || return 1
+  [ "${n:-0}" -gt 0 ]
+}
+
+if [ ! -f "$TOPLEVEL/.pr-body.md" ]; then
+  # `.pr-body.md` is gitignored, so "absent" is now the normal state of a fresh
+  # checkout rather than the impossible state it was while the file was tracked.
+  # Exiting 0 unconditionally here (as this hook used to) means a branch that
+  # never seeded a body pushes with NO gate at all — a silent bypass, strictly
+  # worse than the stale-body failures untracking removed.
+  #
+  # Only Otta-governed repos have a body to require. `.otta.yml` is the same
+  # opt-in marker otta-deploy-readiness.sh uses; without it this global hook
+  # would block ordinary feature-branch pushes in every unrelated repo.
+  [ -f "$TOPLEVEL/.otta.yml" ] || exit 0
+  ahead_of_default "$TOPLEVEL" || exit 0
+
+  echo "otta gate blocked this push:" >&2
+  echo "  ⛔ [otta-gate:pr-body] no .pr-body.md in $TOPLEVEL, but HEAD is ahead of the default branch." >&2
+  echo "     Seed one:  bash scripts/seed-pr-body.sh <issue> --force" >&2
+  echo "     Bypass:    OTTA_SKIP_GATE=1 (only for pushes that aren't PR work)" >&2
+  exit 2
+fi
 
 echo "[otta-gate] re-running gate (pre-push check)" >&2
 if ! out="$(bash "$HERE/../scripts/otta-gate.sh" "$TOPLEVEL/.pr-body.md" 2>&1)"; then
