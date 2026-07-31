@@ -103,6 +103,14 @@ jq -e '.input == null and .output == false and .executor == null' \
 if OTTA_LEDGER_DIR="$TMP" bash "$SCRIPT" --source x >/dev/null 2>&1; then fail "should exit non-zero on missing args"; fi
 
 # 5b. invalid JSON and non-numeric issue/PR values are rejected with usage errors.
+#
+# $bad_args below is deliberately UNQUOTED: each entry is a flag plus its value
+# ('--input NaN') that must reach the script as two separate argv entries.
+# Quoting it would pass "--input NaN" as one argument and the script would
+# reject it for the wrong reason, so the test would still pass while checking
+# nothing. shellcheck's array suggestion (SC2089/SC2090) does not apply to a
+# `for` list of literal pairs.
+# shellcheck disable=SC2089
 for bad_args in \
   '--input {bad-json}' \
   '--output {bad-json}' \
@@ -113,6 +121,7 @@ for bad_args in \
   '--issue issue-131' \
   '--pr pr-132'; do
   ERR="$TMP/error.log"
+  # shellcheck disable=SC2090  # intentional word-splitting — see note above
   if OTTA_LEDGER_DIR="$TMP" bash "$SCRIPT" --source x --event y --score 1 \
     --feedback ok --project invalid/repo $bad_args > /dev/null 2>"$ERR"; then
     fail "invalid value accepted: $bad_args"

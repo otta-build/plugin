@@ -9,6 +9,10 @@ failures=0
 check() {
   if [ "$2" = "$3" ]; then echo "  ✓ $1"; else echo "  ✗ $1: expected [$2], got [$3]"; failures=$((failures + 1)); fi
 }
+# The script under test is resolved at runtime relative to this file, so the
+# path is not a literal shellcheck can follow. It is linted directly by the CI
+# gate's scripts/*.sh glob, so nothing is skipped by not following it here.
+# shellcheck source=/dev/null
 . "$SCRIPT"
 
 echo 'github-workflow-latest-wins:'

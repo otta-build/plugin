@@ -37,8 +37,9 @@ fi
 grep -qE 'shellcheck .*--severity=(style|info)' "$CI" \
   || fail "ci.yml should also run a non-blocking shellcheck report for lower severities"
 
-# 4. Both runs cover scripts/ and hooks/.
-for dir in 'scripts/\*\.sh' 'hooks/\*\.sh'; do
+# 4. Both runs cover scripts/, hooks/ AND tests/. tests/ is the largest shell
+#    surface in the repo (79 files) and went unlinted until #186.
+for dir in 'scripts/\*\.sh' 'hooks/\*\.sh' 'tests/\*\.sh'; do
   grep -qE "shellcheck.*$dir" "$CI" \
     || fail "ci.yml shellcheck invocation must cover $(printf '%b' "$dir" | tr -d '\\')"
 done
@@ -59,7 +60,7 @@ if ! command -v shellcheck >/dev/null 2>&1; then
 fi
 
 cd "$REPO"
-if ! out="$(shellcheck --severity=warning --format=gcc scripts/*.sh hooks/*.sh 2>&1)"; then
+if ! out="$(shellcheck --severity=warning --format=gcc scripts/*.sh hooks/*.sh tests/*.sh 2>&1)"; then
   echo "✗ shellcheck reports warning-severity findings:" >&2
   printf '%s\n' "$out" >&2
   exit 1

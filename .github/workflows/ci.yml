@@ -19,21 +19,26 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
       # info/style findings are surfaced for review but never block. Those are
-      # the genuine quoting-cleanup bulk (12 info + 14 style at last count);
-      # gating them would be churn, not safety.
+      # the genuine quoting-cleanup bulk (145 info + 149 style at last count,
+      # most of it in tests/); gating them would be churn, not safety.
       - name: shellcheck report (info/style — non-blocking)
-        run: shellcheck --severity=style --format=gcc scripts/*.sh hooks/*.sh || true
-      # The blocking gate. Started at error severity in #177 because the
-      # warning volume was unknown; measured at only 5, all fixed in #182, so
-      # it now gates warnings too. This is the class that actually breaks at
-      # runtime — e.g. the shipped otta-worktree.sh --prune defect where a
-      # BSD-first `stat -f %m` silently parsed as --file-system on Linux.
+        run: shellcheck --severity=style --format=gcc scripts/*.sh hooks/*.sh tests/*.sh || true
+      # The blocking gate. Started at error severity over scripts/ + hooks/ in
+      # #177 because the warning volume was unknown; measured at only 5, all
+      # fixed in #183. #186 then extended it to tests/ — the largest shell
+      # surface here, previously unlinted — and cleared its 18 warnings.
+      #
+      # This is the class that actually breaks at runtime: the shipped
+      # otta-worktree.sh --prune defect where a BSD-first `stat -f %m` silently
+      # parsed as --file-system on Linux, and the SC2144 glob in
+      # otta-worktree-concurrent.test.sh that reported an existing worktree as
+      # missing whenever two paths matched (#188).
       #
       # The *.sh glob is what excludes scripts/otta-learning-policy.py: it is
       # Python, so it is left out by targeting shell files, not by a blanket
       # suppression directive inside the file.
       - name: shellcheck gate (warning severity)
-        run: shellcheck --severity=warning --format=gcc scripts/*.sh hooks/*.sh
+        run: shellcheck --severity=warning --format=gcc scripts/*.sh hooks/*.sh tests/*.sh
 
   test:
     runs-on: ubuntu-latest
