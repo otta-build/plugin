@@ -1,3 +1,9 @@
+## 1.11.9
+
+### Fixed
+
+- infer release-workflow runner instead of hardcoding ubuntu-latest (#193)
+
 ## 1.11.8
 
 ### Fixed

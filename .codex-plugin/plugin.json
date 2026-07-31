@@ -1,6 +1,6 @@
 {
   "name": "otta",
-  "version": "1.11.8",
+  "version": "1.11.9",
   "description": "The self-learning AI software factory. Turn agent coding sessions into acceptance-gated build, review, verification, and shipping workflows with lifecycle evidence for Otta Pulse.",
   "author": {
     "name": "Sam Petrenko",
