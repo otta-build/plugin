@@ -28,7 +28,10 @@ case "${1:-}" in
     labels="$(printf '%s' "$ac" | grep -oE '\[(test|review|human)\]' | tr -d '[]' || true)"
     count="$(printf '%s\n' "$labels" | sed '/^$/d' | wc -l | tr -d ' ')"
     [ "$count" -le 1 ] || { echo "multiple verification labels are ambiguous" >&2; exit 1; }
-    [ -n "$labels" ] || labels=test
+    # Quoted: `test` is also a command name, so a bare assignment reads as a
+    # missing command substitution to shellcheck (SC2209). This is the literal
+    # default verification label.
+    [ -n "$labels" ] || labels="test"
     printf '%s\n' "$labels"
     ;;
   route)

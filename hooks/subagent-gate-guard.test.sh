@@ -19,7 +19,7 @@ check() { # name expected actual
 # Includes an origin + origin/HEAD so the gate's base-branch detection works
 # (real Otta repos are cloned/worktrees; an origin-less repo is not a real case).
 mk_passing_repo() {
-  d="$(mktemp -d)"; ( cd "$d"
+  d="$(mktemp -d)"; ( cd "$d" || exit 1
     git init -q; git config user.email t@t; git config user.name t
     printf 'x\n' > f.txt; git add -A; git commit -qm init
     git init -q --bare "$d/.origin.git"
@@ -39,7 +39,7 @@ EOF
 }
 # Same, but a body that FAILS the gate (no acceptance block / Fixes / idea_ref).
 mk_failing_repo() {
-  d="$(mktemp -d)"; ( cd "$d"
+  d="$(mktemp -d)"; ( cd "$d" || exit 1
     git init -q; git config user.email t@t; git config user.name t
     printf 'x\n' > f.txt; git add -A; git commit -qm init
     printf '# no markers at all\n' > .pr-body.md
@@ -57,7 +57,7 @@ R="$(mk_failing_repo)"; STDIN="$(printf '{"agent_type":"otta:builder","cwd":"%s"
 check "OTTA_SKIP_GATE=1 bypasses" 0 "$(run_guard OTTA_SKIP_GATE=1)"
 
 # 3. Builder but repo not in the loop (no .pr-body.md) → skip (exit 0).
-R="$(mktemp -d)"; ( cd "$R"; git init -q ); STDIN="$(printf '{"agent_type":"otta:builder","cwd":"%s"}' "$R")"
+R="$(mktemp -d)"; ( cd "$R" || exit 1; git init -q ); STDIN="$(printf '{"agent_type":"otta:builder","cwd":"%s"}' "$R")"
 check "no .pr-body.md → skip" 0 "$(run_guard)"
 
 # 4. Builder + in loop + gate PASSES → allow stop (exit 0).
