@@ -89,3 +89,20 @@ pass "idea_ref with whitespace → pass"
 
 echo ""
 echo "✓ check-pr-body: all 8 checks passed"
+
+# ── Test: a gitignored .pr-body.md is skipped, not failed ────────────────────
+# Repos that untracked .pr-body.md (leadcognition_v2#3001, otta-engine#160)
+# validate the real PR body in CI. Demanding the file there blocks every push.
+REPO="$TMP/ignored-repo"
+mkdir -p "$REPO" && (cd "$REPO" && git init -q && echo '.pr-body.md' > .gitignore)
+( cd "$REPO" && bash "$SCRIPT" .pr-body.md >/dev/null 2>&1 ) \
+  || fail "gitignored .pr-body.md must be skipped, not fail the gate"
+pass "gitignored .pr-body.md is skipped"
+
+# ── Test: a missing, NOT-ignored .pr-body.md still fails ─────────────────────
+REPO2="$TMP/normal-repo"
+mkdir -p "$REPO2" && (cd "$REPO2" && git init -q)
+if ( cd "$REPO2" && bash "$SCRIPT" .pr-body.md >/dev/null 2>&1 ); then
+  fail "a missing .pr-body.md must still fail where the repo expects it"
+fi
+pass "missing .pr-body.md still fails where it is expected"
