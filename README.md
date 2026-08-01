@@ -162,9 +162,16 @@ Failures surface **before** you push, not in CI. Bypass once with `OTTA_SKIP_GAT
 
 > **Review-thread gate: local vs. server split.** The local `otta-gate.sh` does not check for review-thread resolution — it cannot, because reviews only exist after the PR is open. The `review-thread` sub-check listed in `.otta.yml`'s `gates:` block is a *server-side* Pulse merge gate: it blocks the merge until every open review thread is resolved. The local gate catches the body/test/AC-layer checks before push; Pulse enforces the review-thread check at merge time.
 
-> **PR body is branch-local.** Each branch maintains its own `.pr-body.md`; the copy on `main` is just whatever the last merged PR left behind. `/otta:setup` and `/otta:start` both run `scripts/install-merge-ours.sh`, which registers a `merge=ours` git driver and adds `.pr-body.md merge=ours` to `.gitattributes` — so merging or rebasing from main never overwrites your branch's body and never produces a conflict on that file.
+> **PR body is branch-local — and we recommend not tracking it.** Each branch needs different content at `.pr-body.md`, which makes a tracked copy shared mutable state on a fixed path.
 >
-> **Or don't track it at all.** If you'd rather `.pr-body.md` never enter git, add it to `.gitignore`. Otta detects that and skips the `merge=ours` driver entirely — it exists only to protect a *tracked* body, and installing it anyway would dirty `.gitattributes` on every seed. With the body untracked, the pre-push gate requires a freshly seeded one whenever your branch is ahead of the default branch, so nothing goes out ungated.
+> **Recommended: add `.pr-body.md` to `.gitignore`.** Otta detects that and skips the `merge=ours` driver entirely. The pre-push gate then requires a freshly seeded body whenever your branch is ahead of the default branch, so nothing ships ungated. This repo, and otta-build/dev, both work this way.
+>
+> **Tracked is still supported** — `/otta:setup` and `/otta:start` run `scripts/install-merge-ours.sh`, which registers a `merge=ours` driver so merging from main never clobbers your branch's body. But know the two limits before choosing it:
+>
+> - **GitHub does not run custom merge drivers server-side.** `merge=ours` cannot prevent remote conflicts, so PRs go `DIRTY` as soon as another PR merges.
+> - **During a `git rebase`, "ours" is the *upstream* side.** Rebasing therefore replaces your branch's body with main's, silently. We hit this three times in one session; each PR would have shipped describing the wrong change if it hadn't been caught by hand.
+>
+> Tracking is a reasonable choice when you want the body reviewable in the diff and merge trains are rare. Otherwise, ignore it.
 
 The gate fires at two points: a **pre-push** hook (blocks `git push`), and a **build-stage** hook (`SubagentStop`) that runs after the `otta:builder` subagent finishes — so a build stage can't report "done" past a failing gate; the reasons are fed back so it keeps fixing. Same `OTTA_SKIP_GATE=1` bypass.
 
