@@ -12,6 +12,15 @@ set -euo pipefail
 BODY="${1:-.pr-body.md}"
 TAG="[otta-gate:pr-body]"
 if [ ! -f "$BODY" ]; then
+  # Some repos have deliberately UNTRACKED .pr-body.md and moved to validating
+  # the real PR body in CI instead (leadcognition_v2#3001, otta-engine#160).
+  # In those repos the file is gitignored and will legitimately never exist, so
+  # demanding it blocks every push. Respect that choice: skip locally and let
+  # CI check the actual body. Only fail when the repo still expects the file.
+  if git check-ignore -q "$BODY" 2>/dev/null; then
+    echo "  ⓘ $TAG $BODY is gitignored here — repo validates the real PR body in CI, skipping"
+    exit 0
+  fi
   echo "⛔ $TAG $BODY missing. Run /otta:start <issue> to create it." >&2
   exit 1
 fi
