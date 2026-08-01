@@ -100,4 +100,25 @@ before="$(cat "$IGN/.gitattributes")"
 [ "$(cat "$IGN/.gitattributes")" = "$before" ] \
   || fail "seed-pr-body.sh dirtied .gitattributes in a repo that gitignores .pr-body.md"
 
-echo "✓ merge=ours is skipped only where .pr-body.md is gitignored"
+# 6. Repo that UNTRACKED .pr-body.md without adding a .gitignore rule (#198).
+#    The driver only ever acts on a TRACKED path, so the entry is dead config
+#    here too — and otta-engine's own regression test fails the build on a
+#    leftover `.pr-body.md merge=ours`. Gitignored was too narrow a signal.
+UNTRK="$TMPDIR/untracked"
+make_repo "$UNTRK"
+printf 'body\n' > "$UNTRK/.pr-body.md"
+before="$(cat "$UNTRK/.gitattributes")"
+( cd "$UNTRK" && bash "$SCRIPT" >/dev/null 2>&1 ) || fail "install-merge-ours.sh should exit 0 when skipping an untracked body"
+attrs_has_driver "$UNTRK" && fail "driver installed for an UNTRACKED .pr-body.md — the entry can never apply"
+[ "$(cat "$UNTRK/.gitattributes")" = "$before" ] || fail ".gitattributes was modified for an untracked .pr-body.md"
+
+# 7. The checks must resolve against the repo root, not the caller's cwd.
+#    Run from a subdirectory of the ignoring repo: a cwd-relative check-ignore
+#    looks up "sub/.pr-body.md", misses the rule, and installs the entry anyway.
+mkdir -p "$IGN/sub"
+before="$(cat "$IGN/.gitattributes")"
+( cd "$IGN/sub" && bash "$SCRIPT" >/dev/null 2>&1 ) || fail "install-merge-ours.sh failed when run from a subdirectory"
+attrs_has_driver "$IGN" && fail "driver installed when run from a subdirectory of an ignoring repo"
+[ "$(cat "$IGN/.gitattributes")" = "$before" ] || fail ".gitattributes dirtied when run from a subdirectory"
+
+echo "✓ merge=ours installs only where .pr-body.md is actually tracked-or-undecided"
