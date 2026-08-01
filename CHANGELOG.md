@@ -1,3 +1,9 @@
+## 1.11.11
+
+### Fixed
+
+- skip the pr-body check where the repo gitignores it (#197)
+
 ## 1.11.10
 
 ### Fixed
