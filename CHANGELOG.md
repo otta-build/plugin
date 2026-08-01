@@ -1,3 +1,9 @@
+## 1.11.12
+
+### Fixed
+
+- skip the driver for an untracked body, not just an ignored one (#199)
+
 ## 1.11.11
 
 ### Fixed
