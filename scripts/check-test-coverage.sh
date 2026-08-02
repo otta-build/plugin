@@ -34,9 +34,21 @@ if [ -z "$(git diff --name-only "$BASE"...HEAD 2>/dev/null)" ]; then
   exit 0
 fi
 
-# Added/modified test files in the diff (broad: *.test.* / *.spec.* / tests/ dir).
+# Added/modified test files in the diff (broad: *.test.* / *.spec.* / tests/ dir /
+# numeric-prefixed test scripts like 1234-mytest.sh).
+#
+# Documents are excluded first and unconditionally. A design doc is a description
+# of a change, never proof of one — and the numeric-prefix rule below would
+# otherwise swallow the docs/superpowers/{specs,plans}/YYYY-MM-DD-*.md convention.
+#
+# The numeric-prefix alternative additionally requires the filename to look like a
+# test. It arrived in #68 (closing #62), but #62 was about branch-name shape
+# (feat/1234-my-feature); the shape rule was applied to the file classifier, where
+# a bare four-digit prefix also matches dates and migration files. Requiring
+# test/spec in the name keeps #68's actual case (1234-mytest.sh) and drops the rest.
 TEST_FILES="$(git diff --name-only "$BASE"...HEAD 2>/dev/null \
-  | grep -iE '(\.(test|spec)\.[a-z]+$|(^|/)tests?/|(^|/)[0-9][0-9][0-9][0-9]-)' || true)"
+  | grep -ivE '\.mdx?$' \
+  | grep -iE '(\.(test|spec)\.[a-z]+$|(^|/)tests?/|(^|/)[0-9][0-9][0-9][0-9]-[^/]*(test|spec))' || true)"
 
 if [ -n "$TEST_FILES" ]; then
   echo "✓ $TAG diff adds/edits test file(s):"
