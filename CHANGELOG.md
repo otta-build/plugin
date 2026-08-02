@@ -1,3 +1,9 @@
+## 1.11.13
+
+### Fixed
+
+- documents are not test coverage (#201)
+
 ## 1.11.12
 
 ### Fixed
