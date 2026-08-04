@@ -1,3 +1,9 @@
+## 1.12.0
+
+### Added
+
+- detect direct pushes to main that never became a PR (#203)
+
 ## 1.11.13
 
 ### Fixed
