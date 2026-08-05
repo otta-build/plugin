@@ -1,3 +1,9 @@
+## 1.12.2
+
+### Fixed
+
+- run the pre-push gate from the resolved target repo (#208)
+
 ## 1.12.1
 
 ### Fixed
