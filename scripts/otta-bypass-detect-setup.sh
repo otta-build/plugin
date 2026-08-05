@@ -10,7 +10,7 @@
 # Opt-in only: nothing here runs unless a repo installs this workflow.
 #
 # The runner is INFERRED from the repo's existing workflows rather than
-# assumed, and the default branch is INFERRED from the repo's own HEAD —
+# assumed, and the default branch is resolved from repository metadata —
 # same reasoning as scripts/otta-release-setup.sh's --runner inference
 # (otta-build/pulse#153): a hardcoded assumption fails silently on a repo
 # that doesn't match it. Both can be overridden with a flag.
@@ -75,20 +75,22 @@ if [ -z "$RUNNER" ]; then
   fi
 fi
 
-# The repo's own current branch, read from its local HEAD — this is the
-# consuming repo's default branch in the common case (the installer is run
-# from a checkout of it), without requiring `gh` auth just to install a file.
-detect_default_branch() {
-  git symbolic-ref --short HEAD 2>/dev/null
-}
-
 BRANCH_SOURCE="--default-branch flag"
 if [ -z "$DEFAULT_BRANCH" ]; then
-  if DEFAULT_BRANCH="$(detect_default_branch)" && [ -n "$DEFAULT_BRANCH" ]; then
-    BRANCH_SOURCE="inferred from the repo's current branch"
+  if command -v gh >/dev/null 2>&1 \
+    && DEFAULT_BRANCH="$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null)" \
+    && [ -n "$DEFAULT_BRANCH" ]; then
+    BRANCH_SOURCE="inferred from GitHub repository metadata"
+  elif DEFAULT_BRANCH="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)" \
+    && [ -n "$DEFAULT_BRANCH" ]; then
+    DEFAULT_BRANCH="${DEFAULT_BRANCH#origin/}"
+    BRANCH_SOURCE="inferred from origin/HEAD"
+  elif DEFAULT_BRANCH="$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" \
+    && [ -n "$DEFAULT_BRANCH" ]; then
+    BRANCH_SOURCE="current branch fallback — no repository default could be resolved"
   else
     DEFAULT_BRANCH="main"
-    BRANCH_SOURCE="default — not run inside a git repo"
+    BRANCH_SOURCE="default — no repository default or current branch could be resolved"
   fi
 fi
 
