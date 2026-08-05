@@ -1,3 +1,9 @@
+## 1.12.1
+
+### Fixed
+
+- resolve repository default branch (#206)
+
 ## 1.12.0
 
 ### Added
