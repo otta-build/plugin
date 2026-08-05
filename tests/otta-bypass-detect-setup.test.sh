@@ -134,19 +134,55 @@ got="$(generated_runs_on "$R")"
 pass "runner: inferred from existing workflows, falls back to ubuntu-latest, --runner overrides"
 
 # ---------------------------------------------------------------------------
-# Test 5: default-branch inference and --default-branch override
+# Test 5: default-branch inference and --default-branch override (#204)
 # ---------------------------------------------------------------------------
 generated_branch() {
   grep -A2 '^  push:' "$1/$WORKFLOW_PATH" | grep 'branches:' \
     | sed -E "s/.*branches:[[:space:]]*\[//; s/\].*//"
 }
 
-R="$TMPDIR2/gitrepo"
+R="$TMPDIR2/gh-default"
 mkdir -p "$R"
-( cd "$R" && git init -q && git symbolic-ref HEAD refs/heads/trunk )
-( cd "$R" && bash "$SCRIPT" >/dev/null 2>&1 ) || fail "setup failed inferring default branch"
+( cd "$R" && git init -q && git symbolic-ref HEAD refs/heads/feature/install )
+MOCK_BIN="$R/mock-bin"
+mkdir -p "$MOCK_BIN"
+printf '#!/usr/bin/env bash\nprintf "main\\n"\n' > "$MOCK_BIN/gh"
+chmod +x "$MOCK_BIN/gh"
+out="$( cd "$R" && PATH="$MOCK_BIN:$PATH" bash "$SCRIPT" 2>&1 )" \
+  || fail "setup failed resolving the GitHub default branch"
 got="$(generated_branch "$R")"
-[ "$got" = "trunk" ] || fail "expected inferred default branch 'trunk', got '$got'"
+[ "$got" = "main" ] || fail "feature checkout must still target GitHub default 'main', got '$got'"
+printf '%s' "$out" | grep -q 'GitHub repository metadata' \
+  || fail "GitHub inference must report its source; got: $out"
+
+R="$TMPDIR2/origin-head"
+mkdir -p "$R"
+( cd "$R" && git init -q && git symbolic-ref HEAD refs/heads/feature/install \
+  && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk )
+MOCK_BIN="$R/mock-bin"
+mkdir -p "$MOCK_BIN"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$MOCK_BIN/gh"
+chmod +x "$MOCK_BIN/gh"
+out="$( cd "$R" && PATH="$MOCK_BIN:$PATH" bash "$SCRIPT" 2>&1 )" \
+  || fail "setup failed resolving origin/HEAD"
+got="$(generated_branch "$R")"
+[ "$got" = "trunk" ] || fail "expected origin/HEAD default 'trunk', got '$got'"
+printf '%s' "$out" | grep -q 'origin/HEAD' \
+  || fail "origin/HEAD inference must report its source; got: $out"
+
+R="$TMPDIR2/current-fallback"
+mkdir -p "$R"
+( cd "$R" && git init -q && git symbolic-ref HEAD refs/heads/feature/install )
+MOCK_BIN="$R/mock-bin"
+mkdir -p "$MOCK_BIN"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$MOCK_BIN/gh"
+chmod +x "$MOCK_BIN/gh"
+out="$( cd "$R" && PATH="$MOCK_BIN:$PATH" bash "$SCRIPT" 2>&1 )" \
+  || fail "setup failed falling back to the current branch"
+got="$(generated_branch "$R")"
+[ "$got" = "feature/install" ] || fail "expected last-resort current branch, got '$got'"
+printf '%s' "$out" | grep -q 'current branch fallback' \
+  || fail "current-branch fallback must report its source; got: $out"
 
 R="$TMPDIR2/branchoverride"
 mkdir -p "$R"
@@ -160,7 +196,7 @@ mkdir -p "$R"
 got="$(generated_branch "$R")"
 [ "$got" = "main" ] || fail "expected fallback default branch 'main', got '$got'"
 
-pass "default-branch: inferred from the repo's HEAD, falls back to main, --default-branch overrides"
+pass "default-branch: GitHub metadata, origin/HEAD, current fallback, main fallback, and flag override"
 
 # ---------------------------------------------------------------------------
 # Test 6: --allowlist seeds the ALLOWLIST env, configurable per repo (AC3)
