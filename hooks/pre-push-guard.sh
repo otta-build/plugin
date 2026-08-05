@@ -184,7 +184,16 @@ if [ ! -f "$TOPLEVEL/.pr-body.md" ]; then
 fi
 
 echo "[otta-gate] re-running gate (pre-push check)" >&2
-if ! out="$(bash "$HERE/../scripts/otta-gate.sh" "$TOPLEVEL/.pr-body.md" 2>&1)"; then
+# Run the gate FROM the resolved target repo. Passing only the body path is not
+# enough: the gate's sub-checks are cwd-relative, so a cross-repo push
+# (`git -C B push` from a session in A) gated B's body while reading A's repo —
+# `check-pr-body.sh` runs a bare `gh issue view`, which infers the repo from the
+# cwd's remote, and `check-test-coverage.sh` takes no path at all and diffs
+# whatever repo it lands in. That produced false blocks that no in-session
+# escape hatch could clear: --no-verify does not apply to a PreToolUse hook, and
+# an inline `OTTA_SKIP_GATE=1 git push` prefix never reaches this script's own
+# environment.
+if ! out="$(cd "$TOPLEVEL" && bash "$HERE/../scripts/otta-gate.sh" "$TOPLEVEL/.pr-body.md" 2>&1)"; then
   echo "otta gate blocked this push:" >&2
   echo "$out" >&2
   exit 2
