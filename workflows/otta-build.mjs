@@ -19,6 +19,14 @@ const SEED = `bash "${root}/scripts/seed-pr-body.sh"`
 const GATE = `bash "${root}/scripts/otta-gate.sh"`
 const WT = `bash "${root}/scripts/otta-worktree.sh"`
 const PREPARE_LEARNING = `bash "${root}/scripts/otta-learning-policy.sh" prepare`
+const LEDGER = `bash "${root}/scripts/ledger-append.sh"`
+// OTT-71: the ship stage must be able to prove reviewer and qa actually ran.
+// This workflow already gates on `verify.gatePassed && verify.allAcsPass`, but
+// the native-subagent, Codex, and single-agent fallback paths in commands/build.md
+// carry that rule as prose only. The check reads the ledger, so it holds on every
+// path — and the build_start marker below is what tells it this run is
+// pipeline-tier rather than a legitimately stage-free /otta:fix run.
+const CHAIN = `bash "${root}/scripts/check-chain-integrity.sh"`
 // Each stage runs fresh in the session cwd, so it re-derives the SAME isolated
 // worktree via the deterministic helper and cd's in before doing anything.
 const ENTER = `Enter the run's isolated worktree first: cd "$(${WT} ${issue})". `
@@ -65,6 +73,9 @@ const built = await agent(
     `  WT="$(${WT} ${issue})" && cd "$WT"\n` +
     `(pass a base arg to the helper if .otta.yml names a staging branch). Confirm "git log --oneline @{u}..HEAD" is empty. ` +
     `Do NOT build in the session's current checkout.\n` +
+    `IMMEDIATELY after the branch exists, mark this run pipeline-tier so the ship stage can prove the chain ran:\n` +
+    `  ${LEDGER} --source pipeline --event build_start --score 1 --feedback "otta:build #${issue}" --branch "$(git rev-parse --abbrev-ref HEAD)"\n` +
+    `Without this marker the ship stage cannot distinguish a truncated pipeline from a stage-free /otta:fix run.\n` +
     `Resolve the shared per-run learning policy before writing code: ${PREPARE_LEARNING}. ` +
     `Read .otta/run/learning-receipt.json and, when consulted, include .otta/run/consulted-learnings.md as repo rule context. ` +
     `A skipped consultation is non-blocking and keeps its explicit reason.\n` +
@@ -135,9 +146,13 @@ if (verify && verify.gatePassed && verify.allAcsPass) {
     ENTER +
     `Issue #${issue} passed verify. Ship it:\n` +
       `1. Run the Otta gate once more — do not push past a failing gate:\n   ${GATE}\n` +
-      `2. Commit, then open the PR with: gh pr create --body-file .pr-body.md --title "<conventional title>"\n` +
+      `2. Prove the pipeline chain actually ran before creating the PR — this exits non-zero if the\n` +
+      `   reviewer or qa verdict is missing or failing for this branch, and it fails CLOSED if the\n` +
+      `   ledger is unreadable. Do NOT open the PR if it fails; report the missing stage instead:\n` +
+      `   ${CHAIN} --require-chain\n` +
+      `3. Commit, then open the PR with: gh pr create --body-file .pr-body.md --title "<conventional title>"\n` +
       `   Target staging if .otta.yml names a staging branch, else main.\n` +
-      `3. After the PR is open, tear down the worktree: ${WT} --remove ${issue}\n` +
+      `4. After the PR is open, tear down the worktree: ${WT} --remove ${issue}\n` +
       `Return the PR URL.`,
     { agentType: 'otta:devops', label: 'ship', phase: 'Ship' },
   )

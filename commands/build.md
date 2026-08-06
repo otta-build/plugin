@@ -50,6 +50,11 @@ When `Workflow` is unavailable (including Codex), do not call it. Run the same `
 
 Before each Codex dispatch, include the resolved absolute plugin root in every subagent prompt. Tell the role to retain that path as execution state and inline-inject `OTTA_PLUGIN_ROOT` for every plugin command it invokes; do not rely on environment inheritance between the parent and subagent.
 
+0. As soon as the builder's branch exists, mark the run pipeline-tier so the ship stage can prove the chain ran — the fallback paths have no programmatic gate, so this marker is what makes truncation detectable at all:
+   ```bash
+   bash "$OTTA_PLUGIN_ROOT/scripts/ledger-append.sh" --source pipeline --event build_start --score 1 \
+     --feedback "otta:build #<issue>" --branch "$(git rev-parse --abbrev-ref HEAD)"
+   ```
 1. Use `spawn_agent` for the builder, instructing it to read the resolved plugin's `agents/builder.md`, implement test-first, and return evidence. Use `wait_agent` before starting review.
 2. Spawn the reviewer with `agents/reviewer.md`, then wait. If it finds gaps, relay them to the existing builder with `send_message` or `followup_task`, wait for the repair, and re-run review. Preserve the same three-attempt/repeated-blocker bounds as the bundled workflow.
 3. Spawn qa with `agents/qa.md`, then wait for its gate and acceptance evidence. Relay failures to the builder and repeat bounded review/qa as needed.
@@ -58,6 +63,8 @@ Before each Codex dispatch, include the resolved absolute plugin root in every s
 On a harness with differently named primitives, use its equivalent spawn, feedback, and wait operations while preserving the same sequential dependencies. Never open the PR when review, qa, or the gate is failing.
 
 If neither Workflow nor collaboration/subagent primitives are available, run the four role contracts sequentially in the current agent: read `agents/builder.md`, complete and record its stage; then separately read and apply reviewer, qa, and devops in order. Preserve the same stage gates, bounded repair loop, and role separation. Do not pretend subagents ran, and do not advance while a prior role is failing.
+
+**These fallback paths are where the chain silently truncates.** The bundled workflow gates ship behind `verify.gatePassed && verify.allAcsPass` in code; every path above carries that rule as prose, and a run that skipped a stage produces the same artifacts as one that didn't. Measured on a consumer repo: from 2026-07-07 chains routinely ran builder-only or builder+reviewer-with-no-qa while PRs still opened — and reviewer/qa, when they ran, failed 46.5%/25.6% of the time on real defects. `scripts/check-chain-integrity.sh` (run by devops before `gh pr create`, see `agents/devops.md` step 4) turns that silent truncation into a hard stop by reading the ledger, so it holds on every path rather than only the Workflow one.
 
 The workflow runs four stages, each a focused subagent. Spec repair is bounded
 to three attempts by default (`args.maxRevisions` may override it), and stops
