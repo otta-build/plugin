@@ -1,3 +1,9 @@
+## 1.12.3
+
+### Fixed
+
+- verify provider 'none' deploys against a declared health_url (#211)
+
 ## 1.12.2
 
 ### Fixed
