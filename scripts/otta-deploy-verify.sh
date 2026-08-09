@@ -306,12 +306,79 @@ PY
 # Provider deploy verification (pluggable adapters — env-driven, no hardcoding)
 # ===========================================================================
 
-# verify_deploy <provider> <expected-sha> <verify-mode>
-#   provider: coolify | none.  Coolify reads OTTA_COOLIFY_* from the env. The
-#   `none` provider is the generic path (no SHA source → reports skipped).
-#   This wraps the live calls; tests exercise sha_match / poll_blocker directly.
+# _poll_sha_match <expected-sha> <fetch-fn> <msg-label> <wait-label>
+#   Shared timeout/backoff poll loop (#205). Repeatedly calls the named shell
+#   function <fetch-fn> (no args): it must print the currently observed value
+#   on stdout and return 0 when that counts as a match, 1 otherwise — the
+#   match decision stays with the caller (sha_match, or JSON+substring for the
+#   generic health_url path) so this loop only owns timeout/backoff/logging.
+#   Extracted from the coolify arm so the generic path gets identical
+#   behaviour without copy-pasting it; <msg-label>/<wait-label> preserve the
+#   coolify call site's exact original wording (lowercase in ok/mismatch,
+#   capitalized in the periodic "waiting for ..." line).
+_poll_sha_match() {
+  local expected="$1" fetch_fn="$2" msg_label="$3" wait_label="$4"
+  local timeout="${OTTA_SHA_POLL_TIMEOUT:-120}" interval=10 waited=0 last_print=-60 actual
+  while :; do
+    if actual="$("$fetch_fn")"; then
+      echo "deploy-verify: $msg_label SHA-match ok ($actual)"
+      return 0
+    fi
+    if [ "$waited" -ge "$timeout" ]; then
+      echo "deploy-verify: $msg_label SHA mismatch after ${timeout}s — expected $expected, deployed ${actual:-<none>}" >&2
+      return 1
+    fi
+    if [ $((waited - last_print)) -ge 60 ]; then
+      echo "deploy-verify: waiting for $wait_label to record SHA (${waited}s/${timeout}s) — deployed ${actual:-<none>}"
+      last_print=$waited
+    fi
+    sleep "$interval"; waited=$((waited + interval))
+  done
+}
+
+# _health_body_sha <body> <field> — extracts a deployed SHA from a health
+# endpoint's response body (#205). Tries the configured JSON field first,
+# then the common commit/sha/version keys; prints nothing when the body
+# isn't a JSON object or none of those keys are present, so the caller can
+# fall back to a plain substring match (a page that just prints its build
+# SHA, no JSON, still works).
+_health_body_sha() {
+  local body="$1" field="$2"
+  [ -n "$body" ] || return 0
+  printf '%s' "$body" | python3 -c '
+import json, sys
+field = sys.argv[1]
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if not isinstance(d, dict):
+    sys.exit(0)
+for key in (field, "commit", "sha", "version"):
+    v = d.get(key)
+    if v:
+        print(v)
+        break
+' "$field" 2>/dev/null
+}
+
+# _body_contains <body> <needle> — plain substring match, no regex.
+_body_contains() {
+  case "$1" in *"$2"*) return 0 ;; esac
+  return 1
+}
+
+# verify_deploy <provider> <expected-sha> <verify-mode> [health-url] [health-field]
+#   provider: coolify | none.  Coolify reads OTTA_COOLIFY_* from the env.
+#   The `none` provider is the generic, host-agnostic path (#205): with
+#   verify:none it stays an explicit no-op; with a declared health-url it
+#   polls that URL for the merged SHA (JSON field, or a plain substring
+#   match) and fails loudly on mismatch/timeout; with no health-url it
+#   reports plainly that verification is impossible rather than implying
+#   success. This wraps the live calls; tests exercise sha_match / poll_blocker
+#   / _health_body_sha directly.
 verify_deploy() {
-  local provider="$1" expected="$2" mode="${3:-sha-match}"
+  local provider="$1" expected="$2" mode="${3:-sha-match}" health_url="${4:-}" health_field="${5:-commit}"
   case "$provider" in
     coolify)
       # Coolify adapter — all config from env (universal-tool rule). The caller
@@ -321,28 +388,21 @@ verify_deploy() {
         echo "deploy-verify: coolify provider needs OTTA_COOLIFY_URL / _TOKEN / _APP_UUID in the env" >&2
         return 2
       fi
-      # Poll until the deployed SHA matches the merged SHA or timeout. Status
-      # lines are throttled to at most once per 60s of elapsed wait (still
-      # printed on the very first tick) so a long poll doesn't spam the log.
-      local actual sha_timeout="${OTTA_SHA_POLL_TIMEOUT:-120}" sha_interval=10 sha_waited=0 sha_last_print=-60
-      while :; do
+      _coolify_fetch_sha() {
+        local actual
         actual="$(curl -fsS -H "Authorization: Bearer $token" \
           "$base/api/v1/deployments?uuid=$app" 2>/dev/null \
           | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d[0].get("commit") if isinstance(d,list) and d else d.get("commit","")) or "")' 2>/dev/null || true)"
-        if sha_match "$expected" "$actual"; then
-          echo "deploy-verify: coolify SHA-match ok ($actual)"
-          break
-        fi
-        if [ "$sha_waited" -ge "$sha_timeout" ]; then
-          echo "deploy-verify: coolify SHA mismatch after ${sha_timeout}s — expected $expected, deployed ${actual:-<none>}" >&2
-          return 1
-        fi
-        if [ $((sha_waited - sha_last_print)) -ge 60 ]; then
-          echo "deploy-verify: waiting for Coolify to record SHA (${sha_waited}s/${sha_timeout}s) — deployed ${actual:-<none>}"
-          sha_last_print=$sha_waited
-        fi
-        sleep "$sha_interval"; sha_waited=$((sha_waited + sha_interval))
-      done
+        printf '%s' "$actual"
+        sha_match "$expected" "$actual"
+      }
+      # Poll until the deployed SHA matches the merged SHA or timeout. Status
+      # lines are throttled to at most once per 60s of elapsed wait (still
+      # printed on the very first tick) so a long poll doesn't spam the log.
+      _poll_sha_match "$expected" _coolify_fetch_sha coolify Coolify
+      local poll_rc=$?
+      unset -f _coolify_fetch_sha
+      [ "$poll_rc" -eq 0 ] || return 1
       if [ "$mode" = "health" ] && [ -n "${OTTA_DEPLOY_HEALTH_URL:-}" ]; then
         curl -fsS "$OTTA_DEPLOY_HEALTH_URL" >/dev/null 2>&1 \
           && echo "deploy-verify: health probe ok ($OTTA_DEPLOY_HEALTH_URL)" \
@@ -350,7 +410,31 @@ verify_deploy() {
       fi
       ;;
     none|"")
-      echo "deploy-verify: provider 'none' — generic path, no automated SHA verification"
+      if [ "$mode" = "none" ]; then
+        echo "deploy-verify: provider 'none' with verify:none — verification explicitly skipped (no-op)."
+        return 0
+      fi
+      if [ -z "$health_url" ]; then
+        echo "deploy-verify: provider 'none' — generic path, no deploy.health_url configured; deploy NOT verified."
+        return 0
+      fi
+      _generic_health_fetch_sha() {
+        local body sha
+        body="$(curl -fsS -m 10 "$health_url" 2>/dev/null || true)"
+        sha="$(_health_body_sha "$body" "$health_field")"
+        if [ -n "$sha" ] && sha_match "$expected" "$sha"; then
+          printf '%s' "$sha"; return 0
+        fi
+        if [ -z "$sha" ] && [ -n "$body" ] && _body_contains "$body" "$expected"; then
+          printf '%s' "$expected"; return 0
+        fi
+        printf '%s' "$sha"
+        return 1
+      }
+      _poll_sha_match "$expected" _generic_health_fetch_sha "provider 'none'" "health_url"
+      local poll_rc=$?
+      unset -f _generic_health_fetch_sha
+      return "$poll_rc"
       ;;
     *)
       echo "deploy-verify: unknown provider '$provider' (supported: coolify, none)" >&2
@@ -600,7 +684,7 @@ _run() {
   fi
 
   # merge-and-deploy → verify the deploy reached the merged SHA.
-  verify_deploy "$provider" "$merge_sha" "$verify"
+  verify_deploy "$provider" "$merge_sha" "$verify" "$health_url" "$health_field"
 }
 
 # Only orchestrate when executed directly; sourcing exposes the functions

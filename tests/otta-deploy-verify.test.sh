@@ -605,5 +605,123 @@ case "$_race_out" in *"not OPEN"*"MERGED"*) check "AC(#153) refresh-path race: e
 unset -f git gh run_github_workflow_deploy
 unset OTTA_DEPLOY_POLL_TIMEOUT OTTA_DEPLOY_POLL_INTERVAL
 
+# ---------------------------------------------------------------------------
+# 12. AC(#205): provider 'none' + health_url — generic SHA verification.
+# merge-and-deploy previously treated provider:none as identical to
+# merge-on-green (no health_url wiring at all: declaring it in .otta.yml
+# changed no behaviour). Now: verify:none stays an explicit no-op; a declared
+# health_url + verify:sha-match|health-sha|health polls it for the merged SHA
+# (JSON field per health_commit_field, falling back to a plain substring
+# match for a page that just prints its SHA); no health_url reports clearly
+# that verification is impossible rather than implying success; a persistent
+# mismatch/timeout names both the expected and actual SHA and fails closed.
+# ---------------------------------------------------------------------------
+if command -v python3 >/dev/null 2>&1; then
+  # 12a. verify:none is an explicit no-op even when a health_url IS declared —
+  # curl must never be called.
+  CURL_CALLS="$TMP/curl-calls-205"; : > "$CURL_CALLS"
+  curl() { echo "curl $*" >> "$CURL_CALLS"; printf '{"commit":"abc123"}'; }
+  _205_noop_out="$(verify_deploy none abc123 none https://example.test/health commit 2>&1)"; _205_noop_rc=$?
+  unset -f curl
+  check "AC205 verify:none stays a no-op → exit 0" 0 "$_205_noop_rc"
+  check "AC205 verify:none makes no health_url request" 0 "$(wc -l < "$CURL_CALLS" | tr -d ' ')"
+  case "$_205_noop_out" in
+    *"skipped"*|*"no-op"*) check "AC205 verify:none message says skipped" yes yes ;;
+    *) check "AC205 verify:none message says skipped" yes "no ($_205_noop_out)" ;;
+  esac
+
+  # 12b. verify:sha-match with no health_url configured at all → reports
+  # clearly that verification is impossible instead of implying success.
+  _205_nourl_out="$(verify_deploy none abc123 sha-match 2>&1)"; _205_nourl_rc=$?
+  check "AC205 no health_url → exit 0 (cannot fail what cannot be checked)" 0 "$_205_nourl_rc"
+  case "$_205_nourl_out" in
+    *"NOT verified"*|*"not verified"*) check "AC205 no health_url → says not verified" yes yes ;;
+    *) check "AC205 no health_url → says not verified" yes "no ($_205_nourl_out)" ;;
+  esac
+
+  # 12c. Matching JSON commit field → verified, exit 0.
+  curl() { printf '{"commit":"deadbeef123"}'; }
+  _205_match_out="$(verify_deploy none deadbeef123 sha-match https://example.test/health commit 2>&1)"; _205_match_rc=$?
+  unset -f curl
+  check "AC205 health_url JSON commit match → exit 0" 0 "$_205_match_rc"
+  case "$_205_match_out" in
+    *"ok"*) check "AC205 health_url JSON commit match → ok message" yes yes ;;
+    *) check "AC205 health_url JSON commit match → ok message" yes "no ($_205_match_out)" ;;
+  esac
+
+  # 12d. Custom health_commit_field is honoured (pulse-style config).
+  curl() { printf '{"revision":"cafef00d"}'; }
+  _205_field_out="$(verify_deploy none cafef00d sha-match https://example.test/health revision 2>&1)"; _205_field_rc=$?
+  unset -f curl
+  check "AC205 custom health_commit_field honoured → exit 0" 0 "$_205_field_rc"
+
+  # 12e. Plain-text body (no JSON) containing the SHA as a substring still
+  # verifies — a page that just prints its build SHA works.
+  curl() { printf 'build ok: commit=abc123def sha ok'; }
+  _205_substr_out="$(verify_deploy none abc123def sha-match https://example.test/health commit 2>&1)"; _205_substr_rc=$?
+  unset -f curl
+  check "AC205 plain substring match → exit 0" 0 "$_205_substr_rc"
+
+  # 12f. Persistent mismatch → non-zero, names both expected and actual SHA,
+  # and does not hang (short timeout, stubbed sleep).
+  export OTTA_SHA_POLL_TIMEOUT=10
+  curl() { printf '{"commit":"oldsha000"}'; }
+  sleep() { :; }
+  _205_mismatch_out="$(verify_deploy none newsha111 sha-match https://example.test/health commit 2>&1)"; _205_mismatch_rc=$?
+  unset -f curl sleep
+  unset OTTA_SHA_POLL_TIMEOUT
+  check "AC205 mismatch after timeout → exit 1" 1 "$_205_mismatch_rc"
+  case "$_205_mismatch_out" in
+    *"newsha111"*"oldsha000"*) check "AC205 mismatch names expected and actual" yes yes ;;
+    *) check "AC205 mismatch names expected and actual" yes "no ($_205_mismatch_out)" ;;
+  esac
+
+  # 12g. verify:health-sha and verify:health (the tokens actually used in the
+  # fleet — otta-build/landing and otta-build/pulse respectively) both trigger
+  # the same generic health-SHA verification as sha-match.
+  curl() { printf '{"commit":"feedface1"}'; }
+  _205_healthsha_out="$(verify_deploy none feedface1 health-sha https://example.test/health commit 2>&1)"; _205_healthsha_rc=$?
+  _205_health_out="$(verify_deploy none feedface1 health https://example.test/health commit 2>&1)"; _205_health_rc=$?
+  unset -f curl
+  check "AC205 verify:health-sha verifies like sha-match" 0 "$_205_healthsha_rc"
+  check "AC205 verify:health verifies like sha-match" 0 "$_205_health_rc"
+
+  # 12h. End-to-end through _run(): merge-and-deploy + provider none +
+  # health_url actually gates on the health-SHA outcome instead of being
+  # silently green regardless (the bug the issue reports).
+  E2E_205="$(mk_yml e2e205 'deploy:
+  auto: merge-and-deploy
+  target: staging
+  provider: none
+  verify: sha-match
+  health_url: https://example.test/health
+  health_commit_field: commit')"
+  git() { [ "$1" = remote ] && echo "https://github.com/acme/widgets.git" || :; }
+  gh() {
+    case "$1 $2" in
+      "pr checks") printf '[{"name":"ci","state":"SUCCESS"}]\n' ;;
+      "pr merge") return 0 ;;
+      "pr view")
+        case "$*" in
+          *"--json mergeCommit -q"*) printf 'e2emerge205\n' ;;
+          *) printf '{"url":"https://github.com/acme/widgets/pull/205","state":"OPEN","headRefOid":"head205","baseRefName":"main","baseRefOid":"base205","mergeCommit":null}\n' ;;
+        esac
+        ;;
+    esac
+  }
+  curl() { printf '{"commit":"e2emerge205"}'; }
+  _205_e2e_ok_out="$(_run 205 --otta-yml "$E2E_205" 2>&1)"; _205_e2e_ok_rc=$?
+  check "AC205 e2e: matching health SHA → _run succeeds" 0 "$_205_e2e_ok_rc"
+
+  curl() { printf '{"commit":"wrongsha"}'; }
+  export OTTA_SHA_POLL_TIMEOUT=1
+  sleep() { :; }
+  _205_e2e_fail_out="$(_run 205 --otta-yml "$E2E_205" 2>&1)"; _205_e2e_fail_rc=$?
+  unset -f sleep
+  unset OTTA_SHA_POLL_TIMEOUT
+  check "AC205 e2e: mismatching health SHA → _run fails, not silently green" 1 "$_205_e2e_fail_rc"
+  unset -f git gh curl
+fi
+
 echo "  → $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
